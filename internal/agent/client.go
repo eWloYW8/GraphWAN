@@ -64,6 +64,18 @@ func NewClient(cache *Cache, runtime Runtime, options Options) (*Client, error) 
 	if err != nil {
 		return nil, err
 	}
+	existing, err := cache.Registration()
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		if existing.Server != server {
+			return nil, errors.New("cached identity belongs to another controller")
+		}
+		if _, err := cache.TLSCertificate(*existing); err != nil {
+			return nil, err
+		}
+	}
 	if options.Logger == nil {
 		options.Logger = slog.Default()
 	}
@@ -192,8 +204,10 @@ func (c *Client) Run(ctx context.Context) error {
 		return err
 	}
 	c.transport.CloseIdleConnections()
-	c.transport.TLSClientConfig = c.transport.TLSClientConfig.Clone()
-	c.transport.TLSClientConfig.Certificates = []tls.Certificate{cert}
+	authenticatedTransport := c.transport.Clone()
+	authenticatedTransport.TLSClientConfig.Certificates = []tls.Certificate{cert}
+	c.transport = authenticatedTransport
+	c.http.Transport = authenticatedTransport
 	runtimeCtx, stopRuntime := context.WithCancel(ctx)
 	updates := make(chan model.Snapshot, 1)
 	acks := make(chan struct{}, 1)

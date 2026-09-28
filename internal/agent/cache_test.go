@@ -176,3 +176,20 @@ func TestReconcilePersistenceOrderingAndFailedUpdate(t *testing.T) {
 		t.Fatal("same revision retry did not recover", report)
 	}
 }
+
+func TestControllerMismatchRejectedBeforeRestore(t *testing.T) {
+	cache, _ := registeredCache(t)
+	defer cache.Close()
+	config := snapshot(t, 7)
+	if err := cache.SaveDesired(config); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &testRuntime{}
+	if client, err := agent.NewClient(cache, runtime, agent.Options{Server: "https://different.example"}); err == nil {
+		client.Close()
+		t.Fatal("accepted another controller for existing identity")
+	}
+	if _, applied := runtime.last(); applied {
+		t.Fatal("restored configuration before checking controller identity")
+	}
+}
