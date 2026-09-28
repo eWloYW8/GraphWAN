@@ -47,7 +47,7 @@ func (g *group) schedule() {
 		g.retireSessions()
 		cfg := g.policy.Load()
 		for _, candidate := range link.Candidates(cfg.self, cfg.peer, time.Now()) {
-			if candidate.Endpoint.Transport != model.TCP && candidate.Endpoint.Transport != model.UDP {
+			if candidate.Endpoint.Transport != model.TCP && candidate.Endpoint.Transport != model.UDP && candidate.Endpoint.Transport != model.WS && candidate.Endpoint.Transport != model.WSS {
 				continue
 			}
 			if candidate.Method == link.Punch && candidate.Endpoint.Transport == model.TCP {
@@ -126,6 +126,12 @@ func (g *group) dial(candidate link.Candidate) error {
 			return err
 		}
 		raw = transport.NewStream(conn)
+	} else if candidate.Endpoint.Transport == model.WS || candidate.Endpoint.Transport == model.WSS {
+		conn, err := transport.DialWebSocket(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, nil)
+		if err != nil {
+			return err
+		}
+		raw = conn
 	} else {
 		addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip"+strconv.Itoa(candidate.Family), parsed.Hostname())
 		if err != nil {

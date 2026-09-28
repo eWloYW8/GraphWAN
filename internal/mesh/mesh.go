@@ -5,9 +5,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
 	"errors"
 	"net"
+	"net/http"
 	"net/netip"
+	"net/url"
 	"reflect"
 	"slices"
 	"strconv"
@@ -36,6 +39,11 @@ type Mesh struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	listener    net.Listener
+	webListener *httpIngress
+	webServer   *http.Server
+	tls         *tls.Config
+	sniffSlots  chan struct{}
+	pending     map[net.Conn]bool
 	udp         *transport.UDP
 	receive     Receive
 	mu          sync.Mutex
@@ -51,6 +59,10 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 	if len(identity) != ed25519.PrivateKeySize || receive == nil {
 		return nil, errors.New("mesh requires identity and packet receiver")
 	}
+	tlsConfig, err := transport.PeerServerTLS(identity)
+	if err != nil {
+		return nil, err
+	}
 	listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(int(port))))
 	if err != nil {
 		return nil, err
@@ -61,7 +73,8 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
-	m := &Mesh{identity: bytes.Clone(identity), ctx: ctx, cancel: cancel, listener: listener, udp: udp, receive: receive, groups: map[key]*group{}, slots: make(chan struct{}, 8), acceptSlots: make(chan struct{}, 8)}
+	m := &Mesh{sniffSlots: make(chan struct{}, 8), pending: map[net.Conn]bool{}, identity: bytes.Clone(identity), ctx: ctx, cancel: cancel, listener: listener, udp: udp, receive: receive, groups: map[key]*group{}, slots: make(chan struct{}, 8), acceptSlots: make(chan struct{}, 8)}
+	m.startHTTP(tlsConfig)
 	m.wg.Add(2)
 	go m.acceptTCP()
 	go m.acceptUDP()
@@ -78,8 +91,17 @@ func (m *Mesh) Close() error {
 	m.cancel()
 	groups := m.groups
 	m.groups = map[key]*group{}
+	pending := make([]net.Conn, 0, len(m.pending))
+	for conn := range m.pending {
+		pending = append(pending, conn)
+	}
 	m.mu.Unlock()
 	m.listener.Close()
+	m.webListener.Close()
+	m.webServer.Close()
+	for _, conn := range pending {
+		conn.Close()
+	}
 	m.udp.Close()
 	for _, g := range groups {
 		g.close()
@@ -184,7 +206,7 @@ func (m *Mesh) acceptTCP() {
 		if err != nil {
 			return
 		}
-		m.accept(transport.NewStream(conn), model.TCP)
+		m.classify(conn)
 	}
 }
 func (m *Mesh) acceptUDP() {
@@ -198,13 +220,21 @@ func (m *Mesh) acceptUDP() {
 	}
 }
 func (m *Mesh) accept(conn transport.Conn, kind model.Transport) {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		conn.Close()
+		return
+	}
 	select {
 	case m.acceptSlots <- struct{}{}:
 	default:
+		m.mu.Unlock()
 		conn.Close()
 		return
 	}
 	m.wg.Add(1)
+	m.mu.Unlock()
 	go func() {
 		defer m.wg.Done()
 		defer func() { <-m.acceptSlots }()
@@ -238,7 +268,7 @@ func (m *Mesh) accept(conn transport.Conn, kind model.Transport) {
 		// The remote dialing direction must target an endpoint actually advertised
 		// by this Agent and allowed by this Edge's connection policy.
 		for _, c := range link.Candidates(cfg.peer.Node.ID, model.Peer{Edge: cfg.peer.Edge, Endpoints: cfg.endpoints}, time.Now()) {
-			if c.ID == introduction.Candidate && c.Endpoint.Transport == kind && c.Family == addressFamily(channel.RemoteAddr()) {
+			if c.ID == introduction.Candidate && c.Endpoint.Transport == kind && candidateIngress(c, conn) {
 				copy := c
 				candidate = &copy
 				break
@@ -358,4 +388,12 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 			}
 		}
 	}()
+}
+
+func candidateIngress(candidate link.Candidate, conn transport.Conn) bool {
+	if path, ok := conn.(interface{ EndpointPath() string }); ok {
+		parsed, err := url.Parse(candidate.Endpoint.URL)
+		return err == nil && candidate.Endpoint.Source == model.Manual && transport.WebSocketPath(parsed) == path.EndpointPath()
+	}
+	return candidate.Family == addressFamily(conn.RemoteAddr())
 }

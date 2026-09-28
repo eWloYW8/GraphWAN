@@ -28,7 +28,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Validate → persist → reconcile → ACK; old runtime retained on failed updates.
 - [ ] Per-network TUN, address/route setup and safe resource cleanup.
 - [x] Actual multi-hop IP forwarding and network/source admission enforcement.
-- [ ] TCP framing, UDP transport, QUIC datagrams, WS/WSS, gRPC bidirectional stream.
+- [x] TCP framing, native UDP and WS/WSS binary-message transports.
+- [ ] QUIC datagrams and gRPC bidirectional streams.
 - [x] Authenticated ephemeral peer keys, cipher policy, replay protection/rekey.
 - [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
 - [ ] Manual hostname/path endpoints and configurable listeners (default 24752).
@@ -94,7 +95,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   concurrent nonce uniqueness and session age/message limits are tested.
 - Actual TCP/UDP sockets: authenticated channel round trips pass, including loss
   of each UDP handshake message and duplicate handshake/data delivery. Queue and
-  connection bounds are implemented. Other transport adapters remain pending;
+  connection bounds are implemented. QUIC/gRPC adapters remain pending;
   automatic session replacement is covered by a real-socket test below.
 - Forwarding engine: IP packets traverse A→B→C and C→B→A over actual encrypted
   TCP and UDP channels. Tests reject unknown Networks, nonadjacent senders,
@@ -143,5 +144,14 @@ Every feature below derives from the accepted proposal, including its suggestion
   revocation reaching browser events, authentication/origin rejection, connection
   limits, session expiry/logout and controller shutdown. Slow writes have deadlines
   and cannot hold status locks; no unbounded event queue is retained.
-- Runtime adapters for QUIC/WS/WSS/gRPC and NAT punching are still pending, even
+- Runtime adapters for QUIC/gRPC and full NAT punching are still pending, even
   though their desired policies can now be configured in the management UI.
+
+- WS/WSS: real binary-message, TLS and mesh tests verify message limits,
+  cancellation, shared TCP/WS/WSS listener, configured-path admission, preferred
+  Link changes, endpoint removal, bounded slow HTTP admission and shutdown.
+  Proxy tests exercise CA-validated TLS termination with an independent proxy key
+  and authenticated mesh connections through IPv6-to-IPv4 WS/WSS proxies.
+  Native three-Agent TUN tests pass separately for WS-only and WSS-only Edges,
+  including multi-hop ICMP/TCP, controller outage, offline transit-Agent restart
+  and owned-interface cleanup. The original automatic TCP/UDP case also passes.

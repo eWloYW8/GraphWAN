@@ -31,9 +31,9 @@ listen port, revocation and manual endpoints, including protocol-specific URL
 paths. Discovered endpoints are read-only. Deleting an Agent removes its network
 memberships; deleting a Network removes all its memberships and Edges.
 
-Only TCP and UDP data transports currently run in the Agent. Other accepted
-transport/punch policies can be stored but will not establish Links until their
-runtime adapters are completed. See [the acceptance tracker](implementation-status.md).
+TCP, UDP, WS and WSS data transports run in the Agent. WS/WSS require
+[manual endpoints](websocket-operation.md). QUIC/gRPC and punch policies can be
+stored but their runtime adapters and NAT coordination remain incomplete. See [the acceptance tracker](implementation-status.md).
 
 ## Observe actual connectivity
 

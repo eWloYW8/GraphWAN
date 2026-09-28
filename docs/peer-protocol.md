@@ -36,7 +36,7 @@ Wire handshake messages start with one kind byte:
 | 5 / Data | session-encrypted application message |
 
 Transport codes are UDP=0, TCP=1, QUIC=2, WS=3, WSS=4, gRPC=5. The current
-transport implementations are TCP streams and native UDP. A kind in this table
+transport implementations are TCP streams, native UDP and WS/WSS binary messages. A kind in this table
 does not imply that its transport adapter has been implemented yet.
 
 The initiator requires an authenticated Ready before exposing its channel. The
@@ -79,6 +79,14 @@ expire after two minutes without a validated keepalive/data message. Invalid
 packets cannot keep a peer alive. A slow reader drops UDP messages rather than
 allowing an unbounded queue. STUN and rendezvous integration remains pending.
 
+WS/WSS use one nonempty binary message per peer message, bounded to 16 KiB.
+Text messages are rejected and compression is disabled. They negotiate
+`graphwan.ws.v1` / `graphwan.wss.v1`, then run the same Noise handshake above.
+Only explicit manual endpoint paths accept upgrades. TLS verifies either the
+configured Agent identity or a trusted proxy certificate and hostname; the inner
+handshake always verifies the Agent. See [WS/WSS operation](websocket-operation.md)
+for listener sharing, reverse proxy setup and address-family policy.
+
 ## Overlay forwarding
 
 The 80-byte `GW` v1 header contains payload length, hop limit, Network/Source/
@@ -105,8 +113,11 @@ epoch and are bounded by hop limits during convergence.
 After Ready, the dialer sends a type-0 plaintext message containing a JSON
 `candidate` identifier. The responder reconstructs allowed candidates from its
 own advertised endpoints, the configured Edge methods/transports, and the remote
-Node identity. The identifier and actual socket address family must match. This
-metadata is encrypted by the established peer session.
+Node identity. The identifier and actual socket address family must match for
+TCP/UDP. For WS/WSS, the exact escaped HTTP path must match the identified manual
+endpoint. The dialer enforces IPv4/IPv6 on its socket; the responder cannot infer
+that family from a reverse proxy's backend connection. This metadata is encrypted
+by the established peer session.
 
 The Link then uses plaintext type 1 followed by an overlay frame for user data,
 and type 2/type 3 followed by an eight-byte big-endian probe sequence for ping/pong.

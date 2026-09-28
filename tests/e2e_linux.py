@@ -37,6 +37,8 @@ def eventually(fn, timeout=30):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", required=True)
+    parser.add_argument("--transport", choices=("auto", "ws", "wss"), default="auto",
+                        help="auto verifies discovered TCP/UDP; ws/wss use only manual endpoints")
     args = parser.parse_args()
     if os.geteuid() != 0 or os.readlink("/proc/self/ns/net") == os.readlink("/proc/1/ns/net"):
         raise SystemExit("Run with sudo unshare --net; an isolated network namespace is required")
@@ -113,8 +115,22 @@ def main():
                 agents.append(spawn(f"agent-{index}", argv, dict(os.environ, GRAPHWAN_ENROLLMENT_TOKEN=token, HTTP_PROXY="", HTTPS_PROXY="", ALL_PROXY="")))
             state = eventually(lambda: (s if len(s["agents"]) == 3 and all(a["endpoints"] for a in s["agents"]) else None) if (s := api("GET", "/state")) else None)
             by_name = {a["name"]: a for a in state["agents"]}
+            transports = ["udp", "tcp"] if args.transport == "auto" else [args.transport]
+            if args.transport != "auto":
+                for index in range(3):
+                    agent = by_name[f"node-{index}"]
+                    endpoint = {"id": uuid.uuid4().hex, "source": "manual", "transport": args.transport,
+                                "url": f"{args.transport}://192.0.2.{11+index}:24752/custom/overlay"}
+                    def configure_endpoint():
+                        try:
+                            return api("PATCH", f"/agents/{agent['id']}", {"manual_endpoints": [endpoint]}, api("GET", "/state")["revision"])
+                        except urllib.error.HTTPError as error:
+                            if error.code == 409:
+                                return None
+                            raise
+                    eventually(configure_endpoint)
             nodes = [{"id": uuid.uuid4().hex, "agent_id": by_name[f"node-{i}"]["id"], "name": f"node-{i}", "address": f"10.42.0.{i+1}"} for i in range(3)]
-            network = {"name": "native three-node test", "cidr": "10.42.0.0/24", "nodes": nodes, "edges": [{"id": uuid.uuid4().hex, "a": nodes[i]["id"], "b": nodes[i+1]["id"], "weight": 10, "enabled": True, "transports": ["udp", "tcp"], "methods": {"ipv4_direct": True, "ipv6_direct": False, "hole_punch": False}} for i in range(2)]}
+            network = {"name": "native three-node test", "cidr": "10.42.0.0/24", "nodes": nodes, "edges": [{"id": uuid.uuid4().hex, "a": nodes[i]["id"], "b": nodes[i+1]["id"], "weight": 10, "enabled": True, "transports": transports, "methods": {"ipv4_direct": True, "ipv6_direct": False, "hole_punch": False}} for i in range(2)]}
             def create_network():
                 try:
                     return api("POST", "/networks", network, api("GET", "/state")["revision"])
@@ -127,14 +143,17 @@ def main():
                 reports = api("GET", "/telemetry")
                 if len(reports) != 3:
                     return False
+                active = {}
                 for report in reports:
                     healthy = {}
                     for link in report["links"] or []:
                         if link["healthy"]:
                             healthy.setdefault(link["edge_id"], set()).add(link["transport"])
-                    if not healthy or any(transports != {"udp", "tcp"} for transports in healthy.values()):
+                        if link["active"]:
+                            active.setdefault(link["edge_id"], []).append(link["link_id"])
+                    if not healthy or any(actual != set(transports) for actual in healthy.values()):
                         return False
-                return True
+                return all(len(active.get(edge["id"], [])) == 2 and len(set(active[edge["id"]])) == 1 for edge in network["edges"])
             eventually(connected)
             def ping():
                 return command("nsenter", "-t", str(namespaces[0].pid), "-n", "ping", "-c", "1", "-W", "1", "10.42.0.3", check=False).returncode == 0
@@ -147,7 +166,7 @@ def main():
                 result = command("nsenter", "-t", str(namespaces[0].pid), "-n", "python3", "-c", exchange_code, check=False, timeout=15)
                 return result.returncode == 0
             eventually(exchange)
-            print("PASS: three native TUN agents, automatic UDP/TCP links, multi-hop ICMP and TCP", flush=True)
+            print(f"PASS: three native TUN agents, {transports} links, multi-hop ICMP and TCP", flush=True)
             stop(server)
             eventually(ping)
             eventually(exchange)
