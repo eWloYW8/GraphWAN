@@ -41,14 +41,27 @@ def main():
                         help="auto/udp/tcp use discovered endpoints; other transports require manual endpoints")
     parser.add_argument("--mtu", type=int, default=1280, help="overlay TUN MTU")
     parser.add_argument("--underlay-mtu", type=int, default=1500, help="isolated bridge/veth MTU")
+    parser.add_argument("--overlay-family", type=int, choices=(4, 6), default=4, help="virtual network address family")
+    parser.add_argument("--underlay-family", type=int, choices=(4, 6), default=4, help="controller and peer underlay address family")
     parser.add_argument("--nat", action="store_true", help="place each agent behind a separate restricted NAT; requires --transport udp/tcp and iptables")
     args = parser.parse_args()
     if args.nat and args.transport not in ("udp", "tcp"):
         parser.error("--nat verifies UDP or TCP punching")
+    if args.nat and args.underlay_family != 4:
+        parser.error("the NAT fixture currently models IPv4 SNAT; IPv6 overlay is supported")
     if not 1280 <= args.mtu <= 9000 or not 1280 <= args.underlay_mtu <= 9000:
         parser.error("MTUs must be between 1280 and 9000")
     if os.geteuid() != 0 or os.readlink("/proc/self/ns/net") == os.readlink("/proc/1/ns/net"):
         raise SystemExit("Run with sudo unshare --net; an isolated network namespace is required")
+    controller_ip = "192.0.2.1" if args.underlay_family == 4 else "2001:db8:42::1"
+    underlay_ips = [f"192.0.2.{11+i}" if args.underlay_family == 4 else f"2001:db8:42::{11+i}" for i in range(3)]
+    underlay_bits = 24 if args.underlay_family == 4 else 64
+    overlay_ips = [f"10.42.0.{i+1}" if args.overlay_family == 4 else f"fd42:6777::{i+1}" for i in range(3)]
+    overlay_cidr = "10.42.0.0/24" if args.overlay_family == 4 else "fd42:6777::/64"
+    def host_port(ip, port):
+        return f"[{ip}]:{port}" if ":" in ip else f"{ip}:{port}"
+    server_url = "https://" + host_port(controller_ip, 8443)
+    address_flags = ["nodad"] if args.underlay_family == 6 else []
     binary = str(Path(args.binary).resolve())
     processes = []
     logs = []
@@ -78,7 +91,7 @@ def main():
             command("ip", "link", "set", "lo", "up")
             command("ip", "link", "add", "gw-underlay", "type", "bridge")
             command("ip", "link", "set", "gw-underlay", "mtu", str(args.underlay_mtu))
-            command("ip", "addr", "add", "192.0.2.1/24", "dev", "gw-underlay")
+            command("ip", "addr", "add", f"{controller_ip}/{underlay_bits}", "dev", "gw-underlay", *address_flags)
             command("ip", "link", "set", "gw-underlay", "up")
             namespaces = []
             routers = []
@@ -101,7 +114,7 @@ def main():
                 prefix = ["nsenter", "-t", str(gateway.pid), "-n"]
                 command(*prefix, "ip", "link", "set", "lo", "up")
                 command(*prefix, "ip", "link", "set", inside, "name", "eth0")
-                command(*prefix, "ip", "addr", "add", f"192.0.2.{11+index}/24", "dev", "eth0")
+                command(*prefix, "ip", "addr", "add", f"{underlay_ips[index]}/{underlay_bits}", "dev", "eth0", *address_flags)
                 command(*prefix, "ip", "link", "set", "eth0", "up")
                 if args.nat:
                     command("ip", "link", "add", f"lan{index}", "type", "veth", "peer", "name", f"client{index}")
@@ -138,7 +151,7 @@ def main():
                 eventually(lambda: "ready" in (root / "stun.log").read_text())
 
             password = uuid.uuid4().hex
-            server = spawn("controller", [binary, "server", "--listen", "192.0.2.1:8443", "--tls-hosts", "192.0.2.1", "--data-dir", str(root / "server")], dict(os.environ, GRAPHWAN_ADMIN_PASSWORD=password))
+            server = spawn("controller", [binary, "server", "--listen", host_port(controller_ip, 8443), "--tls-hosts", controller_ip, "--data-dir", str(root / "server")], dict(os.environ, GRAPHWAN_ADMIN_PASSWORD=password))
             ca = root / "server" / "ca.pem"
             eventually(lambda: ca.exists() and server.poll() is None)
             context = ssl.create_default_context(cafile=str(ca))
@@ -150,7 +163,7 @@ def main():
                 headers = {"Content-Type": "application/json", "X-CSRF-Token": csrf}
                 if revision is not None:
                     headers["If-Match"] = str(revision)
-                request = urllib.request.Request("https://192.0.2.1:8443/api/v1" + path, data=raw, headers=headers, method=method)
+                request = urllib.request.Request(server_url + "/api/v1" + path, data=raw, headers=headers, method=method)
                 with opener.open(request, timeout=5) as response:
                     return json.load(response)
 
@@ -159,7 +172,7 @@ def main():
             agents, agent_commands = [], []
             for index, holder in enumerate(namespaces):
                 token = api("POST", "/enrollment-tokens", {})["token"]
-                argv = ["nsenter", "-t", str(holder.pid), "-n", binary, "agent", "--server", "https://192.0.2.1:8443", "--ca", str(ca), "--name", f"node-{index}", "--data-dir", str(root / f"agent-{index}")]
+                argv = ["nsenter", "-t", str(holder.pid), "-n", binary, "agent", "--server", server_url, "--ca", str(ca), "--name", f"node-{index}", "--data-dir", str(root / f"agent-{index}")]
                 agent_commands.append(argv)
                 agents.append(spawn(f"agent-{index}", argv, dict(os.environ, GRAPHWAN_ENROLLMENT_TOKEN=token, HTTP_PROXY="", HTTPS_PROXY="", ALL_PROXY="")))
             state = eventually(lambda: (s if len(s["agents"]) == 3 and all(a["endpoints"] for a in s["agents"]) else None) if (s := api("GET", "/state")) else None)
@@ -213,7 +226,7 @@ def main():
                     agent = by_name[f"node-{index}"]
                     path = "" if args.transport in ("udp", "tcp", "quic") else "/custom/overlay"
                     endpoint = {"id": uuid.uuid4().hex, "source": "manual", "transport": args.transport,
-                                "url": f"{args.transport}://192.0.2.{11+index}:24752{path}"}
+                                "url": f"{args.transport}://{host_port(underlay_ips[index], 24752)}{path}"}
                     def configure_endpoint():
                         try:
                             return api("PATCH", f"/agents/{agent['id']}", {"manual_endpoints": [endpoint]}, api("GET", "/state")["revision"])
@@ -222,8 +235,8 @@ def main():
                                 return None
                             raise
                     eventually(configure_endpoint)
-            nodes = [{"id": uuid.uuid4().hex, "agent_id": by_name[f"node-{i}"]["id"], "name": f"node-{i}", "address": f"10.42.0.{i+1}"} for i in range(3)]
-            network = {"name": "native three-node test", "cidr": "10.42.0.0/24", "nodes": nodes, "edges": [{"id": uuid.uuid4().hex, "a": nodes[i]["id"], "b": nodes[i+1]["id"], "weight": 10, "enabled": True, "transports": transports, "methods": {"ipv4_direct": True, "ipv6_direct": False, "hole_punch": False}} for i in range(2)]}
+            nodes = [{"id": uuid.uuid4().hex, "agent_id": by_name[f"node-{i}"]["id"], "name": f"node-{i}", "address": overlay_ips[i]} for i in range(3)]
+            network = {"name": "native three-node test", "cidr": overlay_cidr, "nodes": nodes, "edges": [{"id": uuid.uuid4().hex, "a": nodes[i]["id"], "b": nodes[i+1]["id"], "weight": 10, "enabled": True, "transports": transports, "methods": {"ipv4_direct": args.underlay_family == 4, "ipv6_direct": args.underlay_family == 6, "hole_punch": False}} for i in range(2)]}
             network["mtu"] = args.mtu
             if args.nat:
                 for edge in network["edges"]:
@@ -263,17 +276,17 @@ def main():
                     assert syns >= (2 if index == 1 else 1), "TCP NAT opened without outgoing peer SYNs"
                 print("PASS: outbound peer SYNs from both sides of each restricted TCP NAT pair", flush=True)
             def ping():
-                return command("nsenter", "-t", str(namespaces[0].pid), "-n", "ping", "-c", "1", "-W", "1", "-M", "do", "-s", str(args.mtu - 28), "10.42.0.3", check=False).returncode == 0
+                return command("nsenter", "-t", str(namespaces[0].pid), "-n", "ping", f"-{args.overlay_family}", "-c", "1", "-W", "1", "-M", "do", "-s", str(args.mtu - (28 if args.overlay_family == 4 else 48)), overlay_ips[2], check=False).returncode == 0
             eventually(ping)
 
-            echo_code = "import socket\ns=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind(('10.42.0.3',9876));s.listen()\nwhile True:\n c,_=s.accept()\n with c:\n  while data:=c.recv(65536): c.sendall(data)\n"
+            echo_code = f"import socket\ns=socket.socket(socket.AF_INET{'6' if args.overlay_family == 6 else ''});s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind(('{overlay_ips[2]}',9876));s.listen()\nwhile True:\n c,_=s.accept()\n with c:\n  while data:=c.recv(65536): c.sendall(data)\n"
             spawn("echo", ["nsenter", "-t", str(namespaces[2].pid), "-n", "python3", "-u", "-c", echo_code])
-            exchange_code = "import socket\ndata=b'graphwan-end-to-end'*8192\ns=socket.create_connection(('10.42.0.3',9876),3);s.settimeout(10);s.sendall(data);out=b''\nwhile len(out)<len(data):\n chunk=s.recv(65536)\n if not chunk: raise RuntimeError('early EOF')\n out+=chunk\nassert out==data\ns.close()\n"
+            exchange_code = f"import socket\ndata=b'graphwan-end-to-end'*8192\ns=socket.create_connection(('{overlay_ips[2]}',9876),3);s.settimeout(10);s.sendall(data);out=b''\nwhile len(out)<len(data):\n chunk=s.recv(65536)\n if not chunk: raise RuntimeError('early EOF')\n out+=chunk\nassert out==data\ns.close()\n"
             def exchange():
                 result = command("nsenter", "-t", str(namespaces[0].pid), "-n", "python3", "-c", exchange_code, check=False, timeout=15)
                 return result.returncode == 0
             eventually(exchange)
-            print(f"PASS: three native TUN agents, {transports} links, MTU {args.mtu}/{args.underlay_mtu}, multi-hop ICMP and TCP", flush=True)
+            print(f"PASS: three native TUN agents, {transports} links, IPv{args.overlay_family} overlay/IPv{args.underlay_family} underlay, MTU {args.mtu}/{args.underlay_mtu}, multi-hop ICMP and TCP", flush=True)
             if args.nat:
                 stop(stun)
                 eventually(ping)

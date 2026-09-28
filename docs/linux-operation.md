@@ -2,8 +2,9 @@
 
 The Linux Agent currently supports TUN interfaces, IPv4/IPv6 packet parsing,
 weighted forwarding, authenticated TCP/UDP/QUIC/WS/WSS/gRPC peer channels, multiple retained Links,
-health probes and durable controller configuration. The process-level test verifies
-an IPv4 overlay and underlay; native IPv6 verification remains to be added.
+health probes and durable controller configuration. Native tests verify IPv4 and
+IPv6 overlays and underlays independently, including all six transports over IPv6.
+The address-family verification matrix below records the tested combinations.
 
 ## Start and configure
 
@@ -102,3 +103,53 @@ native TUNs. It then stops the controller, restarts the transit Agent offline,
 deletes an endpoint TUN while offline and verifies automatic interface/route/MTU
 recovery and traffic, then checks that TUNs disappear on shutdown. All child
 processes and namespaces are cleaned up on success or failure.
+
+## IPv4 and IPv6 verification matrix
+
+`--overlay-family 4|6` chooses the virtual subnet and inner ICMP/TCP traffic.
+`--underlay-family 4|6` chooses peer addresses, the controller's HTTPS address and
+its certificate IP SAN. Both default to 4. Automatic TCP/UDP scenarios use the
+Agent's discovered addresses; QUIC/WS/WSS/gRPC scenarios configure explicit URLs.
+Edges enable only the chosen direct address family, preventing a silent fallback.
+The IPv6 fixture uses `2001:db8:42::/64` for the isolated underlay and
+`fd42:6777::/64` for the overlay. Test addresses disable DAD to avoid setup delays.
+
+| Overlay | Underlay | Transports | Overlay/underlay MTU | Result |
+| --- | --- | --- | --- | --- |
+| IPv4 | IPv4 | TCP + UDP | 1280 / 1500 | Passed |
+| IPv6 | IPv6 | TCP + UDP | 1280 / 1500 | Passed |
+| IPv6 | IPv6 | Each of TCP, UDP, QUIC, WS, WSS, gRPC alone | 9000 / 1280 | Passed |
+| IPv4 | IPv6 | TCP + UDP | 1280 / 1500 | Passed |
+| IPv6 | IPv4 | TCP + UDP | 1280 / 1500 | Passed |
+| IPv6 | IPv4 restricted SNAT | UDP alone, TCP alone; punch-only | 9000 / 1280 | Passed |
+
+Every row uses three actual Agents and TUN interfaces. Checks include a full-MTU
+ICMP/ICMPv6 packet, a 155,648-byte TCP echo, resource reports, controller outage,
+offline replacement of a deleted endpoint TUN, offline transit-Agent restart and
+owned-interface cleanup. NAT cases additionally stop STUN. The native adapter
+integration test independently checks IPv4/IPv6 connected routes, exclusive
+ownership, bidirectional kernel UDP delivery and interrupting idle reads on close.
+
+```sh
+sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
+  --overlay-family 6 --underlay-family 6
+for transport in tcp udp quic ws wss grpc; do
+  sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
+    --overlay-family 6 --underlay-family 6 --transport "$transport" \
+    --mtu 9000 --underlay-mtu 1280
+done
+sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
+  --overlay-family 4 --underlay-family 6
+sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
+  --overlay-family 6 --underlay-family 4
+for transport in udp tcp; do
+  sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
+    --overlay-family 6 --transport "$transport" --nat \
+    --mtu 9000 --underlay-mtu 1280
+done
+```
+
+These are Linux scenarios with fixed underlay MTUs. They do not establish native
+support on other systems, IPv6 link-local scope mapping, changing path MTUs,
+NAT64 or arbitrary NAT behavior. The NAT fixture models IPv4 SNAT and explicitly
+rejects `--nat --underlay-family 6`; either virtual address family can use it.

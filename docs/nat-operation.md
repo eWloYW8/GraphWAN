@@ -128,6 +128,9 @@ observations are removed, then revocation of punching.
 
 This verifies the tested Linux NAT mapping/filtering behavior. It does not prove
 arbitrary symmetric NAT pairs, port prediction, NAT64, or an ICE/TURN deployment.
+Both IPv4 and IPv6 virtual networks pass over the verified IPv4 NAT fixture;
+use `--overlay-family 6` to reproduce the latter. This does not require IPv6
+support in the underlying NAT. The fixture does not model IPv6 NAT or NAT64.
 The native TCP punching platform matrix remains unfinished.
 When punching cannot connect, configure another permitted reachable endpoint; no
 controller relay is supplied.

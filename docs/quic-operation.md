@@ -99,8 +99,12 @@ go build -o /tmp/graphwan-e2e ./cmd/graphwan
 sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport quic
 sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
   --transport quic --mtu 9000 --underlay-mtu 1280
+sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
+  --transport quic --overlay-family 6 --underlay-family 6 \
+  --mtu 9000 --underlay-mtu 1280
 ```
 
 [STUN and UDP punching](nat-operation.md) also use the shared socket. QUIC itself
-currently uses direct manual endpoints; arbitrary NAT connectivity and TCP
-punching are separate outstanding work.
+currently uses direct manual endpoints. TCP punching has its own authenticated
+transport described in [NAT operation](nat-operation.md); arbitrary NAT
+connectivity remains unverified.

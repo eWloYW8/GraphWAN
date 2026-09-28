@@ -30,6 +30,7 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [ ] Per-network TUN, address/route setup and safe resource cleanup on all platforms.
 - [x] Local recovery from fatal TUN I/O, independent runtime health and Linux offline recovery.
 - [x] Actual multi-hop IP forwarding and network/source admission enforcement.
+- [x] Native Linux IPv4/IPv6 overlays and underlays, all six IPv6 transports and mixed families.
 - [x] TCP framing, native UDP and WS/WSS binary-message transports.
 - [x] gRPC bidirectional streams through manual endpoints.
 - [x] QUIC datagrams, shared UDP listener and bounded message fragmentation.
@@ -189,7 +190,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   QUIC also passes the default-MTU run and a wildcard listener receiving on a
   secondary IPv4 address. Core cross-builds with QUIC pass for Windows/amd64,
   macOS/arm64, FreeBSD/amd64 and Linux/arm64; these do not verify native TUN adapters.
-  Wider path-MTU/IPv6 overlay and NAT cases
+  Native IPv6 overlay evidence follows below. Wider path-MTU and NAT cases
   remain part of the outstanding acceptance scope.
 
 - STUN/UDP punching: real IPv4/IPv6 socket tests verify exact data-port reuse,
@@ -259,3 +260,18 @@ Every feature below derives from the accepted proposal, including its suggestion
   Windows/amd64, macOS/arm64, FreeBSD/amd64, Linux/arm64, OpenBSD/amd64 and
   NetBSD/amd64. Non-Linux native resource sampling and TUN support remain part
   of the open platform acceptance matrix. See [resource telemetry](resource-telemetry.md).
+
+- Native IPv6 acceptance: `tests/e2e_linux.py` independently selects overlay and
+  underlay address families, including IPv6 controller TLS and discovered/manual
+  peer endpoints. All six transports pass individually with an IPv6 overlay,
+  IPv6 underlay, 9000-byte TUN MTU and 1280-byte underlay MTU. Automatic TCP+UDP
+  passes IPv4/IPv4, IPv6/IPv6, IPv4-over-IPv6 and IPv6-over-IPv4 at default MTUs.
+  IPv6 overlay over each of UDP-only and TCP-only restricted IPv4 NAT punching
+  also passes at MTU 9000/1280. Every case verifies full-MTU ICMP, TCP delivery,
+  controller outage, deleted TUN recovery while offline, transit restart from
+  durable cache and final interface cleanup. The race-enabled native TUN test
+  now directly verifies both IP families, connected routes and kernel UDP
+  delivery (including the mandatory IPv6 UDP checksum). Full Go race tests and
+  vet, including vet for the integration-tagged adapter test, pass. Reproduction
+  commands and precise remaining gaps are in the
+  [Linux verification matrix](linux-operation.md#ipv4-and-ipv6-verification-matrix).
