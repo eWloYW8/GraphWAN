@@ -1,7 +1,7 @@
 # Peer data protocol v1
 
 This documents the packet/channel components integrated into the Linux Agent.
-Other platform adapters and NAT coordination are still
+Other platform adapters and TCP NAT punching are still
 being implemented. See the full-scope acceptance tracker for verification status.
 
 ## Admission and handshake
@@ -77,7 +77,10 @@ The socket allows at most 512 peers, 64 pending accepts, and 64 queued messages
 per peer. Unauthenticated peers expire after 10 seconds; authenticated peers
 expire after two minutes without a validated keepalive/data message. Invalid
 packets cannot keep a peer alive. A slow reader drops UDP messages rather than
-allowing an unbounded queue. STUN and rendezvous integration remains pending.
+allowing an unbounded queue. RFC 8489 Binding replies are dispatched separately
+on this data socket. STUN mappings are exchanged through controller snapshots;
+UDP punching uses the same retransmitted peer handshake and identity checks.
+See [NAT operation](nat-operation.md) for limits, expiry and verified coverage.
 
 QUIC shares this UDP socket while preserving native UDP wire compatibility. It
 uses QUIC v1 / TLS 1.3 / ALPN `graphwan.quic.v1`, then the same Noise admission.

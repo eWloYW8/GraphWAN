@@ -46,7 +46,19 @@ func (g *group) schedule() {
 		g.edge.Tick()
 		g.retireSessions()
 		cfg := g.policy.Load()
-		for _, candidate := range link.Candidates(cfg.self, cfg.peer, time.Now()) {
+		candidates := g.candidates(cfg, true)
+		valid := map[string]bool{}
+		for _, candidate := range candidates {
+			valid[candidate.ID] = true
+		}
+		g.mu.Lock()
+		for id, state := range g.attempts {
+			if !valid[id] && !state.inflight {
+				delete(g.attempts, id)
+			}
+		}
+		g.mu.Unlock()
+		for _, candidate := range candidates {
 			if candidate.Method == link.Punch && candidate.Endpoint.Transport == model.TCP {
 				continue
 			}

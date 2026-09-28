@@ -101,5 +101,6 @@ sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
   --transport quic --mtu 9000 --underlay-mtu 1280
 ```
 
-STUN, rendezvous and full hole punching are separate outstanding work. QUIC
-direct connectivity does not imply that arbitrary NAT pairs can connect.
+[STUN and UDP punching](nat-operation.md) also use the shared socket. QUIC itself
+currently uses direct manual endpoints; arbitrary NAT connectivity and TCP
+punching are separate outstanding work.

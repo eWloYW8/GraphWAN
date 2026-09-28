@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"math"
+	"net"
 	"net/netip"
 	"net/url"
 	"strconv"
@@ -84,6 +85,39 @@ func validHostname(host string) bool {
 	return true
 }
 
+// STUN servers are UDP host:port pairs, not peer endpoints or URLs. No public
+// service is contacted unless the administrator configures it explicitly.
+func ValidateSTUNServers(servers []string) error {
+	if len(servers) > 4 {
+		return fmt.Errorf("at most four STUN servers are allowed")
+	}
+	seen := map[string]bool{}
+	for _, server := range servers {
+		host, port, err := net.SplitHostPort(server)
+		if err != nil || len(server) > 300 {
+			return fmt.Errorf("STUN server requires host:port")
+		}
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || n == 0 {
+			return fmt.Errorf("invalid STUN server port")
+		}
+		ip, err := netip.ParseAddr(host)
+		if err == nil {
+			if ip.IsUnspecified() || ip.IsMulticast() || ip.Is4In6() || ip.Zone() != "" {
+				return fmt.Errorf("invalid STUN server address")
+			}
+		} else if !validHostname(host) {
+			return fmt.Errorf("invalid STUN server hostname")
+		}
+		key := strings.ToLower(net.JoinHostPort(host, strconv.Itoa(int(n))))
+		if seen[key] {
+			return fmt.Errorf("duplicate STUN server")
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
 // Validate rejects ambiguous topology before persistence or compilation.
 func (s State) Validate() error {
 	if s.Schema != SchemaVersion {
@@ -118,6 +152,9 @@ func (s State) Validate() error {
 		keys[string(a.PublicKey)] = true
 		if a.ListenPort == 0 {
 			return fmt.Errorf("agent %s: listen port is zero", a.ID)
+		}
+		if err := ValidateSTUNServers(a.STUNServers); err != nil {
+			return err
 		}
 		if len(a.Endpoints) > MaxEndpoints {
 			return fmt.Errorf("agent %s: too many endpoints", a.ID)

@@ -5,12 +5,13 @@ import "net/netip"
 // Snapshot is the durable, least-privilege configuration sent to one Agent.
 // An empty Networks list actively removes all previous memberships.
 type Snapshot struct {
-	Schema     int             `json:"schema"`
-	Revision   uint64          `json:"revision"`
-	AgentID    ID              `json:"agent_id"`
-	ListenPort uint16          `json:"listen_port"`
-	Endpoints  []Endpoint      `json:"endpoints"`
-	Networks   []NetworkConfig `json:"networks"`
+	Schema      int             `json:"schema"`
+	Revision    uint64          `json:"revision"`
+	AgentID     ID              `json:"agent_id"`
+	ListenPort  uint16          `json:"listen_port"`
+	Endpoints   []Endpoint      `json:"endpoints"`
+	STUNServers []string        `json:"stun_servers,omitempty"`
+	Networks    []NetworkConfig `json:"networks"`
 }
 
 type NetworkConfig struct {
@@ -47,6 +48,7 @@ type Route struct {
 func (s Snapshot) Clone() Snapshot {
 	out := s
 	out.Endpoints = append([]Endpoint{}, s.Endpoints...)
+	out.STUNServers = append([]string(nil), s.STUNServers...)
 	out.Networks = append([]NetworkConfig{}, s.Networks...)
 	for i := range out.Networks {
 		n := &out.Networks[i]

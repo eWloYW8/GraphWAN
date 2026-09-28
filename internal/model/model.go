@@ -54,12 +54,13 @@ type Endpoint struct {
 }
 
 type Agent struct {
-	ID         ID         `json:"id"`
-	Name       string     `json:"name"`
-	PublicKey  []byte     `json:"public_key"`
-	Endpoints  []Endpoint `json:"endpoints"`
-	ListenPort uint16     `json:"listen_port"`
-	Revoked    bool       `json:"revoked"`
+	ID          ID         `json:"id"`
+	Name        string     `json:"name"`
+	PublicKey   []byte     `json:"public_key"`
+	Endpoints   []Endpoint `json:"endpoints"`
+	ListenPort  uint16     `json:"listen_port"`
+	Revoked     bool       `json:"revoked"`
+	STUNServers []string   `json:"stun_servers,omitempty"`
 }
 
 type Position struct {
@@ -125,6 +126,7 @@ func (s State) Clone() State {
 	for i := range out.Agents {
 		out.Agents[i].PublicKey = append([]byte(nil), s.Agents[i].PublicKey...)
 		out.Agents[i].Endpoints = append([]Endpoint{}, s.Agents[i].Endpoints...)
+		out.Agents[i].STUNServers = append([]string(nil), s.Agents[i].STUNServers...)
 	}
 	out.Networks = append([]Network{}, s.Networks...)
 	for i := range out.Networks {

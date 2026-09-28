@@ -10,9 +10,7 @@ import (
 	"net/netip"
 	"sync"
 	"sync/atomic"
-	"time"
 
-	"github.com/graphwan/graphwan/internal/discovery"
 	"github.com/graphwan/graphwan/internal/forwarding"
 	"github.com/graphwan/graphwan/internal/mesh"
 	"github.com/graphwan/graphwan/internal/model"
@@ -34,14 +32,15 @@ type runtimeState struct {
 }
 
 type DataPlane struct {
-	identity ed25519.PrivateKey
-	options  DataPlaneOptions
-	ctx      context.Context
-	cancel   context.CancelFunc
-	applyMu  sync.Mutex
-	state    atomic.Pointer[runtimeState]
-	wg       sync.WaitGroup
-	closed   bool
+	identity      ed25519.PrivateKey
+	options       DataPlaneOptions
+	ctx           context.Context
+	cancel        context.CancelFunc
+	applyMu       sync.Mutex
+	state         atomic.Pointer[runtimeState]
+	wg            sync.WaitGroup
+	closed        bool
+	discoveryWake chan struct{}
 }
 
 func NewDataPlane(parent context.Context, identity ed25519.PrivateKey, options DataPlaneOptions) (*DataPlane, error) {
@@ -55,7 +54,7 @@ func NewDataPlane(parent context.Context, identity ed25519.PrivateKey, options D
 		options.Logger = slog.Default()
 	}
 	ctx, cancel := context.WithCancel(parent)
-	runtime := &DataPlane{identity: append(ed25519.PrivateKey{}, identity...), options: options, ctx: ctx, cancel: cancel}
+	runtime := &DataPlane{identity: append(ed25519.PrivateKey{}, identity...), options: options, ctx: ctx, cancel: cancel, discoveryWake: make(chan struct{}, 1)}
 	if options.Endpoints != nil {
 		runtime.wg.Add(1)
 		go runtime.discover()
@@ -129,6 +128,10 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 		return err
 	}
 	r.state.Store(next)
+	select {
+	case r.discoveryWake <- struct{}{}:
+	default:
+	}
 	committed = true
 	r.options.Logger.Info("configuration applied", "revision", snapshot.Revision, "networks", len(snapshot.Networks), "listen_port", snapshot.ListenPort)
 	for id, device := range next.devices {
@@ -219,27 +222,4 @@ func (r *DataPlane) deliver(ctx context.Context, network model.ID, raw []byte) e
 		return io.ErrShortWrite
 	}
 	return err
-}
-func (r *DataPlane) discover() {
-	defer r.wg.Done()
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-r.ctx.Done():
-			return
-		case <-ticker.C:
-		}
-		state := r.state.Load()
-		if state == nil {
-			continue
-		}
-		endpoints, err := discovery.Interfaces(r.identity.Public().(ed25519.PublicKey), state.snapshot.ListenPort)
-		if err == nil {
-			err = r.options.Endpoints(endpoints)
-		}
-		if err != nil {
-			r.options.Logger.Warn("endpoint discovery failed", "error", err)
-		}
-	}
 }

@@ -29,7 +29,7 @@ Successful mutations return the committed state and new ETag.
 | POST | `/networks` | Network; omitted ID, MTU and cipher receive defaults |
 | PUT | `/networks/{id}` | Complete Network, including Nodes and Edges |
 | DELETE | `/networks/{id}` | Removes network and all memberships/edges |
-| PATCH | `/agents/{id}` | Optional `name`, `listen_port`, `revoked`, `manual_endpoints` |
+| PATCH | `/agents/{id}` | Optional `name`, `listen_port`, `revoked`, `manual_endpoints`, `stun_servers` |
 | DELETE | `/agents/{id}` | Removes agent, memberships and incident edges |
 
 Network fields are `id`, `name`, `cidr`, `mtu`, `cipher`, `nodes`, `edges`.
@@ -90,6 +90,10 @@ An Agent may acknowledge an older revision while applying an update. Its old Lin
 statistics are omitted until it catches up. Endpoint updates may only contain
 `interface` and `observed` TCP/UDP entries; manual entries remain authoritative
 on the controller. Observed endpoints include expiration and mapped port.
+`stun_servers` is an array of at most four UDP `host:port` strings, centrally
+configured and included only in that Agent's snapshot. An empty array disables
+STUN discovery; omission preserves the setting. See [NAT operation](nat-operation.md)
+for refresh, expiration and offline behavior.
 Snapshots contain only this Agent's memberships, adjacent peers, destination
 addresses and compiled routes. Revocation closes live connections and removes
 that Agent from other peers' compiled connectivity.

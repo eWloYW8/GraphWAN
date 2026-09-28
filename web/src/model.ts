@@ -14,6 +14,7 @@ export type Agent = {
   listen_port: number
   revoked: boolean
   endpoints: Endpoint[] | null
+  stun_servers?: string[]
 }
 export type Node = {
   id: string

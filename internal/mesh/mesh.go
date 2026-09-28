@@ -91,6 +91,10 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 	return m, nil
 }
 func (m *Mesh) Port() uint16 { return uint16(m.listener.Addr().(*net.TCPAddr).Port) }
+
+func (m *Mesh) STUNBinding(ctx context.Context, server netip.AddrPort) (netip.AddrPort, error) {
+	return m.udp.STUNBinding(ctx, server)
+}
 func (m *Mesh) Close() error {
 	m.mu.Lock()
 	if m.closed {
@@ -169,9 +173,15 @@ func compatible(a, b *policy) bool {
 		return false
 	}
 	normalized := func(endpoints []model.Endpoint) []model.Endpoint {
-		copy := append([]model.Endpoint{}, endpoints...)
-		for i := range copy {
-			copy[i].ExpiresAt = time.Time{}
+		copy := []model.Endpoint{}
+		for _, endpoint := range endpoints {
+			// Discovery expiry/remapping governs new dials, not the identity of
+			// already authenticated healthy sessions. STUN outages must not stop data.
+			if endpoint.Source == model.Observed {
+				continue
+			}
+			endpoint.ExpiresAt = time.Time{}
+			copy = append(copy, endpoint)
 		}
 		return copy
 	}
@@ -289,7 +299,7 @@ func (m *Mesh) accept(conn transport.Conn, kind model.Transport) {
 		var candidate *link.Candidate
 		// The remote dialing direction must target an endpoint actually advertised
 		// by this Agent and allowed by this Edge's connection policy.
-		for _, c := range link.Candidates(cfg.peer.Node.ID, model.Peer{Edge: cfg.peer.Edge, Endpoints: cfg.endpoints}, time.Now()) {
+		for _, c := range selected.candidates(cfg, false) {
 			if c.ID == introduction.Candidate && c.Endpoint.Transport == kind && candidateIngress(c, conn) {
 				copy := c
 				candidate = &copy
@@ -334,6 +344,7 @@ type group struct {
 	mu       sync.Mutex
 	links    map[string]*link.Link
 	attempts map[string]*attempt
+	observed map[string]link.Candidate
 	wg       sync.WaitGroup
 }
 type attempt struct {
@@ -344,7 +355,7 @@ type attempt struct {
 
 func (m *Mesh) newGroup(cfg *policy) *group {
 	ctx, cancel := context.WithCancel(m.ctx)
-	g := &group{mesh: m, edge: link.NewCoordinatedEdge(cfg.self, cfg.peer.Node.ID, cfg.peer.Edge.PreferredCandidate), ctx: ctx, cancel: cancel, links: map[string]*link.Link{}, attempts: map[string]*attempt{}}
+	g := &group{mesh: m, edge: link.NewCoordinatedEdge(cfg.self, cfg.peer.Node.ID, cfg.peer.Edge.PreferredCandidate), ctx: ctx, cancel: cancel, links: map[string]*link.Link{}, attempts: map[string]*attempt{}, observed: map[string]link.Candidate{}}
 	g.policy.Store(cfg)
 	g.wg.Add(1)
 	go g.schedule()
@@ -378,6 +389,9 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 		return
 	}
 	g.links[l.ID()] = l
+	if candidate.Endpoint.Source == model.Observed {
+		g.observed[candidate.ID] = candidate
+	}
 	g.edge.Add(l)
 	g.wg.Add(2)
 	g.mu.Unlock()

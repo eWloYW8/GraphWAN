@@ -23,8 +23,9 @@ Network, assign each enrolled Agent a fixed virtual address and add explicit Edg
 TCP, UDP, QUIC, WS, WSS and gRPC direct connectivity are operational. Configure WS/WSS
 using [manual endpoints](websocket-operation.md); gRPC has its own
 [endpoint guide](grpc-operation.md). See [QUIC setup](quic-operation.md) for
-QUIC manual endpoints and datagram MTU behavior. STUN and full NAT coordination
-are not implemented yet. See the acceptance tracker.
+QUIC manual endpoints and datagram MTU behavior. [STUN and UDP hole punching](nat-operation.md)
+are operational for the verified NAT scenarios; TCP punching and wider platform/NAT
+coverage remain in progress. See the acceptance tracker.
 
 ## Runtime behavior
 
@@ -80,6 +81,7 @@ sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --trans
 sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport grpc
 sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport quic
 sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport quic --mtu 9000 --underlay-mtu 1280
+sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport udp --nat
 ```
 
 The process test needs Python 3.8+, `ip`, `unshare`, `nsenter`, `ping`, and `sleep`.

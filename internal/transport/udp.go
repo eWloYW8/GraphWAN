@@ -25,18 +25,20 @@ type udpKey struct {
 }
 
 // UDP multiplexes independent message connections over one data socket. The
-// same socket can later be used for STUN and hole punching; a NAT mapping must
+// same socket is used for STUN and hole punching; a NAT mapping must
 // never be discovered on a different socket than the one carrying peer traffic.
 type UDP struct {
-	socket    *net.UDPConn
-	mu        sync.Mutex
-	writeMu   sync.Mutex
-	peers     map[udpKey]*Datagram
-	accept    chan *Datagram
-	done      chan struct{}
-	closeOnce sync.Once
-	wg        sync.WaitGroup
-	closeQUIC func() error
+	socket      *net.UDPConn
+	mu          sync.Mutex
+	writeMu     sync.Mutex
+	peers       map[udpKey]*Datagram
+	accept      chan *Datagram
+	done        chan struct{}
+	closeOnce   sync.Once
+	wg          sync.WaitGroup
+	closeQUIC   func() error
+	stunMu      sync.Mutex
+	stunPending map[[12]byte]*stunTransaction
 }
 
 type Datagram struct {
@@ -149,6 +151,9 @@ func (h *UDP) readLoop() {
 }
 
 func (h *UDP) receivePacket(raw []byte, remote netip.AddrPort) {
+	if h.receiveSTUN(raw, remote) {
+		return
+	}
 	n := len(raw)
 	if n <= udpHeaderSize || n > MaxMessage+udpHeaderSize || [4]byte(raw[:4]) != udpMagic {
 		return
@@ -247,14 +252,18 @@ func (d *Datagram) Send(ctx context.Context, payload []byte) error {
 	copy(raw, udpMagic[:])
 	copy(raw[4:20], d.key.token[:])
 	copy(raw[20:], payload)
-	d.hub.writeMu.Lock()
-	defer d.hub.writeMu.Unlock()
-	cleanup, err := deadline(ctx, d.hub.socket.SetWriteDeadline)
+	return d.hub.writeDatagram(ctx, raw, d.key.remote)
+}
+
+func (h *UDP) writeDatagram(ctx context.Context, raw []byte, remote netip.AddrPort) error {
+	h.writeMu.Lock()
+	defer h.writeMu.Unlock()
+	cleanup, err := deadline(ctx, h.socket.SetWriteDeadline)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	n, err := d.hub.socket.WriteToUDPAddrPort(raw, d.key.remote)
+	n, err := h.socket.WriteToUDPAddrPort(raw, remote)
 	if err != nil {
 		return ctxError(ctx, err)
 	}

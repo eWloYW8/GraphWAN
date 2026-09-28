@@ -244,6 +244,7 @@ func (s *Server) patchAgent(w http.ResponseWriter, r *http.Request) {
 		ListenPort      *uint16           `json:"listen_port"`
 		Revoked         *bool             `json:"revoked"`
 		ManualEndpoints *[]model.Endpoint `json:"manual_endpoints"`
+		STUNServers     *[]string         `json:"stun_servers"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -259,6 +260,9 @@ func (s *Server) patchAgent(w http.ResponseWriter, r *http.Request) {
 			}
 			if in.ListenPort != nil {
 				a.ListenPort = *in.ListenPort
+			}
+			if in.STUNServers != nil {
+				a.STUNServers = append([]string(nil), (*in.STUNServers)...)
 			}
 			if in.Revoked != nil {
 				a.Revoked = *in.Revoked

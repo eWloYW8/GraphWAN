@@ -111,14 +111,24 @@ function AgentEditor({
 }) {
   const [name, setName] = useState(agent.name)
   const [port, setPort] = useState(agent.listen_port)
+  const [stunServers, setSTUNServers] = useState((agent.stun_servers ?? []).join('\n'))
   const [revoked, setRevoked] = useState(agent.revoked)
   const [endpoints, setEndpoints] = useState<Endpoint[]>(
     agent.endpoints?.filter((e) => e.source === 'manual') ?? [],
   )
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const editable = (a: Agent | undefined) =>
+    a && {
+      name: a.name,
+      listen_port: a.listen_port,
+      revoked: a.revoked,
+      stun_servers: a.stun_servers ?? [],
+      endpoints: a.endpoints?.filter((e) => e.source === 'manual') ?? [],
+    }
   const originalChanged =
-    JSON.stringify(state.agents.find((a) => a.id === agent.id)) !== JSON.stringify(agent)
+    JSON.stringify(editable(state.agents.find((a) => a.id === agent.id))) !==
+    JSON.stringify(editable(agent))
   const change = (id: string, patch: Partial<Endpoint>) =>
     setEndpoints(endpoints.map((e) => (e.id === id ? { ...e, ...patch } : e)))
   const mutate = async (method: string, body?: unknown) => {
@@ -151,7 +161,16 @@ function AgentEditor({
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          void mutate('PATCH', { name, listen_port: port, revoked, manual_endpoints: endpoints })
+          void mutate('PATCH', {
+            name,
+            listen_port: port,
+            revoked,
+            manual_endpoints: endpoints,
+            stun_servers: stunServers
+              .split('\n')
+              .map((s) => s.trim())
+              .filter(Boolean),
+          })
         }}
       >
         <fieldset disabled={busy}>
@@ -171,6 +190,18 @@ function AgentEditor({
               max={65535}
               value={port}
               onChange={(e) => setPort(Number(e.target.value))}
+            />
+          </Field>
+          <Field
+            label="STUN servers"
+            hint="One UDP host:port per line, up to four. Used to discover mapped addresses for hole punching. Leave empty to disable discovery."
+          >
+            <textarea
+              value={stunServers}
+              rows={3}
+              maxLength={1204}
+              placeholder={'stun.example.com:3478\n[2001:db8::1]:3478'}
+              onChange={(e) => setSTUNServers(e.target.value)}
             />
           </Field>
           <label className="check">

@@ -157,12 +157,17 @@ test('real controller: enrollment, graph edits, conflict protection, agent setti
   await page.getByRole('button', { name: 'Agents', exact: false }).first().click()
   await page.getByRole('button', { name: 'Manage Paris' }).click()
   await dialog.getByLabel('Listen port').fill('25000')
+  await dialog.getByLabel('STUN servers').fill('stun.example.test:3478\n[2001:db8::1]:3478')
   await dialog.getByRole('button', { name: 'Add endpoint' }).click()
   await dialog.getByLabel('Endpoint 1 transport').selectOption('wss')
   await dialog.getByLabel('Endpoint 1 URL').fill('wss://paris.example.test:443/overlay')
   await dialog.getByRole('button', { name: 'Save agent' }).click()
   await expect(dialog).not.toBeVisible()
   state = await currentState(page.request)
+  expect(state.agents.find((a) => a.name === 'Paris')?.stun_servers).toEqual([
+    'stun.example.test:3478',
+    '[2001:db8::1]:3478',
+  ])
   expect(state.agents.find((a) => a.name === 'Paris')?.endpoints?.[0].url).toBe(
     'wss://paris.example.test:443/overlay',
   )

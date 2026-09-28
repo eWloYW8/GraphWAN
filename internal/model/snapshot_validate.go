@@ -22,6 +22,9 @@ func (s Snapshot) Validate(agentID ID) error {
 	if s.ListenPort == 0 {
 		return fmt.Errorf("listen port is zero")
 	}
+	if err := ValidateSTUNServers(s.STUNServers); err != nil {
+		return err
+	}
 	if err := validateEndpoints(s.Endpoints); err != nil {
 		return err
 	}

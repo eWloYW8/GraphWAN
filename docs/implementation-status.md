@@ -18,7 +18,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Expiring single-use enrollment; agent authentication and revocation.
 - [x] Multi-network/node/edge/endpoint CRUD with concurrency conflict handling.
 - [x] Persistent control connection, config push, applied ACK and recovery.
-- [ ] Rendezvous signaling and observed endpoint exchange (never packet relay).
+- [x] Observed endpoint exchange and UDP rendezvous through peer snapshots, never relay.
+- [ ] TCP punching coordination and broader NAT/platform acceptance.
 - [x] Batched live telemetry, stale/offline state and bounded event streaming.
 - [ ] Agent CPU/resource telemetry and its UI display from the accepted suggestions.
 
@@ -34,7 +35,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Authenticated ephemeral peer keys, cipher policy, replay protection/rekey.
 - [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
 - [ ] Manual hostname/path endpoints and configurable listeners (default 24752).
-- [ ] STUN from the data socket; UDP and supported TCP hole punching.
+- [x] STUN from the data socket and UDP punching through verified restricted NATs.
+- [ ] Supported TCP hole punching and remaining NAT cases.
 - [ ] IPv4/IPv6 direct and punch allowlists, bounded scheduling/backoff.
 - [ ] All viable Links retained; one active Link, preferred/lowest RTT selection.
 - [x] Heartbeat, RTT/loss/traffic metrics, hysteresis and standby failover.
@@ -130,7 +132,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   Candidate discovery and other transports still need their separate acceptance.
 - Linux discovery covers global-unicast IPv4/IPv6 addresses on devices and
   container veth interfaces, excluding TUN/TAP and bridges by link type. Link-local
-  scope mapping, other operating systems and STUN-discovered addresses are pending.
+  scope mapping and other operating systems remain pending. STUN evidence is below.
 
 - Browser management: the pnpm/React production build is embedded and served by
   the Go binary. Playwright against an actual temporary Go controller verifies
@@ -145,8 +147,8 @@ Every feature below derives from the accepted proposal, including its suggestion
   revocation reaching browser events, authentication/origin rejection, connection
   limits, session expiry/logout and controller shutdown. Slow writes have deadlines
   and cannot hold status locks; no unbounded event queue is retained.
-- Full NAT punching remains pending, even though its desired policies can be
-  configured in the management UI.
+- UDP punching is now verified below. TCP punching and broader NAT behavior
+  remain outstanding parts of the full acceptance scope.
 
 - WS/WSS: real binary-message, TLS and mesh tests verify message limits,
   cancellation, shared TCP/WS/WSS listener, configured-path admission, preferred
@@ -187,3 +189,19 @@ Every feature below derives from the accepted proposal, including its suggestion
   macOS/arm64, FreeBSD/amd64 and Linux/arm64; these do not verify native TUN adapters.
   Wider path-MTU/IPv6 overlay and NAT cases
   remain part of the outstanding acceptance scope.
+
+- STUN/UDP punching: real IPv4/IPv6 socket tests verify exact data-port reuse,
+  source/transaction admission, retries, RFC 5769 decoding, malformed/fingerprint
+  rejection, cancellation, closure and pending-transaction bounds. Parser fuzzing
+  completed 57,864 executions without failure (5-second requested budget).
+  Ten race-enabled Mesh repetitions verify that removing expired observations
+  preserves healthy traffic and session renewal, while disabling punch revokes
+  the sessions. The browser saves central STUN settings through the actual API.
+  Native three-Agent tests use three separate restricted Linux SNAT/firewall
+  routers, translated UDP ports and a local STUN fixture. They verify observed
+  endpoint publication, punch-only ICMP/TCP forwarding, STUN/controller outage,
+  offline transit restart and owned TUN cleanup. The NAT test also passes with
+  9000-byte overlay MTU over a 1280-byte underlay. Core cross-builds with STUN pass
+  for Windows/amd64, macOS/arm64, FreeBSD/amd64 and Linux/arm64.
+  This is evidence for that NAT behavior,
+  not arbitrary NATs, NAT64, TCP punching or all platform adapters.

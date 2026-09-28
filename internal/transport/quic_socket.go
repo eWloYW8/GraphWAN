@@ -33,6 +33,9 @@ func (s *quicSocket) ReadFrom(raw []byte) (int, net.Addr, error) {
 			s.hub.receivePacket(s.buffer[:n], remote)
 			continue
 		}
+		if s.hub.receiveSTUN(s.buffer[:n], remote) {
+			continue
+		}
 		if n > len(raw) {
 			continue
 		}

@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/flynn/noise v1.1.0
+	github.com/pion/stun/v3 v3.1.7
 	github.com/quic-go/quic-go v0.63.0
 	github.com/vishvananda/netlink v1.3.1
 	go.etcd.io/bbolt v1.5.0
@@ -16,7 +17,11 @@ require (
 )
 
 require (
+	github.com/pion/dtls/v3 v3.1.5 // indirect
+	github.com/pion/logging v0.2.4 // indirect
+	github.com/pion/transport/v4 v4.1.0 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
+	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 )

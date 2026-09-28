@@ -91,6 +91,7 @@ func Compile(state model.State, agentID model.ID) (model.Snapshot, error) {
 		return model.Snapshot{}, fmt.Errorf("agent is revoked")
 	}
 	out := model.Snapshot{Schema: model.SchemaVersion, Revision: state.Revision, AgentID: agentID, ListenPort: self.ListenPort, Endpoints: append([]model.Endpoint{}, self.Endpoints...), Networks: []model.NetworkConfig{}}
+	out.STUNServers = append([]string(nil), self.STUNServers...)
 	for _, network := range state.Networks {
 		var me model.Node
 		nodes := map[model.ID]model.Node{}
