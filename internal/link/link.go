@@ -14,10 +14,14 @@ import (
 )
 
 const (
-	dataMessage = 1
-	pingMessage = 2
-	pongMessage = 3
-	queueSize   = 128
+	dataMessage    = 1
+	pingMessage    = 2
+	pongMessage    = 3
+	prepareMessage = 4
+	acceptMessage  = 5
+	commitMessage  = 6
+	confirmMessage = 7
+	queueSize      = 128
 )
 
 var ErrQueueFull = errors.New("link packet queue is full")
@@ -56,15 +60,18 @@ func (o Options) defaults() Options {
 }
 
 type Link struct {
-	channel         Channel
-	info            Info
-	options         Options
-	ctx             context.Context
-	cancel          context.CancelFunc
-	stopOnce        sync.Once
-	wg              sync.WaitGroup
-	done            chan struct{}
-	data            chan []byte
+	channel   Channel
+	info      Info
+	options   Options
+	ctx       context.Context
+	cancel    context.CancelFunc
+	stopOnce  sync.Once
+	wg        sync.WaitGroup
+	done      chan struct{}
+	data      chan queuedPacket
+	selection chan Selection
+	// Odd generations permit data; changing generations invalidates queued data.
+	dataGeneration  atomic.Uint64
 	control         chan []byte
 	packets         chan []byte
 	mu              sync.Mutex
@@ -90,7 +97,8 @@ func New(parent context.Context, channel Channel, info Info, options Options) (*
 		}
 	}
 	ctx, cancel := context.WithCancel(parent)
-	l := &Link{channel: channel, info: info, options: options, ctx: ctx, cancel: cancel, done: make(chan struct{}), data: make(chan []byte, queueSize), control: make(chan []byte, 8), packets: make(chan []byte, queueSize), pending: map[uint64]time.Time{}}
+	l := &Link{channel: channel, info: info, options: options, ctx: ctx, cancel: cancel, done: make(chan struct{}), data: make(chan queuedPacket, queueSize), selection: make(chan Selection, 8), control: make(chan []byte, 8), packets: make(chan []byte, queueSize), pending: map[uint64]time.Time{}}
+	l.dataGeneration.Store(1)
 	l.wg.Add(3)
 	go l.readLoop()
 	go l.writeLoop()
@@ -98,10 +106,26 @@ func New(parent context.Context, channel Channel, info Info, options Options) (*
 	go func() { l.wg.Wait(); close(l.packets); close(l.done) }()
 	return l, nil
 }
+
+type queuedPacket struct {
+	generation uint64
+	raw        []byte
+}
+
+// Selection messages are delivered separately so overlay backpressure cannot
+// block negotiation. The sender retries dropped control messages.
+func (l *Link) Selections() <-chan Selection { return l.selection }
+func (l *Link) setActive(active bool) {
+	generation := l.dataGeneration.Load()
+	if (generation%2 == 1) != active {
+		l.dataGeneration.Add(1)
+	}
+}
 func (l *Link) ID() string             { return l.channel.ID() }
 func (l *Link) Info() Info             { return l.info }
 func (l *Link) Packets() <-chan []byte { return l.packets }
 func (l *Link) Done() <-chan struct{}  { return l.done }
+func (l *Link) Created() time.Time     { return l.channel.Created() }
 func (l *Link) RenewalDue() bool       { return time.Since(l.channel.Created()) >= l.options.RenewAfter }
 func (l *Link) stop()                  { l.stopOnce.Do(func() { l.cancel(); l.channel.Close() }) }
 func (l *Link) Close() error           { l.stop(); <-l.done; return nil }
@@ -116,11 +140,15 @@ func (l *Link) Send(ctx context.Context, frame []byte) error {
 		return net.ErrClosed
 	default:
 	}
+	generation := l.dataGeneration.Load()
+	if generation%2 == 0 {
+		return ErrUnavailable
+	}
 	message := make([]byte, len(frame)+1)
 	message[0] = dataMessage
 	copy(message[1:], frame)
 	select {
-	case l.data <- message:
+	case l.data <- queuedPacket{generation: generation, raw: message}:
 		return nil
 	case <-l.ctx.Done():
 		return net.ErrClosed
@@ -173,6 +201,19 @@ func (l *Link) readLoop() {
 				return
 			default:
 			}
+		case prepareMessage, acceptMessage, commitMessage, confirmMessage:
+			if len(raw) != 25 {
+				return
+			}
+			message := Selection{kind: raw[0], sequence: binary.BigEndian.Uint64(raw[17:])}
+			copy(message.term[:], raw[1:17])
+			if message.sequence == 0 || message.term == [16]byte{} {
+				return
+			}
+			select {
+			case l.selection <- message:
+			default:
+			}
 		case pongMessage:
 			if len(raw) != 9 {
 				return
@@ -201,6 +242,7 @@ func (l *Link) writeLoop() {
 	defer l.stop()
 	for {
 		var message []byte
+		var generation uint64
 		// Heartbeats have priority over queued user traffic.
 		select {
 		case message = <-l.control:
@@ -211,8 +253,13 @@ func (l *Link) writeLoop() {
 			case <-l.ctx.Done():
 				return
 			case message = <-l.control:
-			case message = <-l.data:
+			case data := <-l.data:
+				message, generation = data.raw, data.generation
 			}
+		}
+		if message[0] == dataMessage && (generation%2 == 0 || generation != l.dataGeneration.Load()) {
+			l.dropped.Add(1)
+			continue
 		}
 		ctx, cancel := context.WithTimeout(l.ctx, l.options.WriteTimeout)
 		err := l.channel.Send(ctx, message)

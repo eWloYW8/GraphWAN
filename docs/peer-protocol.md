@@ -112,3 +112,51 @@ The Link then uses plaintext type 1 followed by an overlay frame for user data,
 and type 2/type 3 followed by an eight-byte big-endian probe sequence for ping/pong.
 Probes have priority over queued user frames. Standby Links run the same probes;
 only the selected sending Link receives user frames from the routing engine.
+
+## Common active Link negotiation
+
+The endpoint with the lexicographically smaller Node ID selects the active Link
+for both directions of an Edge. Its measured RTT drives automatic selection;
+standby probes and telemetry continue at both endpoints. Explicit candidate
+preference overrides RTT. Automatic changes retain the 2-second hold time and
+require an improvement of at least 2 ms or 15%, whichever is larger. A failed
+Link and a retiring session with a healthy newer replacement bypass the hold.
+
+Selection messages are encrypted application messages on the **proposed Link**.
+They contain a one-byte type, a random 16-byte selector incarnation and an
+unsigned 64-bit big-endian decision sequence. The channel supplies the Link ID;
+announcements cannot name an unrelated connection. Types are:
+
+| Type | Phase | Sender and action |
+| --- | --- | --- |
+| 4 | Prepare | Selector proposes a healthy Link with a new sequence. |
+| 5 | Accept | Follower stops sending on its previous Link, then grants the proposal. |
+| 6 | Commit | Selector switches its sender after Accept, then commits. |
+| 7 | Confirm | Follower enables its sender on the committed Link and acknowledges. |
+
+The follower never independently picks a different Link. This keeps the two
+senders on the same Link when both are enabled; the follower briefly pauses
+between Accept and Commit. Packets already in flight may still arrive on the
+previous connection. Queued packets carry a local activation generation and are
+dropped if their Link is deactivated, including if that Link is later reactivated.
+Overlay forwarding remains best effort: negotiation does not guarantee zero loss
+or ordering across a switch, and upper-layer reliable transports recover loss.
+
+Unconfirmed phases retry no more often than every 100 ms; the idle mesh scheduler
+runs every 250 ms. Each retry is newly encrypted with a fresh session nonce.
+Duplicate phases are idempotent, old sequences are ignored, and a sequence is
+bound to one proposed Link. Only Prepare can begin a newer decision. Channels
+from another Edge, unhealthy channels, and messages from the wrong selection
+role cannot change the sender. Selection processing is independent of potentially
+blocked TUN delivery and uses bounded control queues.
+
+A Link binds to exactly one selector incarnation. A follower accepts a restarted
+selector's new incarnation only after every known healthy channel belonging to
+the previous incarnation has disappeared. TCP closure or the normal UDP heartbeat
+timeout supplies this evidence. Incarnation bookkeeping is bounded by retained
+Links. It is not stored across restarts because peer sessions and keys are not
+stored either. A retiring session is closed only after a newer healthy session
+for its candidate exists and the common selection has finished on another Link.
+
+This negotiation requires both peers to implement these application message types;
+there is no compatibility fallback to independent sender selection.

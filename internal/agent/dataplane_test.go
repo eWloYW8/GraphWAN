@@ -127,15 +127,21 @@ func TestDataPlaneAutomaticallyConnectsAndForwards(t *testing.T) {
 		}
 	}
 	waitFor(t, func() bool {
+		selected := map[model.ID]string{}
+		counts := map[model.ID]int{}
 		for _, runtime := range runtimes {
-			stats := runtime.Report()
-			healthy := 0
-			for _, s := range stats {
-				if s.Healthy {
-					healthy++
+			for _, s := range runtime.Report() {
+				if s.Active {
+					if prior := selected[s.EdgeID]; prior != "" && prior != s.LinkID {
+						return false
+					}
+					selected[s.EdgeID] = s.LinkID
+					counts[s.EdgeID]++
 				}
 			}
-			if healthy < 2 {
+		}
+		for _, edge := range state.Networks[0].Edges {
+			if counts[edge.ID] != 2 {
 				return false
 			}
 		}

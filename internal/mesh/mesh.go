@@ -292,7 +292,7 @@ type attempt struct {
 
 func (m *Mesh) newGroup(cfg *policy) *group {
 	ctx, cancel := context.WithCancel(m.ctx)
-	g := &group{mesh: m, edge: link.NewEdge(cfg.peer.Edge.PreferredCandidate), ctx: ctx, cancel: cancel, links: map[string]*link.Link{}, attempts: map[string]*attempt{}}
+	g := &group{mesh: m, edge: link.NewCoordinatedEdge(cfg.self, cfg.peer.Node.ID, cfg.peer.Edge.PreferredCandidate), ctx: ctx, cancel: cancel, links: map[string]*link.Link{}, attempts: map[string]*attempt{}}
 	g.policy.Store(cfg)
 	g.wg.Add(1)
 	go g.schedule()
@@ -327,13 +327,25 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 	}
 	g.links[l.ID()] = l
 	g.edge.Add(l)
-	g.wg.Add(1)
+	g.wg.Add(2)
 	g.mu.Unlock()
+	// A slow local TUN or downstream peer must not hold up path negotiation.
+	go func() {
+		defer g.wg.Done()
+		for {
+			select {
+			case message := <-l.Selections():
+				g.edge.HandleSelection(l, message)
+			case <-l.Done():
+				return
+			case <-g.ctx.Done():
+				return
+			}
+		}
+	}()
 	go func() {
 		defer g.wg.Done()
 		defer func() { l.Close(); g.edge.Remove(l.ID()); g.mu.Lock(); delete(g.links, l.ID()); g.mu.Unlock() }()
-		renewal := time.NewTicker(100 * time.Millisecond)
-		defer renewal.Stop()
 		for {
 			select {
 			case raw, ok := <-l.Packets():
@@ -343,21 +355,6 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 				g.mesh.receive(g.ctx, cfg.peer.Node.ID, raw)
 			case <-g.ctx.Done():
 				return
-			case <-renewal.C:
-				if l.Stats().Healthy {
-					g.mu.Lock()
-					retire := []*link.Link{}
-					for _, old := range g.links {
-						if old != l && old.Info().CandidateID == candidate.ID && old.RenewalDue() {
-							retire = append(retire, old)
-						}
-					}
-					g.mu.Unlock()
-					for _, old := range retire {
-						old.Close()
-					}
-					renewal.Stop()
-				}
 			}
 		}
 	}()

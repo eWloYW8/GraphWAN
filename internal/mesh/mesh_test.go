@@ -63,6 +63,22 @@ func TestRealUDPFailureFallsBackToExistingTCP(t *testing.T) {
 			}
 		}
 	}
+	commonActive := func() string {
+		id := ""
+		for _, m := range meshes {
+			current := ""
+			for _, stat := range m.Report() {
+				if stat.Active {
+					current = stat.LinkID
+				}
+			}
+			if current == "" || id != "" && id != current {
+				return ""
+			}
+			id = current
+		}
+		return id
+	}
 	tcpBefore := map[string]bool{}
 	wait(func() bool {
 		for _, m := range meshes {
@@ -80,7 +96,7 @@ func TestRealUDPFailureFallsBackToExistingTCP(t *testing.T) {
 				return false
 			}
 		}
-		return true
+		return commonActive() != ""
 	})
 	// Close only the real UDP data socket. TCP standby sockets remain established.
 	meshes[0].udp.Close()
@@ -96,7 +112,7 @@ func TestRealUDPFailureFallsBackToExistingTCP(t *testing.T) {
 				return false
 			}
 		}
-		return true
+		return commonActive() != ""
 	})
 	frame := make([]byte, 100)
 	if err := meshes[0].Send(ctx, state.Networks[0].ID, state.Networks[0].Nodes[1].ID, frame); err != nil {
@@ -152,7 +168,7 @@ func TestSessionRotationKeepsTrafficOnHealthyReplacement(t *testing.T) {
 	old := map[string]bool{}
 	for len(old) == 0 {
 		for _, stat := range meshes[0].Report() {
-			if stat.Healthy {
+			if stat.Active {
 				old[stat.LinkID] = true
 			}
 		}

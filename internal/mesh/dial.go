@@ -43,6 +43,8 @@ func (g *group) schedule() {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
+		g.edge.Tick()
+		g.retireSessions()
 		cfg := g.policy.Load()
 		for _, candidate := range link.Candidates(cfg.self, cfg.peer, time.Now()) {
 			if candidate.Endpoint.Transport != model.TCP && candidate.Endpoint.Transport != model.UDP {
@@ -153,4 +155,27 @@ func (g *group) dial(candidate link.Candidate) error {
 	}
 	g.register(channel, candidate)
 	return nil
+}
+
+// Retire only older sessions with a healthy replacement for the same candidate,
+// after both endpoints have finished selecting their current common Link.
+func (g *group) retireSessions() {
+	g.mu.Lock()
+	newest := map[string]time.Time{}
+	for _, l := range g.links {
+		candidate := l.Info().CandidateID
+		if l.Stats().Healthy && l.Created().After(newest[candidate]) {
+			newest[candidate] = l.Created()
+		}
+	}
+	retire := []*link.Link{}
+	for _, l := range g.links {
+		if l.RenewalDue() && l.Created().Before(newest[l.Info().CandidateID]) && g.edge.CanRetire(l.ID()) {
+			retire = append(retire, l)
+		}
+	}
+	g.mu.Unlock()
+	for _, l := range retire {
+		l.Close()
+	}
 }

@@ -80,7 +80,7 @@ func TestHealthAndStandbyFailover(t *testing.T) {
 	first := newTestLink(t, "first", "preferred", true)
 	second := newTestLink(t, "second", "backup", true)
 	eventually(t, func() bool { return first.Stats().Healthy && second.Stats().Healthy })
-	edge := NewEdge("preferred")
+	edge := newEdge("preferred")
 	edge.Add(first)
 	edge.Add(second)
 	active := func() string {
@@ -157,7 +157,7 @@ func TestAutomaticSelectionHysteresis(t *testing.T) {
 	setRTT := func(l *Link, rtt time.Duration) { l.mu.Lock(); l.lastPong = time.Now(); l.rtt = rtt; l.mu.Unlock() }
 	setRTT(a, 40*time.Millisecond)
 	setRTT(b, 20*time.Millisecond)
-	edge := NewEdge("")
+	edge := newEdge("")
 	edge.Add(a)
 	edge.Add(b)
 	active := func() string {

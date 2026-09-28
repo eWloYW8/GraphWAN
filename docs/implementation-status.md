@@ -35,6 +35,7 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [ ] IPv4/IPv6 direct and punch allowlists, bounded scheduling/backoff.
 - [ ] All viable Links retained; one active Link, preferred/lowest RTT selection.
 - [x] Heartbeat, RTT/loss/traffic metrics, hysteresis and standby failover.
+- [x] Common active-Link agreement for implemented transports, including rekey.
 - [x] Controller outage continuity and autonomous peer reconnection.
 - [ ] MTU handling, bounded queues, malformed packet rejection and hop limit.
 
@@ -116,9 +117,14 @@ Every feature below derives from the accepted proposal, including its suggestion
   an accelerated rotation test repeatedly replaces authenticated sessions while
   traffic continues. Unit tests cover preferred-path recovery, RTT hysteresis,
   heartbeat failure, packet-queue bounds and candidate method/family policy.
-- Remaining Link semantics: selection currently chooses one sending Link per
-  Agent. Coordinating the same automatic active Link at both ends of an Edge is
-  still required before the common-active-path acceptance item is complete.
+- Common active Link: authenticated prepare/accept/commit/confirm negotiation
+  selects the same session at both endpoints. Tests drop each control phase,
+  inject stale decisions, use contradictory local RTTs, restart the selector,
+  switch preferences, fail and recover Links, and invalidate queued data across
+  reactivation. Real UDP-to-TCP fallback checks matching Link IDs at both ends.
+  Ten race-enabled Link/Mesh test repetitions passed. Native process E2E also
+  passed with common selection, including controller outage and offline restart.
+  Candidate discovery and other transports still need their separate acceptance.
 - Linux discovery covers global-unicast IPv4/IPv6 addresses on devices and
   container veth interfaces, excluding TUN/TAP and bridges by link type. Link-local
   scope mapping, other operating systems and STUN-discovered addresses are pending.
