@@ -1,6 +1,6 @@
 # Controller API (v1)
 
-All routes are under `/api/v1`. Bodies and responses are JSON. Unknown request
+All routes are under `/api/v1`. Bodies and responses are JSON, except the browser event stream. Unknown request
 fields, multiple JSON values and bodies larger than 8 MiB are rejected. Error
 responses are `{ "error": "message" }`. HTTPS is the default; agent control
 requires TLS 1.3 and a controller-issued client certificate.
@@ -77,7 +77,8 @@ The controller sends `ControlMessage` JSON envelopes:
 - `{"type":"config","snapshot":{...}}`: initial and updated compiled snapshot.
 - `{"type":"heartbeat"}`: liveness message every 15 seconds when unchanged.
 
-The Agent replies at least once every 45 seconds:
+The Agent batches telemetry every 2 seconds and ACKs applied configuration
+changes promptly. A 45-second receive timeout detects a silent connection:
 
 - `{"type":"ack","report":{"version":"...","applied_revision":N,"links":[],"config_error":"..."}}`
 - `{"type":"endpoints","endpoints":[...]}`: full discovered endpoint set.
@@ -94,3 +95,30 @@ that Agent from other peers' compiled connectivity.
 `GET /telemetry` returns the latest batched reports with `last_seen` and
 `connected`; stale reports become offline after 45 seconds. These are observed
 runtime values and do not mutate desired topology.
+
+## Browser live snapshots
+
+`GET /events` returns `text/event-stream`, authenticated by the same browser
+session cookie and same-origin rules. Each `snapshot` event has:
+
+```json
+{"at":"2026-09-28T12:00:00Z","revision":42,"state":{"schema":1,"revision":42,"agents":[],"networks":[]},"agents":[]}
+```
+
+`agents` contains the same current reports as `/telemetry`. `state` is present
+on initial connection and whenever desired revision changes; otherwise it is
+omitted. Events are replaceable snapshots at one-second intervals, not a replay
+log. Reconnect always gets full state. Report `last_seen` timestamps, rather than
+event timestamps, determine rates from byte-counter differences. Session changes,
+counter resets and stale/offline samples must not produce spurious traffic rates.
+
+There are at most 32 browser streams per controller and 4 per session; extra
+connections receive 429 with `Retry-After: 5`. Each stream retains only its current
+snapshot and has a five-second write deadline. HTTP writes occur outside shared
+status locks. Session expiry, logout (checked at each tick), client disconnect
+and controller shutdown terminate the stream. `X-Accel-Buffering: no` requests
+that reverse proxies deliver events without buffering.
+
+Offline/revoked Agents' historical Link counters may remain visible, but their
+Links are not marked healthy or active. Removed/disabled Edges are filtered out
+immediately against current desired state, even before a new Agent report arrives.

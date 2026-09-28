@@ -3,6 +3,7 @@ package control
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/graphwan/graphwan/internal/model"
 	"github.com/graphwan/graphwan/internal/routing"
@@ -40,5 +41,23 @@ func TestTelemetryAdmission(t *testing.T) {
 				t.Fatal("invalid telemetry accepted")
 			}
 		})
+	}
+}
+
+func TestTelemetryRemovesStalePathsWithoutMutatingStoredReports(t *testing.T) {
+	state := testutil.Topology()
+	id := state.Agents[0].ID
+	link := model.LinkStatus{NetworkID: state.Networks[0].ID, EdgeID: state.Networks[0].Edges[0].ID, LinkID: "session", Transport: model.UDP, Active: true, Healthy: true, TXBytes: 1234}
+	s := &Server{statuses: map[model.ID]model.AgentStatus{id: {AgentID: id, Connected: true, LastSeen: time.Now().Add(-time.Minute), AgentReport: model.AgentReport{Links: []model.LinkStatus{link}}}}}
+	result := s.telemetry(state)
+	if result[0].Connected || result[0].Links[0].Active || result[0].Links[0].Healthy || result[0].Links[0].TXBytes != 1234 {
+		t.Fatal("stale runtime was presented as live or historical counters lost")
+	}
+	if !s.statuses[id].Links[0].Healthy || !s.statuses[id].Connected {
+		t.Fatal("serializing telemetry mutated shared reports")
+	}
+	state.Networks[0].Edges = nil
+	if len(s.telemetry(state)[0].Links) != 0 {
+		t.Fatal("removed edge remained in telemetry")
 	}
 }

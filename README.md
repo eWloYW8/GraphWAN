@@ -5,7 +5,8 @@ weighted multi-hop routing and peer-to-peer data transport.
 
 **Under development.** The repository is implementing the full design in
 `proposal.md`. The Linux CLI now supports authenticated TCP/UDP multi-hop networking;
-the other platform adapters, remaining transports and web UI are still in progress.
+the embedded React management UI supports topology editing and live status. Other
+platform adapters, remaining transports and NAT coordination are still in progress.
 Progress and verification gaps are
 tracked in [the acceptance checklist](docs/implementation-status.md).
 
@@ -28,14 +29,16 @@ CA and exports its public certificate to `graphwan-data/ca.pem`; trust this file
 on administrative clients. Supply `--tls-hosts` with your deployment's DNS names
 and IPs, and `--listen` to expose it on the intended interface. Keep the data
 directory private and back it up: it contains the CA key and configuration.
-`--http --listen 127.0.0.1:8080` enables a loopback-only development API.
+`--http --listen 127.0.0.1:8080` enables a loopback-only development server.
 
-The [management API](docs/control-api.md) is available now. The React UI and remaining transport adapters are still being implemented. Setting a different
-password environment variable on restart does not replace the stored password.
+Open the controller URL in a browser and sign in to the management UI. See the
+[UI guide](docs/management-ui.md) and [management API](docs/control-api.md). Setting
+a different password environment variable on restart does not replace the stored password.
 
 ## Run a Linux agent
 
-Create an enrollment token using the [management API](docs/control-api.md), then:
+Create an enrollment token from **Agents → Enroll agent** or the
+[management API](docs/control-api.md), then:
 
 ```sh
 export GRAPHWAN_ENROLLMENT_TOKEN='<one-time-token>'
@@ -56,12 +59,19 @@ limits, and reproducible native tests.
 
 ## Development
 
-Requires Go 1.26 or newer. The management frontend will use Node.js and pnpm.
+Requires Go 1.26 or newer. Frontend development additionally uses Node.js 20.19+
+or 22.12+ and pnpm 10.33.3. Production assets are checked in so a Go-only checkout
+builds a complete binary. Rebuild assets whenever frontend sources change.
 
 ```sh
 go test ./...
 go test -race ./...
 go vet ./...
+pnpm --dir web install --frozen-lockfile
+pnpm --dir web build
+pnpm --dir web test
+pnpm --dir web exec playwright install chromium
+pnpm --dir web test:e2e
 ```
 
 See [architecture](docs/architecture.md) for domain boundaries and invariants.

@@ -235,6 +235,11 @@ func TestEnrollmentControlPushAndRevocation(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond * 5)
 	}
+	_, browser, _ := eventStream(t, h)
+	observed := nextEvent(t, browser)
+	if len(observed.Agents) != 1 || !observed.Agents[0].Connected || observed.Agents[0].Version != "test" || observed.Agents[0].AppliedRevision != revision {
+		t.Fatal("mTLS Agent report did not reach browser stream")
+	}
 	h.request(t, "PATCH", "/api/v1/agents/"+string(enrolled.AgentID), map[string]bool{"revoked": true}, map[string]string{"If-Match": strconv.FormatUint(revision, 10)}, 200)
 	if err := wsjson.Read(ctx, conn, &msg); err == nil {
 		t.Fatal("revoked connection still open")
@@ -244,6 +249,10 @@ func TestEnrollmentControlPushAndRevocation(t *testing.T) {
 		t.Fatal("revoked agent reconnected")
 	} else if resp == nil || resp.StatusCode != 401 {
 		t.Fatalf("unexpected revocation response: %v %+v", err, resp)
+	}
+	observed = nextEvent(t, browser)
+	if observed.State == nil || observed.Agents[0].Connected {
+		t.Fatal("revocation did not reach browser stream")
 	}
 	// Browser cookies alone are not agent authentication.
 	h.request(t, "GET", "/api/v1/agent/control", nil, nil, 401)

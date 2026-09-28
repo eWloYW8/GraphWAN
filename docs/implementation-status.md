@@ -19,7 +19,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Multi-network/node/edge/endpoint CRUD with concurrency conflict handling.
 - [x] Persistent control connection, config push, applied ACK and recovery.
 - [ ] Rendezvous signaling and observed endpoint exchange (never packet relay).
-- [ ] Batched live telemetry, stale/offline state and bounded event streaming.
+- [x] Batched live telemetry, stale/offline state and bounded event streaming.
+- [ ] Agent CPU/resource telemetry and its UI display from the accepted suggestions.
 
 ## Agent and forwarding
 
@@ -41,12 +42,12 @@ Every feature below derives from the accepted proposal, including its suggestion
 
 ## Management UI
 
-- [ ] React + pnpm production build embedded into server.
-- [ ] Login, multiple networks, enrollment and membership management.
-- [ ] Interactive topology graph with observe/edit modes and persisted positions.
-- [ ] Node/Edge inspectors covering every configuration option.
-- [ ] Live node status, Link details, latency, traffic and errors.
-- [ ] Accessible responsive layout, loading/empty/error states, browser verification.
+- [x] React + pnpm production build embedded into server.
+- [x] Login, multiple networks, enrollment and membership management.
+- [x] Interactive topology graph with observe/edit modes and persisted positions.
+- [x] Node/Edge inspectors covering every configuration option.
+- [x] Live node status, Link details, latency, traffic and errors.
+- [x] Accessible responsive layout, loading/empty/error states, browser verification.
 
 ## Delivery
 
@@ -128,3 +129,19 @@ Every feature below derives from the accepted proposal, including its suggestion
 - Linux discovery covers global-unicast IPv4/IPv6 addresses on devices and
   container veth interfaces, excluding TUN/TAP and bridges by link type. Link-local
   scope mapping, other operating systems and STUN-discovered addresses are pending.
+
+- Browser management: the pnpm/React production build is embedded and served by
+  the Go binary. Playwright against an actual temporary Go controller verifies
+  password login, token creation, real CSR enrollment, network/membership/edge
+  editing, persisted graph drag positions, concurrent-editor conflict protection,
+  manual endpoints, deletion and logout. Desktop and 390px mobile layouts are
+  rendered and inspected; axe checks the tested topology pages against WCAG A/AA
+  rules. This is bounded accessibility evidence, not a complete manual audit.
+- Telemetry UI: a separate browser fixture exercises active Link agreement, RTT,
+  report-time traffic rates, duplicate samples, path preference and connection
+  loss. Go TLS integration independently verifies actual mTLS Agent reports and
+  revocation reaching browser events, authentication/origin rejection, connection
+  limits, session expiry/logout and controller shutdown. Slow writes have deadlines
+  and cannot hold status locks; no unbounded event queue is retained.
+- Runtime adapters for QUIC/WS/WSS/gRPC and NAT punching are still pending, even
+  though their desired policies can now be configured in the management UI.

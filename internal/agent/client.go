@@ -255,7 +255,7 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 	readerDone := make(chan error, 1)
 	go func() { readerDone <- c.readControl(ctx, conn, id, updates, acks) }()
 
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	// Publish discovery once per connection, including an intentionally empty set.
 	if err := c.sendEndpoints(ctx, conn); err != nil {

@@ -294,6 +294,31 @@ func (s *Server) getTelemetry(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
+	respond(w, 200, s.telemetry(state))
+}
+
+// telemetry copies shared reports before HTTP writes and suppresses runtime
+// paths that no longer belong to desired topology. Offline metrics are historical.
+func (s *Server) telemetry(state model.State) []model.AgentStatus {
+	allowed := map[model.ID]map[[2]model.ID]bool{}
+	for _, n := range state.Networks {
+		agents := map[model.ID]model.ID{}
+		for _, node := range n.Nodes {
+			agents[node.ID] = node.AgentID
+		}
+		for _, edge := range n.Edges {
+			if !edge.Enabled {
+				continue
+			}
+			for _, node := range []model.ID{edge.A, edge.B} {
+				id := agents[node]
+				if allowed[id] == nil {
+					allowed[id] = map[[2]model.ID]bool{}
+				}
+				allowed[id][[2]model.ID{n.ID, edge.ID}] = true
+			}
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	statuses := make([]model.AgentStatus, 0, len(state.Agents))
@@ -303,14 +328,29 @@ func (s *Server) getTelemetry(w http.ResponseWriter, r *http.Request) {
 		if a.Revoked || time.Since(status.LastSeen) > 45*time.Second {
 			status.Connected = false
 		}
+		links := []model.LinkStatus{}
+		for _, link := range status.Links {
+			if !allowed[a.ID][[2]model.ID{link.NetworkID, link.EdgeID}] {
+				continue
+			}
+			if !status.Connected {
+				link.Healthy, link.Active = false, false
+			}
+			links = append(links, link)
+		}
+		status.Links = links
 		statuses = append(statuses, status)
 	}
-	respond(w, 200, statuses)
+	return statuses
 }
 
-// Close terminates hijacked control connections before the database is closed.
+// Close terminates browser streams and hijacked Agent connections before the
+// database is closed.
 func (s *Server) Close() {
 	s.mu.Lock()
+	if !s.closed {
+		close(s.done)
+	}
 	s.closed = true
 	conns := make([]*websocket.Conn, 0, len(s.streams))
 	for _, conn := range s.streams {

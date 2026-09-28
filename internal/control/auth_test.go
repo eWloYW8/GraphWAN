@@ -1,6 +1,8 @@
 package control
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -76,5 +78,36 @@ func TestStoredPasswordSurvivesRestart(t *testing.T) {
 	}
 	if string(first.password.Hash) != string(second.password.Hash) || string(first.password.Salt) != string(second.password.Salt) {
 		t.Fatal("restart reset admin credentials")
+	}
+}
+
+func TestOpenBrowserStreamExpiresWithSession(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "events.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(db, Options{Password: "browser-expiry-test-password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(app)
+	t.Cleanup(func() { app.Close(); server.Close(); db.Close() })
+	app.auth.mu.Lock()
+	app.auth.sessions[tokenHash("short-session")] = session{CSRF: "csrf", Expires: time.Now().Add(300 * time.Millisecond)}
+	app.auth.mu.Unlock()
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/events", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: "short-session"})
+	client := &http.Client{Timeout: 2 * time.Second}
+	response, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		t.Fatal(response.StatusCode)
+	}
+	data, err := io.ReadAll(response.Body)
+	if err != nil || !bytes.Contains(data, []byte("event: snapshot")) {
+		t.Fatalf("session expiry did not close an initialized stream: %v", err)
 	}
 }

@@ -42,10 +42,12 @@ and full NAT coordination are not implemented yet. See the acceptance tracker.
 - An available manually preferred candidate wins immediately. Otherwise the
   lowest measured RTT wins, with a two-second hold time and a 15%/2 ms minimum
   improvement to avoid switches caused by timing noise. An unhealthy active Link
-  falls back immediately when selection runs. Automatic choices are currently
-  local to each end; common Edge-wide selection is still being implemented.
+  triggers selection of a fallback. The lower Node ID coordinates a common Link
+  through authenticated prepare/accept/commit/confirm messages; the follower
+  briefly pauses sending during the switch. See [the peer protocol](peer-protocol.md).
 - Healthy standby Links remain connected. Session replacement begins after
-  50 minutes; old sessions retire after an authenticated replacement is healthy.
+  50 minutes; old sessions retire after an authenticated replacement is healthy
+  and both endpoints have completed the common selection.
   Encryption enforces a one-hour/`2^32`-message hard limit independently.
 - Packet queues are bounded. Congested Links drop packets instead of allocating
   unbounded memory. Inner TCP can retransmit; the raw UDP data transport does not

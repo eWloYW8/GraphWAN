@@ -106,6 +106,7 @@ func runServer(args []string) error {
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	app.Close()
 	if err := server.Shutdown(shutdown); err != nil {
 		server.Close()
 		return err

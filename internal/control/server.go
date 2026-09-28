@@ -16,22 +16,26 @@ import (
 	"github.com/graphwan/graphwan/internal/model"
 	"github.com/graphwan/graphwan/internal/pki"
 	"github.com/graphwan/graphwan/internal/store"
+	"github.com/graphwan/graphwan/internal/webui"
 )
 
 const maxBody = 8 << 20
 
 type Server struct {
-	mu       sync.Mutex
-	closed   bool
-	streamWG sync.WaitGroup
-	streams  map[model.ID]*websocket.Conn
-	watchers map[chan struct{}]bool
-	statuses map[model.ID]model.AgentStatus
-	db       *store.Store
-	auth     *auth
-	ca       *pki.Authority
-	log      *slog.Logger
-	mux      *http.ServeMux
+	mu           sync.Mutex
+	closed       bool
+	done         chan struct{}
+	eventClients map[[32]byte]int
+	eventCount   int
+	streamWG     sync.WaitGroup
+	streams      map[model.ID]*websocket.Conn
+	watchers     map[chan struct{}]bool
+	statuses     map[model.ID]model.AgentStatus
+	db           *store.Store
+	auth         *auth
+	ca           *pki.Authority
+	log          *slog.Logger
+	mux          *http.ServeMux
 }
 type Options struct {
 	Password string
@@ -50,7 +54,12 @@ func New(db *store.Store, options Options) (*Server, error) {
 	if options.Logger == nil {
 		options.Logger = slog.Default()
 	}
-	s := &Server{db: db, auth: auth, ca: ca, log: options.Logger, mux: http.NewServeMux(), streams: map[model.ID]*websocket.Conn{}, watchers: map[chan struct{}]bool{}, statuses: map[model.ID]model.AgentStatus{}}
+	s := &Server{
+		db: db, auth: auth, ca: ca, log: options.Logger, mux: http.NewServeMux(),
+		done: make(chan struct{}), eventClients: map[[32]byte]int{},
+		streams: map[model.ID]*websocket.Conn{}, watchers: map[chan struct{}]bool{},
+		statuses: map[model.ID]model.AgentStatus{},
+	}
 	s.mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"status": "ok"}) })
 	s.mux.HandleFunc("POST /api/v1/login", auth.login)
 	s.mux.HandleFunc("POST /api/v1/logout", auth.require(auth.logout))
@@ -68,6 +77,8 @@ func New(db *store.Store, options Options) (*Server, error) {
 	s.mux.HandleFunc("POST /api/v1/enroll", s.enroll)
 	s.mux.HandleFunc("GET /api/v1/agent/control", s.agentControl)
 	s.mux.HandleFunc("GET /api/v1/telemetry", auth.require(s.getTelemetry))
+	s.mux.HandleFunc("GET /api/v1/events", auth.require(s.events))
+	s.mux.Handle("GET /", webui.Handler())
 	return s, nil
 }
 func (s *Server) Authority() *pki.Authority { return s.ca }
