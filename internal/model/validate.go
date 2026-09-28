@@ -1,0 +1,244 @@
+package model
+
+import (
+	"crypto/ed25519"
+	"fmt"
+	"math"
+	"net/netip"
+	"net/url"
+	"strconv"
+	"strings"
+)
+
+func validateName(s string) error {
+	if strings.TrimSpace(s) == "" || len(s) > 128 {
+		return fmt.Errorf("name must contain 1–128 bytes and not be blank")
+	}
+	for _, r := range s {
+		if r < 32 || r == 127 {
+			return fmt.Errorf("name contains control characters")
+		}
+	}
+	return nil
+}
+
+func (e Endpoint) Validate() error {
+	if err := e.ID.Validate(); err != nil {
+		return err
+	}
+	if !e.Transport.Valid() {
+		return fmt.Errorf("invalid transport %q", e.Transport)
+	}
+	if e.Source != Interface && e.Source != Observed && e.Source != Manual {
+		return fmt.Errorf("invalid endpoint source %q", e.Source)
+	}
+	if e.Source != Manual && e.Transport != UDP && e.Transport != TCP {
+		return fmt.Errorf("automatic endpoints only support UDP/TCP")
+	}
+	if len(e.URL) > 2048 {
+		return fmt.Errorf("endpoint URL too long")
+	}
+	u, err := url.Parse(e.URL)
+	if err != nil {
+		return fmt.Errorf("invalid endpoint URL: %w", err)
+	}
+	if u.Scheme != string(e.Transport) || u.Hostname() == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.Opaque != "" {
+		return fmt.Errorf("endpoint must be a %s URL without credentials, query or fragment", e.Transport)
+	}
+	port, err := strconv.ParseUint(u.Port(), 10, 16)
+	if err != nil || port == 0 {
+		return fmt.Errorf("endpoint requires an explicit port in 1–65535")
+	}
+	if e.Transport != WS && e.Transport != WSS && e.Transport != GRPC && u.Path != "" {
+		return fmt.Errorf("%s endpoint cannot have a path", e.Transport)
+	}
+	addr, addrErr := netip.ParseAddr(u.Hostname())
+	if addrErr == nil {
+		if addr.IsUnspecified() || addr.IsMulticast() || addr.Is4In6() {
+			return fmt.Errorf("endpoint must contain a unicast address")
+		}
+	} else if e.Source != Manual || !validHostname(u.Hostname()) {
+		return fmt.Errorf("invalid endpoint hostname")
+	}
+	if e.Source == Observed && e.ExpiresAt.IsZero() {
+		return fmt.Errorf("observed endpoint requires an expiration")
+	}
+	return nil
+}
+
+func validHostname(host string) bool {
+	if len(host) > 253 {
+		return false
+	}
+	host = strings.TrimSuffix(host, ".")
+	for label := range strings.SplitSeq(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// Validate rejects ambiguous topology before persistence or compilation.
+func (s State) Validate() error {
+	if s.Schema != SchemaVersion {
+		return fmt.Errorf("unsupported schema %d", s.Schema)
+	}
+	ids := map[ID]bool{}
+	addID := func(id ID) error {
+		if err := id.Validate(); err != nil {
+			return err
+		}
+		if ids[id] {
+			return fmt.Errorf("duplicate ID %s", id)
+		}
+		ids[id] = true
+		return nil
+	}
+	agents := map[ID]Agent{}
+	keys := map[string]bool{}
+	for _, a := range s.Agents {
+		if err := addID(a.ID); err != nil {
+			return err
+		}
+		if err := validateName(a.Name); err != nil {
+			return fmt.Errorf("agent %s: %w", a.ID, err)
+		}
+		if len(a.PublicKey) != ed25519.PublicKeySize {
+			return fmt.Errorf("agent %s: invalid Ed25519 public key", a.ID)
+		}
+		if keys[string(a.PublicKey)] {
+			return fmt.Errorf("duplicate agent identity")
+		}
+		keys[string(a.PublicKey)] = true
+		if a.ListenPort == 0 {
+			return fmt.Errorf("agent %s: listen port is zero", a.ID)
+		}
+		if len(a.Endpoints) > MaxEndpoints {
+			return fmt.Errorf("agent %s: too many endpoints", a.ID)
+		}
+		urls := map[string]bool{}
+		for _, e := range a.Endpoints {
+			if err := addID(e.ID); err != nil {
+				return err
+			}
+			if err := e.Validate(); err != nil {
+				return fmt.Errorf("agent %s endpoint: %w", a.ID, err)
+			}
+			if urls[e.URL] {
+				return fmt.Errorf("duplicate endpoint URL %q", e.URL)
+			}
+			urls[e.URL] = true
+		}
+		agents[a.ID] = a
+	}
+	memberships := map[ID][]netip.Prefix{}
+	for _, n := range s.Networks {
+		if err := addID(n.ID); err != nil {
+			return err
+		}
+		if err := validateName(n.Name); err != nil {
+			return fmt.Errorf("network %s: %w", n.ID, err)
+		}
+		if !n.CIDR.IsValid() || n.CIDR != n.CIDR.Masked() || n.CIDR.Addr().Is4In6() || n.CIDR.Addr().IsMulticast() || n.CIDR.Bits() == 0 {
+			return fmt.Errorf("network %s: CIDR must be canonical unicast and not a default route", n.ID)
+		}
+		if n.MTU < DefaultMTU || n.MTU > MaxMTU {
+			return fmt.Errorf("network %s: MTU must be %d–%d", n.ID, DefaultMTU, MaxMTU)
+		}
+		if n.Cipher != ChaCha20Poly1305 {
+			return fmt.Errorf("network %s: unsupported cipher", n.ID)
+		}
+		if len(n.Nodes) > MaxNodes || len(n.Edges) > MaxEdges {
+			return fmt.Errorf("network %s: topology exceeds limits", n.ID)
+		}
+		nodes := map[ID]bool{}
+		members := map[ID]bool{}
+		addresses := map[netip.Addr]bool{}
+		for _, node := range n.Nodes {
+			if err := addID(node.ID); err != nil {
+				return err
+			}
+			if err := validateName(node.Name); err != nil {
+				return fmt.Errorf("node %s: %w", node.ID, err)
+			}
+			if _, ok := agents[node.AgentID]; !ok {
+				return fmt.Errorf("node %s: unknown agent", node.ID)
+			}
+			if members[node.AgentID] {
+				return fmt.Errorf("agent belongs to a network more than once")
+			}
+			members[node.AgentID] = true
+			for _, prefix := range memberships[node.AgentID] {
+				if prefix.Overlaps(n.CIDR) {
+					return fmt.Errorf("agent %s has overlapping networks", node.AgentID)
+				}
+			}
+			memberships[node.AgentID] = append(memberships[node.AgentID], n.CIDR)
+			a := node.Address
+			if !a.IsValid() || a.Zone() != "" || a.Is4In6() || a.IsUnspecified() || a.IsMulticast() || !n.CIDR.Contains(a) {
+				return fmt.Errorf("node %s: address must be unicast within network CIDR", node.ID)
+			}
+			if a.Is4() && n.CIDR.Bits() <= 30 {
+				b := a.As4()
+				base := n.CIDR.Addr().As4()
+				ip := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+				start := uint32(base[0])<<24 | uint32(base[1])<<16 | uint32(base[2])<<8 | uint32(base[3])
+				if ip == start || ip == start|uint32((uint64(1)<<uint(32-n.CIDR.Bits()))-1) {
+					return fmt.Errorf("node %s: network or broadcast address", node.ID)
+				}
+			}
+			if addresses[a] {
+				return fmt.Errorf("duplicate virtual address %s", a)
+			}
+			addresses[a] = true
+			if math.IsNaN(node.Position.X) || math.IsNaN(node.Position.Y) || math.IsInf(node.Position.X, 0) || math.IsInf(node.Position.Y, 0) {
+				return fmt.Errorf("invalid node position")
+			}
+			nodes[node.ID] = true
+		}
+		pairs := map[[2]ID]bool{}
+		for _, e := range n.Edges {
+			if err := addID(e.ID); err != nil {
+				return err
+			}
+			if e.A == e.B || !nodes[e.A] || !nodes[e.B] {
+				return fmt.Errorf("edge %s: requires two distinct network nodes", e.ID)
+			}
+			a, b := e.A, e.B
+			if a > b {
+				a, b = b, a
+			}
+			pair := [2]ID{a, b}
+			if pairs[pair] {
+				return fmt.Errorf("duplicate edge between %s and %s", a, b)
+			}
+			pairs[pair] = true
+			if e.Weight == 0 {
+				return fmt.Errorf("edge %s: weight must be positive", e.ID)
+			}
+			if len(e.Transports) == 0 {
+				return fmt.Errorf("edge %s: no transports enabled", e.ID)
+			}
+			transports := map[Transport]bool{}
+			for _, t := range e.Transports {
+				if !t.Valid() || transports[t] {
+					return fmt.Errorf("edge %s: invalid or duplicate transport", e.ID)
+				}
+				transports[t] = true
+			}
+			if !e.Methods.IPv4Direct && !e.Methods.IPv6Direct && !e.Methods.HolePunch {
+				return fmt.Errorf("edge %s: no connection methods enabled", e.ID)
+			}
+			if len(e.PreferredCandidate) > 256 {
+				return fmt.Errorf("preferred candidate too long")
+			}
+		}
+	}
+	return nil
+}
