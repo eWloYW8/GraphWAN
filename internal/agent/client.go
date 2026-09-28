@@ -179,6 +179,7 @@ func (c *Client) registration(ctx context.Context) (*Registration, error) {
 	if err := c.cache.SaveRegistration(*reg); err != nil {
 		return nil, err
 	}
+	c.options.Logger.Info("agent enrolled", "agent_id", reg.AgentID, "server", reg.Server)
 	// Do not retain the bearer secret once its one-time purpose has succeeded.
 	c.options.EnrollmentToken = ""
 	return reg, nil

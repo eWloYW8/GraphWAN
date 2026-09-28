@@ -23,19 +23,19 @@ Every feature below derives from the accepted proposal, including its suggestion
 
 ## Agent and forwarding
 
-- [ ] Runnable agent CLI, durable private identity and cached configuration.
-- [ ] Validate → persist → reconcile → ACK; old runtime retained on failed updates.
+- [x] Runnable agent CLI, durable private identity and cached configuration.
+- [x] Validate → persist → reconcile → ACK; old runtime retained on failed updates.
 - [ ] Per-network TUN, address/route setup and safe resource cleanup.
-- [ ] Actual multi-hop IP forwarding and network/source admission enforcement.
+- [x] Actual multi-hop IP forwarding and network/source admission enforcement.
 - [ ] TCP framing, UDP transport, QUIC datagrams, WS/WSS, gRPC bidirectional stream.
-- [ ] Authenticated ephemeral peer keys, cipher policy, replay protection/rekey.
+- [x] Authenticated ephemeral peer keys, cipher policy, replay protection/rekey.
 - [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
 - [ ] Manual hostname/path endpoints and configurable listeners (default 24752).
 - [ ] STUN from the data socket; UDP and supported TCP hole punching.
 - [ ] IPv4/IPv6 direct and punch allowlists, bounded scheduling/backoff.
 - [ ] All viable Links retained; one active Link, preferred/lowest RTT selection.
-- [ ] Heartbeat, RTT/loss/traffic metrics, hysteresis and standby failover.
-- [ ] Controller outage continuity and autonomous peer reconnection.
+- [x] Heartbeat, RTT/loss/traffic metrics, hysteresis and standby failover.
+- [x] Controller outage continuity and autonomous peer reconnection.
 - [ ] MTU handling, bounded queues, malformed packet rejection and hop limit.
 
 ## Management UI
@@ -61,14 +61,14 @@ Every feature below derives from the accepted proposal, including its suggestion
 - Foundation: `go test -race ./...` and `go vet ./...` pass. Tests cover
   weighted A–B–C forwarding, equal-cost order independence, disconnected Nodes,
   disabled/revoked peers, competing editors and persistence after database reopen.
-- Packet codec/framing and IP inspection are implemented and tested. Runtime
-  network admission remains pending, so the combined acceptance item stays open.
+- Packet codec/framing, IP inspection and runtime network admission are verified
+  by parser, forwarding-engine and real encrypted channel tests.
 
 - Controller integration: real TLS 1.3 HTTP/WebSocket tests exercise cookie/CSRF
   admission, optimistic edits, CSR enrollment, atomic concurrent token consumption,
   config push, ACK telemetry and immediate revocation/reconnect rejection.
-  The Agent runtime and its restart recovery are still pending; the control-connection
-  acceptance item remains open until both sides are exercised together.
+  The real Agent client and native Linux runtime are now exercised together by
+  the isolated process-level test described below.
 
 - CLI smoke: built binary, trusted generated CA, queried HTTPS health, logged in,
   checked Secure cookie and verified clean SIGTERM exit.
@@ -82,8 +82,8 @@ Every feature below derives from the accepted proposal, including its suggestion
   mTLS, revision push, durable-before-apply ordering, applied ACKs, server outage
   retaining runtime configuration, and agent restart from cache with the server
   unavailable. A failed runtime update retains the previous applied snapshot and
-  retries the desired revision. This uses a test runtime; actual TUN/data forwarding
-  outage behavior remains unverified and its acceptance item stays open.
+  retries the desired revision. These component tests use a test runtime; native
+  TUN outage behavior is additionally verified by the process-level test below.
 - Enrollment response loss: an exact idempotent retry recovers the original
   certificate and Agent ID without consuming a second revision or identity.
 
@@ -92,12 +92,33 @@ Every feature below derives from the accepted proposal, including its suggestion
   concurrent nonce uniqueness and session age/message limits are tested.
 - Actual TCP/UDP sockets: authenticated channel round trips pass, including loss
   of each UDP handshake message and duplicate handshake/data delivery. Queue and
-  connection bounds are implemented. Other transport adapters and automatic
-  session replacement remain pending.
+  connection bounds are implemented. Other transport adapters remain pending;
+  automatic session replacement is covered by a real-socket test below.
 - Forwarding engine: IP packets traverse A→B→C and C→B→A over actual encrypted
   TCP and UDP channels. Tests reject unknown Networks, nonadjacent senders,
   mismatched IP/Node addresses, spoofed local sources and exhausted hop limits.
-  Native TUN delivery and full Agent runtime integration are still pending.
+  Native TUN delivery and full Linux Agent integration are now verified below.
 
 - Handshake input fuzzing completed 33,365 executions without failure. This
   exercises bounded malformed-message parsing, not a cryptographic proof.
+
+- Linux native adapter: `go test -c -tags integration ... ./internal/tunnel`, run
+  with `sudo unshare --net`, verifies address/route/MTU setup, exclusive ownership,
+  kernel-to-Agent and Agent-to-kernel UDP packets, interruptible idle reads, and
+  interface deletion. The test caught and now guards against registering the TUN
+  descriptor with Go's poller before `TUNSETIFF`.
+- Native process E2E: `tests/e2e_linux.py` starts a real controller and three real
+  Agent CLI processes in separate network namespaces with veth underlay and TUN
+  overlay interfaces. It verifies multi-hop ICMP, a 155,648-byte TCP echo exchange,
+  continued traffic after controller shutdown, transit-Agent restart from durable
+  cache while offline, and owned-interface cleanup at process shutdown.
+- Mesh/Link: real UDP socket failure falls back to already established TCP Links;
+  an accelerated rotation test repeatedly replaces authenticated sessions while
+  traffic continues. Unit tests cover preferred-path recovery, RTT hysteresis,
+  heartbeat failure, packet-queue bounds and candidate method/family policy.
+- Remaining Link semantics: selection currently chooses one sending Link per
+  Agent. Coordinating the same automatic active Link at both ends of an Edge is
+  still required before the common-active-path acceptance item is complete.
+- Linux discovery covers global-unicast IPv4/IPv6 addresses on devices and
+  container veth interfaces, excluding TUN/TAP and bridges by link type. Link-local
+  scope mapping, other operating systems and STUN-discovered addresses are pending.

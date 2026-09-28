@@ -29,12 +29,14 @@ func main() {
 }
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: graphwan server [flags] | version")
+		return errors.New("usage: graphwan server [flags] | agent [flags] | version")
 	}
 	switch args[0] {
 	case "version":
 		fmt.Println("GraphWAN", version)
 		return nil
+	case "agent":
+		return runAgent(args[1:])
 	case "server":
 		return runServer(args[1:])
 	default:

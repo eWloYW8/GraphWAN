@@ -4,7 +4,9 @@ A centrally managed overlay network with administrator-defined graph topology,
 weighted multi-hop routing and peer-to-peer data transport.
 
 **Under development.** The repository is implementing the full design in
-`proposal.md`; it is not yet a usable VPN. Progress and verification gaps are
+`proposal.md`. The Linux CLI now supports authenticated TCP/UDP multi-hop networking;
+the other platform adapters, remaining transports and web UI are still in progress.
+Progress and verification gaps are
 tracked in [the acceptance checklist](docs/implementation-status.md).
 
 The controller manages multiple networks and distributes durable configuration.
@@ -28,9 +30,29 @@ and IPs, and `--listen` to expose it on the intended interface. Keep the data
 directory private and back it up: it contains the CA key and configuration.
 `--http --listen 127.0.0.1:8080` enables a loopback-only development API.
 
-The [management API](docs/control-api.md) is available now. The React UI, Agent
-runtime and forwarding transports are still being implemented. Setting a different
+The [management API](docs/control-api.md) is available now. The React UI and remaining transport adapters are still being implemented. Setting a different
 password environment variable on restart does not replace the stored password.
+
+## Run a Linux agent
+
+Create an enrollment token using the [management API](docs/control-api.md), then:
+
+```sh
+export GRAPHWAN_ENROLLMENT_TOKEN='<one-time-token>'
+sudo --preserve-env=GRAPHWAN_ENROLLMENT_TOKEN ./bin/graphwan agent \
+  --server https://controller.example.com:8443 \
+  --ca ./ca.pem --name laptop --data-dir /var/lib/graphwan-agent
+```
+
+TUN setup requires root or `CAP_NET_ADMIN`. Add the enrolled Agent to a Network
+with a fixed virtual address, then create the desired Edges. Linux automatically
+advertises TCP/UDP endpoints from underlay interfaces; manual endpoints are also
+supported. The default peer listen port is 24752. No controller packet relay is
+used. Agents keep forwarding and can restart from cached configuration while the
+controller is unavailable.
+
+See [Linux operation and testing](docs/linux-operation.md) for behavior, current
+limits, and reproducible native tests.
 
 ## Development
 

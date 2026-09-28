@@ -1,8 +1,8 @@
 # Peer data protocol v1
 
-This documents the currently implemented packet/channel components. The runnable
-Agent, operating-system TUN adapters and Link reconciliation are still being
-integrated; these primitives alone do not constitute a deployed VPN.
+This documents the packet/channel components integrated into the Linux Agent.
+Other platform adapters, remaining transports and NAT coordination are still
+being implemented. See the full-scope acceptance tracker for verification status.
 
 ## Admission and handshake
 
@@ -58,8 +58,8 @@ Unauthenticated messages never move the window. Keys/nonces are never persisted;
 reconnection always requires a fresh handshake.
 
 A session refuses encryption after one hour or before sequence `2^32` is reached.
-The Link manager must replace it using a fresh handshake; automatic rotation is
-not yet integrated. The data interface is bounded by the overlay maximum MTU,
+The Link manager starts a fresh handshake after 50 minutes and retires an old
+session only after its replacement is healthy. The data interface is bounded by the overlay maximum MTU,
 header size and one application message-type byte.
 
 ## Transport framing
@@ -99,3 +99,16 @@ checks enforce admission but do not provide cryptographic end-to-end origin
 attestation against a compromised transit Node. Configuration replacement swaps
 an immutable routing table; packets already in flight may belong to an older
 epoch and are bounded by hop limits during convergence.
+
+## Link control inside the authenticated channel
+
+After Ready, the dialer sends a type-0 plaintext message containing a JSON
+`candidate` identifier. The responder reconstructs allowed candidates from its
+own advertised endpoints, the configured Edge methods/transports, and the remote
+Node identity. The identifier and actual socket address family must match. This
+metadata is encrypted by the established peer session.
+
+The Link then uses plaintext type 1 followed by an overlay frame for user data,
+and type 2/type 3 followed by an eight-byte big-endian probe sequence for ping/pong.
+Probes have priority over queued user frames. Standby Links run the same probes;
+only the selected sending Link receives user frames from the routing engine.
