@@ -1,6 +1,7 @@
 package control
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -73,6 +74,14 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid Ed25519 certificate request")
 		return
 	}
+	requestID := r.Header.Get("Idempotency-Key")
+	if len(requestID) > 128 {
+		fail(w, 400, "idempotency key too long")
+		return
+	}
+	requestHash := sha256.Sum256(append(append([]byte{}, in.CSR...), []byte(in.Name)...))
+	var receipt enrollmentReceipt
+	var replayed bool
 	var state model.State
 	for range 8 {
 		current, err := s.db.Read()
@@ -81,13 +90,43 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		state, err = s.db.UpdateWithRecords(current.Revision, func(state *model.State, records *store.Records) error {
+			if requestID != "" {
+				var previous enrollmentReceipt
+				if raw := records.Get(enrollmentKey(token) + "/receipt"); raw != nil {
+					if json.Unmarshal(raw, &previous) != nil || previous.RequestID != requestID || previous.RequestHash != requestHash || !time.Now().Before(previous.Expires) {
+						return errInvalidToken
+					}
+					for _, agent := range state.Agents {
+						if agent.ID == previous.AgentID && !agent.Revoked {
+							receipt = previous
+							replayed = true
+							return errEnrollmentReplay
+						}
+					}
+					return errInvalidToken
+				}
+			}
 			var record enrollmentToken
 			if err := json.Unmarshal(records.Get(enrollmentKey(token)), &record); err != nil || !time.Now().Before(record.Expires) {
 				return errInvalidToken
 			}
 			state.Agents = append(state.Agents, model.Agent{ID: id, Name: in.Name, PublicKey: pub, ListenPort: model.DefaultPort, Endpoints: []model.Endpoint{}})
+			if requestID != "" {
+				receipt = enrollmentReceipt{RequestID: requestID, RequestHash: requestHash, Expires: record.Expires, AgentID: id, Certificate: certificate, Revision: state.Revision + 1}
+				raw, err := json.Marshal(receipt)
+				if err != nil {
+					return err
+				}
+				if err := records.Put(enrollmentKey(token)+"/receipt", raw); err != nil {
+					return err
+				}
+			}
 			return records.Delete(enrollmentKey(token))
 		})
+		if errors.Is(err, errEnrollmentReplay) && replayed {
+			respond(w, 201, map[string]any{"agent_id": receipt.AgentID, "certificate": receipt.Certificate, "ca_certificate": s.ca.PEM, "revision": receipt.Revision})
+			return
+		}
 		if errors.Is(err, store.ErrConflict) {
 			continue
 		}
@@ -107,3 +146,16 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 }
 
 var errInvalidToken = errors.New("invalid enrollment token")
+
+// A receipt makes an exact enrollment retry recoverable after response loss.
+// It never permits a second identity and expires with the original token.
+type enrollmentReceipt struct {
+	RequestID   string    `json:"request_id"`
+	RequestHash [32]byte  `json:"request_hash"`
+	Expires     time.Time `json:"expires"`
+	AgentID     model.ID  `json:"agent_id"`
+	Certificate []byte    `json:"certificate"`
+	Revision    uint64    `json:"revision"`
+}
+
+var errEnrollmentReplay = errors.New("enrollment already committed")

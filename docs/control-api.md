@@ -59,7 +59,11 @@ with `Authorization: Bearer <token>` and `{ "name": "...", "csr": "<base64 DER>"
 The response contains `agent_id`, `certificate` (base64 PEM), `ca_certificate`
 (base64 PEM), and committed `revision`. Identity registration and token consumption
 are atomic. Invalid enrollment does not consume a valid token. Duplicate public
-keys cannot enroll as separate Agents.
+keys cannot enroll as separate Agents. Agents send a stable `Idempotency-Key` for
+each enrollment attempt. If the response is lost, retrying the exact same CSR,
+name, token and idempotency key returns the original identity and certificate
+without creating a new revision. The recovery receipt expires with the token;
+a different identity or request cannot reuse it.
 
 The CA must already be trusted when making the enrollment HTTPS request; a CA
 returned in a response is not a substitute for authenticating the server.

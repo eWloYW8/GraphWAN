@@ -42,3 +42,23 @@ type Route struct {
 	NextHop     ID     `json:"next_hop"`
 	Cost        uint64 `json:"cost"`
 }
+
+// Clone gives each runtime configuration its own backing slices.
+func (s Snapshot) Clone() Snapshot {
+	out := s
+	out.Endpoints = append([]Endpoint{}, s.Endpoints...)
+	out.Networks = append([]NetworkConfig{}, s.Networks...)
+	for i := range out.Networks {
+		n := &out.Networks[i]
+		n.Directory = append([]Destination{}, n.Directory...)
+		n.Routes = append([]Route{}, n.Routes...)
+		n.Peers = append([]Peer{}, n.Peers...)
+		for j := range n.Peers {
+			p := &n.Peers[j]
+			p.PublicKey = append([]byte{}, p.PublicKey...)
+			p.Endpoints = append([]Endpoint{}, p.Endpoints...)
+			p.Edge.Transports = append([]Transport{}, p.Edge.Transports...)
+		}
+	}
+	return out
+}

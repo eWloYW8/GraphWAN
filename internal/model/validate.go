@@ -181,17 +181,8 @@ func (s State) Validate() error {
 			}
 			memberships[node.AgentID] = append(memberships[node.AgentID], n.CIDR)
 			a := node.Address
-			if !a.IsValid() || a.Zone() != "" || a.Is4In6() || a.IsUnspecified() || a.IsMulticast() || !n.CIDR.Contains(a) {
-				return fmt.Errorf("node %s: address must be unicast within network CIDR", node.ID)
-			}
-			if a.Is4() && n.CIDR.Bits() <= 30 {
-				b := a.As4()
-				base := n.CIDR.Addr().As4()
-				ip := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
-				start := uint32(base[0])<<24 | uint32(base[1])<<16 | uint32(base[2])<<8 | uint32(base[3])
-				if ip == start || ip == start|uint32((uint64(1)<<uint(32-n.CIDR.Bits()))-1) {
-					return fmt.Errorf("node %s: network or broadcast address", node.ID)
-				}
+			if err := validateVirtualAddress(n.CIDR, a); err != nil {
+				return fmt.Errorf("node %s: %w", node.ID, err)
 			}
 			if addresses[a] {
 				return fmt.Errorf("duplicate virtual address %s", a)

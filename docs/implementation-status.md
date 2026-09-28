@@ -17,7 +17,7 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Password login/logout, session expiration, CSRF and login throttling.
 - [x] Expiring single-use enrollment; agent authentication and revocation.
 - [x] Multi-network/node/edge/endpoint CRUD with concurrency conflict handling.
-- [ ] Persistent control connection, config push, applied ACK and recovery.
+- [x] Persistent control connection, config push, applied ACK and recovery.
 - [ ] Rendezvous signaling and observed endpoint exchange (never packet relay).
 - [ ] Batched live telemetry, stale/offline state and bounded event streaming.
 
@@ -77,3 +77,12 @@ Every feature below derives from the accepted proposal, including its suggestion
 - Controller cross-builds pass for Windows/amd64, macOS/arm64, FreeBSD/amd64 and
   Linux/arm64. This does not yet verify native TUN support or the whole platform
   matrix, which remain open acceptance items.
+
+- Agent control/cache: real controller/client integration verifies enrollment,
+  mTLS, revision push, durable-before-apply ordering, applied ACKs, server outage
+  retaining runtime configuration, and agent restart from cache with the server
+  unavailable. A failed runtime update retains the previous applied snapshot and
+  retries the desired revision. This uses a test runtime; actual TUN/data forwarding
+  outage behavior remains unverified and its acceptance item stays open.
+- Enrollment response loss: an exact idempotent retry recovers the original
+  certificate and Agent ID without consuming a second revision or identity.
