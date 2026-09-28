@@ -13,10 +13,10 @@ Every feature below derives from the accepted proposal, including its suggestion
 
 ## Controller
 
-- [ ] Runnable server CLI, durable database, graceful shutdown, TLS setup.
-- [ ] Password login/logout, session expiration, CSRF and login throttling.
-- [ ] Expiring single-use enrollment; agent authentication and revocation.
-- [ ] Multi-network/node/edge/endpoint CRUD with concurrency conflict handling.
+- [x] Runnable server CLI, durable database, graceful shutdown, TLS setup.
+- [x] Password login/logout, session expiration, CSRF and login throttling.
+- [x] Expiring single-use enrollment; agent authentication and revocation.
+- [x] Multi-network/node/edge/endpoint CRUD with concurrency conflict handling.
 - [ ] Persistent control connection, config push, applied ACK and recovery.
 - [ ] Rendezvous signaling and observed endpoint exchange (never packet relay).
 - [ ] Batched live telemetry, stale/offline state and bounded event streaming.
@@ -63,3 +63,17 @@ Every feature below derives from the accepted proposal, including its suggestion
   disabled/revoked peers, competing editors and persistence after database reopen.
 - Packet codec/framing and IP inspection are implemented and tested. Runtime
   network admission remains pending, so the combined acceptance item stays open.
+
+- Controller integration: real TLS 1.3 HTTP/WebSocket tests exercise cookie/CSRF
+  admission, optimistic edits, CSR enrollment, atomic concurrent token consumption,
+  config push, ACK telemetry and immediate revocation/reconnect rejection.
+  The Agent runtime and its restart recovery are still pending; the control-connection
+  acceptance item remains open until both sides are exercised together.
+
+- CLI smoke: built binary, trusted generated CA, queried HTTPS health, logged in,
+  checked Secure cookie and verified clean SIGTERM exit.
+- Packet fuzzing: 595,356 frame-parser executions and 596,817 IP-parser executions
+  completed without a failure (5 seconds per target; this is bounded evidence).
+- Controller cross-builds pass for Windows/amd64, macOS/arm64, FreeBSD/amd64 and
+  Linux/arm64. This does not yet verify native TUN support or the whole platform
+  matrix, which remain open acceptance items.

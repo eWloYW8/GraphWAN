@@ -81,6 +81,11 @@ func (s *Store) Read() (model.State, error) {
 // Update serializes edits and commits state and revision atomically. The callback
 // must not call Store methods. Failed validation/callback/commit leaves old state.
 func (s *Store) Update(expected uint64, change func(*model.State) error) (model.State, error) {
+	return s.UpdateWithRecords(expected, func(state *model.State, _ *Records) error { return change(state) })
+}
+
+// UpdateWithRecords atomically commits configuration and related security records.
+func (s *Store) UpdateWithRecords(expected uint64, change func(*model.State, *Records) error) (model.State, error) {
 	var result model.State
 	err := s.db.Update(func(tx *bolt.Tx) error {
 		state, err := read(tx)
@@ -93,7 +98,7 @@ func (s *Store) Update(expected uint64, change func(*model.State) error) (model.
 		if expected == math.MaxUint64 {
 			return errors.New("revision exhausted")
 		}
-		if err := change(&state); err != nil {
+		if err := change(&state, &Records{tx: tx}); err != nil {
 			return err
 		}
 		state.Revision = expected + 1

@@ -90,7 +90,7 @@ func Compile(state model.State, agentID model.ID) (model.Snapshot, error) {
 	if self.Revoked {
 		return model.Snapshot{}, fmt.Errorf("agent is revoked")
 	}
-	out := model.Snapshot{Schema: model.SchemaVersion, Revision: state.Revision, AgentID: agentID, ListenPort: self.ListenPort, Networks: []model.NetworkConfig{}}
+	out := model.Snapshot{Schema: model.SchemaVersion, Revision: state.Revision, AgentID: agentID, ListenPort: self.ListenPort, Endpoints: append([]model.Endpoint{}, self.Endpoints...), Networks: []model.NetworkConfig{}}
 	for _, network := range state.Networks {
 		var me model.Node
 		nodes := map[model.ID]model.Node{}

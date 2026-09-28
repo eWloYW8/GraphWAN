@@ -9,6 +9,7 @@ type Snapshot struct {
 	Revision   uint64          `json:"revision"`
 	AgentID    ID              `json:"agent_id"`
 	ListenPort uint16          `json:"listen_port"`
+	Endpoints  []Endpoint      `json:"endpoints"`
 	Networks   []NetworkConfig `json:"networks"`
 }
 
