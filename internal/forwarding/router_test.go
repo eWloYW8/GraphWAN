@@ -1,0 +1,117 @@
+package forwarding_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"errors"
+	"slices"
+	"testing"
+
+	"github.com/graphwan/graphwan/internal/forwarding"
+	"github.com/graphwan/graphwan/internal/model"
+	"github.com/graphwan/graphwan/internal/packet"
+	"github.com/graphwan/graphwan/internal/routing"
+	"github.com/graphwan/graphwan/internal/testutil"
+)
+
+func ipPacket(source, dest byte) []byte {
+	raw := make([]byte, 28)
+	raw[0] = 0x45
+	raw[8] = 64
+	raw[9] = 17
+	binary.BigEndian.PutUint16(raw[2:4], uint16(len(raw)))
+	copy(raw[12:20], []byte{10, 42, 0, source, 10, 42, 0, dest})
+	binary.BigEndian.PutUint16(raw[20:22], 10000)
+	binary.BigEndian.PutUint16(raw[22:24], 20000)
+	binary.BigEndian.PutUint16(raw[24:26], 8)
+	return raw
+}
+func TestGraphWeightedMultiHopForwarding(t *testing.T) {
+	state := testutil.Topology()
+	routers := map[model.ID]*forwarding.Router{}
+	path := []model.ID{}
+	var delivered []byte
+	var recipient model.ID
+	for _, agent := range state.Agents {
+		config, err := routing.Compile(state, agent.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		self := config.Networks[0].Self.ID
+		router, err := forwarding.New(config, func(ctx context.Context, network, next model.ID, raw []byte) error {
+			path = append(path, next)
+			return routers[next].FromPeer(ctx, self, raw)
+		}, func(ctx context.Context, network model.ID, raw []byte) error {
+			delivered = bytes.Clone(raw)
+			recipient = self
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		routers[self] = router
+	}
+	raw := ipPacket(1, 3)
+	if err := routers[testutil.ID(20)].FromTunnel(context.Background(), testutil.ID(1), raw); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(path, []model.ID{testutil.ID(21), testutil.ID(22)}) {
+		t.Fatalf("selected path %v", path)
+	}
+	if recipient != testutil.ID(22) || !bytes.Equal(delivered, raw) {
+		t.Fatal("destination received incorrect IP packet")
+	}
+	if err := routers[testutil.ID(20)].FromTunnel(context.Background(), testutil.ID(1), ipPacket(1, 5)); !errors.Is(err, forwarding.ErrUnreachable) {
+		t.Fatal("isolated destination was routed", err)
+	}
+}
+func TestForwardingAdmissionAndHopLimit(t *testing.T) {
+	state := testutil.Topology()
+	config, err := routing.Compile(state, testutil.ID(11))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent, delivered := 0, 0
+	router, err := forwarding.New(config, func(context.Context, model.ID, model.ID, []byte) error { sent++; return nil }, func(context.Context, model.ID, []byte) error { delivered++; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := packet.Packet{Header: packet.Header{Network: testutil.ID(1), Source: testutil.ID(20), Destination: testutil.ID(22), HopLimit: 1, Epoch: state.Revision}, Payload: ipPacket(1, 3)}
+	frame, _ := original.MarshalBinary()
+	if err := router.FromPeer(context.Background(), testutil.ID(20), frame); !errors.Is(err, packet.ErrHopLimit) {
+		t.Fatalf("TTL: %v", err)
+	}
+	original.Header.HopLimit = 32
+	for _, tt := range []struct {
+		name   string
+		change func(*packet.Packet)
+		peer   model.ID
+		want   error
+	}{
+		{"unknown network", func(p *packet.Packet) { p.Header.Network = testutil.ID(999) }, testutil.ID(20), forwarding.ErrNetwork},
+		{"nonadjacent sender", func(p *packet.Packet) {}, testutil.ID(23), forwarding.ErrPeer},
+		{"spoofed source", func(p *packet.Packet) { p.Payload = ipPacket(4, 3) }, testutil.ID(20), forwarding.ErrSource},
+		{"spoofed destination", func(p *packet.Packet) { p.Payload = ipPacket(1, 4) }, testutil.ID(20), forwarding.ErrDestination},
+		{"unknown source", func(p *packet.Packet) { p.Header.Source = testutil.ID(999) }, testutil.ID(20), forwarding.ErrSource},
+		{"forged local source", func(p *packet.Packet) { p.Header.Source = testutil.ID(21); p.Payload = ipPacket(2, 3) }, testutil.ID(20), forwarding.ErrSource},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := original
+			tt.change(&p)
+			frame, err := p.MarshalBinary()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := router.FromPeer(context.Background(), tt.peer, frame); !errors.Is(err, tt.want) {
+				t.Fatalf("got %v want %v", err, tt.want)
+			}
+		})
+	}
+	if sent != 0 || delivered != 0 {
+		t.Fatal("rejected packets escaped admission")
+	}
+	if err := router.FromTunnel(context.Background(), testutil.ID(1), ipPacket(1, 3)); !errors.Is(err, forwarding.ErrSource) {
+		t.Fatal("local TUN source spoof accepted")
+	}
+}

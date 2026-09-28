@@ -8,7 +8,7 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Validated Network / Agent / Node / Endpoint / Edge models, stable IDs.
 - [x] Deterministic weighted routing, isolated Nodes, disabled Edges, equal costs.
 - [x] Per-agent topology compilation with peer identities and address directory.
-- [ ] Versioned bounded packet header, network isolation, hop limit, flow identity.
+- [x] Versioned bounded packet header, network isolation, hop limit, flow identity.
 - [x] Atomic persistent revision transactions and restart recovery.
 
 ## Controller
@@ -86,3 +86,18 @@ Every feature below derives from the accepted proposal, including its suggestion
   outage behavior remains unverified and its acceptance item stays open.
 - Enrollment response loss: an exact idempotent retry recovers the original
   certificate and Agent ID without consuming a second revision or identity.
+
+- Peer security: Noise XX and Ed25519 binding, separate directional keys,
+  tamper rejection, topology/transport binding, out-of-order replay window,
+  concurrent nonce uniqueness and session age/message limits are tested.
+- Actual TCP/UDP sockets: authenticated channel round trips pass, including loss
+  of each UDP handshake message and duplicate handshake/data delivery. Queue and
+  connection bounds are implemented. Other transport adapters and automatic
+  session replacement remain pending.
+- Forwarding engine: IP packets traverse A→B→C and C→B→A over actual encrypted
+  TCP and UDP channels. Tests reject unknown Networks, nonadjacent senders,
+  mismatched IP/Node addresses, spoofed local sources and exhausted hop limits.
+  Native TUN delivery and full Agent runtime integration are still pending.
+
+- Handshake input fuzzing completed 33,365 executions without failure. This
+  exercises bounded malformed-message parsing, not a cryptographic proof.
