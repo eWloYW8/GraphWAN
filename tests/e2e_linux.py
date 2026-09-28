@@ -242,6 +242,10 @@ def main():
                     return False
                 active = {}
                 for report in reports:
+                    resources = report.get("resources", {})
+                    if resources.get("cpu_percent") is None or resources.get("logical_cpus", 0) < 1 or resources.get("go_memory_bytes", 0) <= 0 or resources.get("goroutines", 0) <= 0:
+                        return False
+                    assert resources["cpu_percent"] >= 0 and resources["heap_bytes"] <= resources["go_memory_bytes"], "invalid process resource report"
                     healthy = {}
                     for link in report["links"] or []:
                         if link["healthy"]:

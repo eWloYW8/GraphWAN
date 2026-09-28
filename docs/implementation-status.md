@@ -21,7 +21,7 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] TCP/UDP observed endpoint exchange and rendezvous through peer snapshots, never relay.
 - [ ] Broader NAT/platform acceptance beyond the verified Linux scenarios.
 - [x] Batched live telemetry, stale/offline state and bounded event streaming.
-- [ ] Agent CPU/resource telemetry and its UI display from the accepted suggestions.
+- [x] Agent process CPU/Go memory/runtime telemetry with table and Node-detail display.
 
 ## Agent and forwarding
 
@@ -246,3 +246,16 @@ Every feature below derives from the accepted proposal, including its suggestion
   frontend tests/build/format/browser checks, and the four existing core
   cross-build targets pass. Native non-Linux adapters and detection of arbitrary
   external route/address edits remain outside this evidence.
+
+- Resource telemetry: interval tests distinguish unavailable CPU from measured
+  zero, support multi-core values above 100%, reject invalid/reset counters and
+  verify cached/concurrent sample ownership. Native Linux CPU work advances the
+  OS process counter; the three-Agent TUN test requires actual resources from all
+  Agents. Real TLS controller/client integration verifies validated CPU/memory
+  reports reaching the management API. Browser tests verify table and Node
+  details, missing versus zero CPU, offline Agents and a disconnected live stream;
+  the resource detail screenshot is inspected. Full Go race tests, vet, frontend
+  build/tests/format/browser checks pass. Core cross-builds pass for
+  Windows/amd64, macOS/arm64, FreeBSD/amd64, Linux/arm64, OpenBSD/amd64 and
+  NetBSD/amd64. Non-Linux native resource sampling and TUN support remain part
+  of the open platform acceptance matrix. See [resource telemetry](resource-telemetry.md).

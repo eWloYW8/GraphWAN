@@ -14,6 +14,7 @@ import {
   type Node as FlowNode,
 } from '@xyflow/react'
 import { Server, Plus, Settings2, Cable, CircleDot } from 'lucide-react'
+import { ResourceDetails } from './Resources'
 import { Badge, Field } from './components'
 import {
   type State,
@@ -337,6 +338,7 @@ export default function Topology({
               <dt>Node ID</dt>
               <dd className="mono">{shortID(node.id)}</dd>
             </dl>
+            <ResourceDetails status={agentStatus} live={live} />
             {agentStatus?.config_error && (
               <p role="alert" className="error">
                 {agentStatus.config_error}

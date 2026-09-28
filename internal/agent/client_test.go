@@ -179,7 +179,7 @@ func TestClientControlAndOfflineRestart(t *testing.T) {
 	waitFor(t, func() bool {
 		var reports []model.AgentStatus
 		h.request(t, "GET", "/api/v1/telemetry", nil, "", 200, &reports)
-		return len(reports) == 1 && reports[0].AppliedRevision == next.Revision
+		return len(reports) == 1 && reports[0].AppliedRevision == next.Revision && reports[0].Resources != nil && reports[0].Resources.CPUPercent != nil && reports[0].Resources.Validate() == nil
 	})
 	// A device failure is runtime health, not a configuration-application failure.
 	runtime.mu.Lock()

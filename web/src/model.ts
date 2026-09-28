@@ -57,7 +57,16 @@ export type Link = {
   rx_bytes: number
   tx_bytes: number
 }
+export type ResourceUsage = {
+  cpu_percent?: number
+  logical_cpus: number
+  go_memory_bytes: number
+  heap_bytes: number
+  goroutines: number
+  uptime_seconds: number
+}
 export type AgentStatus = {
+  resources?: ResourceUsage
   agent_id: string
   connected: boolean
   last_seen: string

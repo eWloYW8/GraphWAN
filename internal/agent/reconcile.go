@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/graphwan/graphwan/internal/model"
+	"github.com/graphwan/graphwan/internal/resources"
 )
 
 // Runtime.Apply must either install the whole snapshot or return an error while
@@ -24,6 +25,7 @@ func (e *ApplyError) Unwrap() error { return e.Err }
 
 type Reconciler struct {
 	cache       *Cache
+	resources   *resources.Sampler
 	runtime     Runtime
 	applyMu     sync.Mutex
 	mu          sync.Mutex
@@ -33,12 +35,13 @@ type Reconciler struct {
 }
 
 func NewReconciler(cache *Cache, runtime Runtime) *Reconciler {
-	return &Reconciler{cache: cache, runtime: runtime}
+	return &Reconciler{cache: cache, runtime: runtime, resources: resources.New()}
 }
 func (r *Reconciler) Report(version string) model.AgentReport {
 	r.mu.Lock()
 	report := model.AgentReport{Version: version, AppliedRevision: r.applied, ConfigError: r.configError}
 	r.mu.Unlock()
+	report.Resources = r.resources.Sample()
 	report.Links = r.runtime.Report()
 	if health, ok := r.runtime.(interface{ Health() error }); ok {
 		if err := health.Health(); err != nil {

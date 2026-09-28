@@ -38,6 +38,11 @@ TCP, UDP, QUIC, WS, WSS and gRPC data transports run in the Agent. WS/WSS requir
 and `tcp://host:port` for TCP; the two protocols can have different NAT mappings.
 Wider NAT/platform coverage remains incomplete. See [the acceptance tracker](implementation-status.md).
 
+Agent rows show process CPU and Go-managed memory. Node details additionally show
+heap memory, goroutines, logical CPUs and uptime. CPU can exceed 100% when multiple
+cores are busy. Missing or stale resource data displays as Unavailable. See
+[resource telemetry](resource-telemetry.md) for sampling and memory definitions.
+
 ## Observe actual connectivity
 
 **Observe** prevents configuration edits while allowing pan, zoom and inspection.

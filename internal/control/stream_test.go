@@ -23,6 +23,7 @@ func TestTelemetryAdmission(t *testing.T) {
 	}
 	for name, change := range map[string]func(*model.AgentReport){
 		"oversized runtime error": func(r *model.AgentReport) { r.RuntimeError = strings.Repeat("x", 4097) },
+		"invalid resources":       func(r *model.AgentReport) { r.Resources = &model.ResourceUsage{} },
 		"future revision":         func(r *model.AgentReport) { r.AppliedRevision++ },
 		"foreign edge":            func(r *model.AgentReport) { r.Links[0].EdgeID = testutil.ID(41) },
 		"disabled transport":      func(r *model.AgentReport) { r.Links[0].Transport = model.WSS },
@@ -50,13 +51,19 @@ func TestTelemetryRemovesStalePathsWithoutMutatingStoredReports(t *testing.T) {
 	state := testutil.Topology()
 	id := state.Agents[0].ID
 	link := model.LinkStatus{NetworkID: state.Networks[0].ID, EdgeID: state.Networks[0].Edges[0].ID, LinkID: "session", Transport: model.UDP, Active: true, Healthy: true, TXBytes: 1234}
-	s := &Server{statuses: map[model.ID]model.AgentStatus{id: {AgentID: id, Connected: true, LastSeen: time.Now().Add(-time.Minute), AgentReport: model.AgentReport{Links: []model.LinkStatus{link}}}}}
+	cpu := 12.5
+	usage := &model.ResourceUsage{CPUPercent: &cpu, LogicalCPUs: 2, GoMemoryBytes: 4096, HeapBytes: 1024, Goroutines: 10}
+	s := &Server{statuses: map[model.ID]model.AgentStatus{id: {AgentID: id, Connected: true, LastSeen: time.Now().Add(-time.Minute), AgentReport: model.AgentReport{Resources: usage, Links: []model.LinkStatus{link}}}}}
 	result := s.telemetry(state)
 	if result[0].Connected || result[0].Links[0].Active || result[0].Links[0].Healthy || result[0].Links[0].TXBytes != 1234 {
 		t.Fatal("stale runtime was presented as live or historical counters lost")
 	}
 	if !s.statuses[id].Links[0].Healthy || !s.statuses[id].Connected {
 		t.Fatal("serializing telemetry mutated shared reports")
+	}
+	*result[0].Resources.CPUPercent = 0
+	if *s.statuses[id].Resources.CPUPercent != 12.5 {
+		t.Fatal("returned resource snapshot aliases stored report")
 	}
 	state.Networks[0].Edges = nil
 	if len(s.telemetry(state)[0].Links) != 0 {

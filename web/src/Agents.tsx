@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Plus, Copy, Trash2, Server } from 'lucide-react'
+import { ResourceSummary } from './Resources'
 import { request, errorText } from './api'
 import { Badge, Field, Modal, ErrorBox } from './components'
 import {
@@ -343,6 +344,7 @@ export default function Agents({
               <th>Status</th>
               <th>Memberships</th>
               <th>Endpoints</th>
+              <th>Resources</th>
               <th>Version</th>
               <th>
                 <span className="sr-only">Actions</span>
@@ -372,6 +374,9 @@ export default function Agents({
                   <td>
                     {a.endpoints?.length ?? 0}
                     <small>Port {a.listen_port}</small>
+                  </td>
+                  <td>
+                    <ResourceSummary status={status} live={live} />
                   </td>
                   <td>{status?.version || '—'}</td>
                   <td>

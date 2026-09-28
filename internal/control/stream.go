@@ -204,6 +204,11 @@ func validateReport(snapshot model.Snapshot, report model.AgentReport) error {
 	if report.AppliedRevision > snapshot.Revision || len(report.Version) > 128 || len(report.ConfigError) > 4096 || len(report.RuntimeError) > 4096 || len(report.Links) > 4096 {
 		return errors.New("invalid agent report")
 	}
+	if report.Resources != nil {
+		if err := report.Resources.Validate(); err != nil {
+			return err
+		}
+	}
 	edges := map[[2]model.ID]model.Edge{}
 	for _, n := range snapshot.Networks {
 		for _, peer := range n.Peers {
@@ -325,6 +330,7 @@ func (s *Server) telemetry(state model.State) []model.AgentStatus {
 	for _, a := range state.Agents {
 		status := s.statuses[a.ID]
 		status.AgentID = a.ID
+		status.Resources = status.Resources.Clone()
 		if a.Revoked || time.Since(status.LastSeen) > 45*time.Second {
 			status.Connected = false
 		}

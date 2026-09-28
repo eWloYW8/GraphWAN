@@ -253,6 +253,14 @@ test('live view: agreeing paths, report-time rates, preference editing and conne
       connected: true,
       last_seen: '2026-01-01T00:00:00Z',
       version: 'browser-fixture',
+      resources: {
+        cpu_percent: 12.5 as number | undefined,
+        logical_cpus: 4,
+        go_memory_bytes: 48000000,
+        heap_bytes: 24000000,
+        goroutines: 25,
+        uptime_seconds: 3661,
+      },
       runtime_error: '',
       applied_revision: 1,
       links: [
@@ -320,6 +328,11 @@ test('live view: agreeing paths, report-time rates, preference editing and conne
     update,
   )
   await expect(page.getByText('UDP · 17.5 ms · 1.0 Mbps', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Agents', exact: false }).first().click()
+  const agentRow = page.getByRole('row').filter({ hasText: 'Paris' })
+  await expect(agentRow).toContainText('CPU 12.5%')
+  await expect(agentRow).toContainText('Go memory 48.0 MB')
+  await page.getByRole('button', { name: 'Production backbone', exact: true }).click()
   update.agents[0].runtime_error = 'network Production backbone: TUN device unavailable'
   await page.evaluate(
     (sample) =>
@@ -345,6 +358,42 @@ test('live view: agreeing paths, report-time rates, preference editing and conne
   await expect(
     page.locator('.react-flow__node').filter({ hasText: 'Paris' }).getByTitle('Online'),
   ).toBeVisible()
+  const resourceDetails = page.locator('dl[aria-label="Agent resources"]')
+  await expect(resourceDetails).toContainText('12.5%')
+  await expect(resourceDetails).toContainText('48.0 MB')
+  await expect(resourceDetails).toContainText('24.0 MB')
+  await expect(resourceDetails).toContainText('1h 1m')
+  await page.screenshot({ path: 'test-results/node-resources-desktop.png', fullPage: true })
+  update.agents[0].connected = false
+  await page.evaluate(
+    (sample) =>
+      (window as unknown as { source: EventTarget }).source.dispatchEvent(
+        new MessageEvent('snapshot', { data: JSON.stringify(sample) }),
+      ),
+    update,
+  )
+  await expect(resourceDetails).toContainText('Unavailable')
+  await expect(resourceDetails).not.toContainText('48.0 MB')
+  update.agents[0].connected = true
+  update.agents[0].resources.cpu_percent = undefined
+  await page.evaluate(
+    (sample) =>
+      (window as unknown as { source: EventTarget }).source.dispatchEvent(
+        new MessageEvent('snapshot', { data: JSON.stringify(sample) }),
+      ),
+    update,
+  )
+  await expect(resourceDetails).toContainText('Unavailable')
+  await expect(resourceDetails).toContainText('48.0 MB')
+  update.agents[0].resources.cpu_percent = 0
+  await page.evaluate(
+    (sample) =>
+      (window as unknown as { source: EventTarget }).source.dispatchEvent(
+        new MessageEvent('snapshot', { data: JSON.stringify(sample) }),
+      ),
+    update,
+  )
+  await expect(resourceDetails).toContainText('0.0%')
   await page.getByRole('button', { name: 'Back to network details' }).click()
   await page.getByRole('button', { name: 'Paris ↔ Tokyo Weight 10' }).click()
   await expect(page.getByText('17.5 ms RTT')).toHaveCount(2)
@@ -370,4 +419,8 @@ test('live view: agreeing paths, report-time rates, preference editing and conne
   await expect(page.getByText('Reconnecting', { exact: true })).toBeVisible()
   await expect(page.getByText('Unknown', { exact: true })).toHaveCount(3)
   await expect(page.getByText('0 online', { exact: true })).toHaveCount(0)
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Agents', exact: false }).first().click()
+  await expect(agentRow).toContainText('Unavailable')
+  await expect(agentRow).not.toContainText('48.0 MB')
 })

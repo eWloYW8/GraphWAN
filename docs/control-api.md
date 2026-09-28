@@ -108,6 +108,8 @@ configuration application. `runtime_error` independently reports current TUN
 failure/recovery problems (at most 4096 bytes); it clears after local recovery.
 A runtime error does not roll back `applied_revision` or imply that healthy peer
 Links have disconnected.
+Reports can also include optional process `resources`; see [resource telemetry](resource-telemetry.md)
+for field definitions, CPU units, missing samples and stale-data handling.
 
 ## Browser live snapshots
 
