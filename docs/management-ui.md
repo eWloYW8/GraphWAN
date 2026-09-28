@@ -42,8 +42,9 @@ Wider NAT/platform coverage remains incomplete. See [the acceptance tracker](imp
 
 **Observe** prevents configuration edits while allowing pan, zoom and inspection.
 Node state is independent of Edge connectivity: a connected control channel does
-not prove an underlay Link is working. Config application errors appear in Node
-and Agent details. Edge state is connected only when both reports select the same
+not prove an underlay Link is working. Config application errors and current TUN runtime errors appear in Node
+and Agent details. A runtime fault marks the Agent as Error without changing its
+applied revision; the error clears after automatic local recovery. Edge state is connected only when both reports select the same
 healthy Link. Partial/asynchronous agreement appears as switching.
 
 The graph displays active transport, RTT and transmit rate from one reporting

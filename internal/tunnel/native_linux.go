@@ -3,6 +3,7 @@
 package tunnel
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -77,10 +78,16 @@ func Open(config Config) (Device, error) {
 	success = true
 	return device, nil
 }
-func (d *native) Name() string                  { return d.config.Name }
-func (d *native) Configuration() Config         { return d.config }
-func (d *native) Read(raw []byte) (int, error)  { return d.file.Read(raw) }
-func (d *native) Write(raw []byte) (int, error) { return d.file.Write(raw) }
+func (d *native) Name() string                 { return d.config.Name }
+func (d *native) Configuration() Config        { return d.config }
+func (d *native) Read(raw []byte) (int, error) { return d.file.Read(raw) }
+func (d *native) Write(raw []byte) (int, error) {
+	n, err := d.file.Write(raw)
+	if errors.Is(err, unix.ENODEV) || errors.Is(err, unix.EIO) {
+		return n, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	return n, err
+}
 func (d *native) Close() error {
 	d.once.Do(func() { d.closeError = d.file.Close() })
 	return d.closeError

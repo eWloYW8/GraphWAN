@@ -181,6 +181,23 @@ func TestClientControlAndOfflineRestart(t *testing.T) {
 		h.request(t, "GET", "/api/v1/telemetry", nil, "", 200, &reports)
 		return len(reports) == 1 && reports[0].AppliedRevision == next.Revision
 	})
+	// A device failure is runtime health, not a configuration-application failure.
+	runtime.mu.Lock()
+	runtime.healthError = errors.New("network Office: TUN device unavailable")
+	runtime.mu.Unlock()
+	waitFor(t, func() bool {
+		var reports []model.AgentStatus
+		h.request(t, "GET", "/api/v1/telemetry", nil, "", 200, &reports)
+		return len(reports) == 1 && reports[0].RuntimeError != "" && reports[0].ConfigError == "" && reports[0].AppliedRevision == next.Revision
+	})
+	runtime.mu.Lock()
+	runtime.healthError = nil
+	runtime.mu.Unlock()
+	waitFor(t, func() bool {
+		var reports []model.AgentStatus
+		h.request(t, "GET", "/api/v1/telemetry", nil, "", 200, &reports)
+		return len(reports) == 1 && reports[0].RuntimeError == "" && reports[0].AppliedRevision == next.Revision
+	})
 	desired, applied, err := cache.Snapshots()
 	if err != nil || desired.Revision != next.Revision || applied.Revision != next.Revision {
 		t.Fatalf("configuration was not persisted: %v", err)

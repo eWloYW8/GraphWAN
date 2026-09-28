@@ -201,7 +201,7 @@ func (s *Server) readAgent(ctx context.Context, conn *websocket.Conn, id model.I
 }
 
 func validateReport(snapshot model.Snapshot, report model.AgentReport) error {
-	if report.AppliedRevision > snapshot.Revision || len(report.Version) > 128 || len(report.ConfigError) > 4096 || len(report.Links) > 4096 {
+	if report.AppliedRevision > snapshot.Revision || len(report.Version) > 128 || len(report.ConfigError) > 4096 || len(report.RuntimeError) > 4096 || len(report.Links) > 4096 {
 		return errors.New("invalid agent report")
 	}
 	edges := map[[2]model.ID]model.Edge{}

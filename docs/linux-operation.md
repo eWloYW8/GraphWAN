@@ -32,6 +32,16 @@ remains in progress. See the acceptance tracker.
 - Every Network gets an owned, nonpersistent TUN interface with a random `gw...`
   name, configured address, MTU and kernel route. Interfaces are created
   exclusively: the process cannot attach to an existing interface by accident.
+- Fatal TUN read errors or unavailable-device writes retire only that device.
+  A local recovery loop recreates its interface, address, route and MTU even while
+  the controller is offline. Retry delays start at one second and double to 30
+  seconds, with a one-second scheduling granularity; a device that runs for a
+  minute resets the delay. Other Networks, routing tables and peer sessions stay
+  intact. Packet rejection or congestion alone does not trigger device recovery.
+  The Agent reports `runtime_error` separately from configuration errors; the UI
+  shows the fault until recovery succeeds. This handles detected I/O failures;
+  it does not yet monitor arbitrary external address/route edits that leave I/O
+  operational.
 - Configuration changes prepare required resources before replacing the current
   routing state. Failed preparation closes new resources and retains existing
   interfaces and connections. Changing only graph weights preserves peer sessions.
@@ -89,5 +99,6 @@ The process test needs Python 3.8+, `ip`, `unshare`, `nsenter`, `ping`, and `sle
 It creates three child namespaces, connects their veth NICs to an isolated bridge,
 runs the actual controller and Agent binaries, and transfers traffic through their
 native TUNs. It then stops the controller, restarts the transit Agent offline,
-repeats the traffic checks, and checks that TUNs disappear on shutdown. All child
+deletes an endpoint TUN while offline and verifies automatic interface/route/MTU
+recovery and traffic, then checks that TUNs disappear on shutdown. All child
 processes and namespaces are cleaned up on success or failure.

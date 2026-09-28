@@ -279,6 +279,21 @@ def main():
             eventually(ping)
             eventually(exchange)
             print("PASS: controller outage preserves native multi-hop traffic", flush=True)
+            # Delete an endpoint's owned TUN while the controller is unavailable.
+            # Recovery must restore address/route/MTU locally and retain peer Links.
+            origin = ["nsenter", "-t", str(namespaces[0].pid), "-n"]
+            links = json.loads(command(*origin, "ip", "-j", "link", "show").stdout)
+            owned = [item["ifname"] for item in links if item["ifname"].startswith("gw")]
+            assert len(owned) == 1, "expected one owned TUN before fault injection"
+            command(*origin, "ip", "link", "delete", "dev", owned[0])
+            def recovered_tun():
+                links = json.loads(command(*origin, "ip", "-j", "link", "show").stdout)
+                devices = [item for item in links if item["ifname"].startswith("gw")]
+                return len(devices) == 1 and devices[0]["ifname"] != owned[0] and devices[0]["mtu"] == args.mtu
+            eventually(recovered_tun)
+            eventually(ping)
+            eventually(exchange)
+            print("PASS: deleted native TUN recovers its route/MTU and traffic with controller offline", flush=True)
             stop(agents[1])
             agents[1] = spawn("agent-1-restarted", agent_commands[1], dict(os.environ, HTTP_PROXY="", HTTPS_PROXY="", ALL_PROXY=""))
             eventually(ping)

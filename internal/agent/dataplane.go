@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/netip"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -28,7 +30,7 @@ type runtimeState struct {
 	snapshot model.Snapshot
 	router   *forwarding.Router
 	mesh     *mesh.Mesh
-	devices  map[model.ID]tunnel.Device
+	devices  map[model.ID]*runtimeTunnel
 }
 
 type DataPlane struct {
@@ -41,6 +43,7 @@ type DataPlane struct {
 	wg            sync.WaitGroup
 	closed        bool
 	discoveryWake chan struct{}
+	repairWake    chan struct{}
 }
 
 func NewDataPlane(parent context.Context, identity ed25519.PrivateKey, options DataPlaneOptions) (*DataPlane, error) {
@@ -54,7 +57,9 @@ func NewDataPlane(parent context.Context, identity ed25519.PrivateKey, options D
 		options.Logger = slog.Default()
 	}
 	ctx, cancel := context.WithCancel(parent)
-	runtime := &DataPlane{identity: append(ed25519.PrivateKey{}, identity...), options: options, ctx: ctx, cancel: cancel, discoveryWake: make(chan struct{}, 1)}
+	runtime := &DataPlane{identity: append(ed25519.PrivateKey{}, identity...), options: options, ctx: ctx, cancel: cancel, discoveryWake: make(chan struct{}, 1), repairWake: make(chan struct{}, 1)}
+	runtime.wg.Add(1)
+	go runtime.repairLoop()
 	if options.Endpoints != nil {
 		runtime.wg.Add(1)
 		go runtime.discover()
@@ -77,7 +82,7 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 	if previous != nil && (previous.snapshot.AgentID != snapshot.AgentID || previous.snapshot.Revision > snapshot.Revision) {
 		return errors.New("runtime identity change or revision rollback")
 	}
-	next := &runtimeState{snapshot: snapshot.Clone(), devices: map[model.ID]tunnel.Device{}}
+	next := &runtimeState{snapshot: snapshot.Clone(), devices: map[model.ID]*runtimeTunnel{}}
 	prepared := []tunnel.Device{}
 	committed := false
 	newMesh := false
@@ -94,7 +99,7 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 	for _, network := range snapshot.Networks {
 		cfg := tunnel.Config{Address: netip.PrefixFrom(network.Self.Address, network.CIDR.Bits()), MTU: network.MTU}
 		if previous != nil {
-			if old := previous.devices[network.ID]; old != nil && old.Configuration().Address == cfg.Address && old.Configuration().MTU == cfg.MTU {
+			if old := previous.devices[network.ID]; old != nil && old.failure.Load() == nil && old.Configuration().Address == cfg.Address && old.Configuration().MTU == cfg.MTU {
 				next.devices[network.ID] = old
 				continue
 			}
@@ -104,7 +109,7 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 			return fmt.Errorf("network %s: %w", network.Name, err)
 		}
 		prepared = append(prepared, device)
-		next.devices[network.ID] = device
+		next.devices[network.ID] = newRuntimeTunnel(device)
 	}
 	if previous != nil && previous.snapshot.ListenPort == snapshot.ListenPort {
 		next.mesh = previous.mesh
@@ -178,18 +183,16 @@ func (r *DataPlane) Close() error {
 	r.wg.Wait()
 	return nil
 }
-func (r *DataPlane) readTunnel(network model.ID, device tunnel.Device) {
+func (r *DataPlane) readTunnel(network model.ID, device *runtimeTunnel) {
 	defer r.wg.Done()
 	buffer := make([]byte, packet.MaxPayload+1)
 	for {
 		n, err := device.Read(buffer)
+		if err == nil && n == 0 {
+			err = io.ErrNoProgress
+		}
 		if err != nil {
-			if r.ctx.Err() == nil {
-				state := r.state.Load()
-				if state != nil && state.devices[network] == device {
-					r.options.Logger.Error("TUN read stopped", "network", network, "error", err)
-				}
-			}
+			r.failTunnel(network, device, err)
 			return
 		}
 		state := r.state.Load()
@@ -217,7 +220,13 @@ func (r *DataPlane) deliver(ctx context.Context, network model.ID, raw []byte) e
 	if device == nil {
 		return forwarding.ErrNetwork
 	}
+	if device.failure.Load() != nil {
+		return tunnel.ErrUnavailable
+	}
 	n, err := device.Write(raw)
+	if errors.Is(err, tunnel.ErrUnavailable) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrClosed) {
+		r.failTunnel(network, device, err)
+	}
 	if err == nil && n != len(raw) {
 		return io.ErrShortWrite
 	}

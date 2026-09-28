@@ -20,6 +20,7 @@ type testRuntime struct {
 	mu           sync.Mutex
 	applied      []model.Snapshot
 	failRevision uint64
+	healthError  error
 	before       func(model.Snapshot)
 }
 
@@ -36,6 +37,7 @@ func (r *testRuntime) Apply(ctx context.Context, s model.Snapshot) error {
 	return nil
 }
 func (r *testRuntime) Report() []model.LinkStatus { return nil }
+func (r *testRuntime) Health() error              { r.mu.Lock(); defer r.mu.Unlock(); return r.healthError }
 func (r *testRuntime) last() (model.Snapshot, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

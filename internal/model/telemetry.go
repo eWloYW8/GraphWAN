@@ -20,6 +20,7 @@ type AgentReport struct {
 	Version         string       `json:"version"`
 	AppliedRevision uint64       `json:"applied_revision"`
 	ConfigError     string       `json:"config_error,omitempty"`
+	RuntimeError    string       `json:"runtime_error,omitempty"`
 	Links           []LinkStatus `json:"links"`
 }
 type AgentStatus struct {

@@ -2,6 +2,7 @@ package control
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,11 +22,12 @@ func TestTelemetryAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, change := range map[string]func(*model.AgentReport){
-		"future revision":    func(r *model.AgentReport) { r.AppliedRevision++ },
-		"foreign edge":       func(r *model.AgentReport) { r.Links[0].EdgeID = testutil.ID(41) },
-		"disabled transport": func(r *model.AgentReport) { r.Links[0].Transport = model.WSS },
-		"invalid latency":    func(r *model.AgentReport) { r.Links[0].RTTMillis = math.NaN() },
-		"invalid loss":       func(r *model.AgentReport) { r.Links[0].Loss = math.Inf(1) },
+		"oversized runtime error": func(r *model.AgentReport) { r.RuntimeError = strings.Repeat("x", 4097) },
+		"future revision":         func(r *model.AgentReport) { r.AppliedRevision++ },
+		"foreign edge":            func(r *model.AgentReport) { r.Links[0].EdgeID = testutil.ID(41) },
+		"disabled transport":      func(r *model.AgentReport) { r.Links[0].Transport = model.WSS },
+		"invalid latency":         func(r *model.AgentReport) { r.Links[0].RTTMillis = math.NaN() },
+		"invalid loss":            func(r *model.AgentReport) { r.Links[0].Loss = math.Inf(1) },
 		"two active links": func(r *model.AgentReport) {
 			extra := r.Links[0]
 			extra.LinkID = "live-2"

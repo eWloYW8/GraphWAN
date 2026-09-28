@@ -361,6 +361,7 @@ export default function Agents({
                   <td>
                     <Badge>{nodeState(a, status, live)}</Badge>
                     {status?.config_error && <small className="red">{status.config_error}</small>}
+                    {status?.runtime_error && <small className="red">{status.runtime_error}</small>}
                   </td>
                   <td>
                     {state.networks

@@ -41,6 +41,11 @@ func (c Config) withName() Config {
 	return c
 }
 
+// ErrUnavailable marks a failed device rather than a single rejected packet.
+var ErrUnavailable = errors.New("TUN device unavailable")
+
+// Device supports one reader and concurrent packet writes. Close is idempotent
+// and interrupts pending I/O; it releases only resources owned by this device.
 type Device interface {
 	io.ReadWriteCloser
 	Name() string

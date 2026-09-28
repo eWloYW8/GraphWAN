@@ -103,7 +103,11 @@ that Agent from other peers' compiled connectivity.
 
 `GET /telemetry` returns the latest batched reports with `last_seen` and
 `connected`; stale reports become offline after 45 seconds. These are observed
-runtime values and do not mutate desired topology.
+runtime values and do not mutate desired topology. `config_error` reports a failed
+configuration application. `runtime_error` independently reports current TUN
+failure/recovery problems (at most 4096 bytes); it clears after local recovery.
+A runtime error does not roll back `applied_revision` or imply that healthy peer
+Links have disconnected.
 
 ## Browser live snapshots
 

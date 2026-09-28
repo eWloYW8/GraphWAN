@@ -64,6 +64,7 @@ export type AgentStatus = {
   version: string
   applied_revision: number
   config_error?: string
+  runtime_error?: string
   links: Link[] | null
 }
 export type Snapshot = { at: string; revision: number; state?: State; agents: AgentStatus[] }
@@ -115,7 +116,7 @@ export function nodeState(
   if (agent?.revoked) return 'Revoked'
   if (!live) return 'Unknown'
   if (!status?.connected) return 'Offline'
-  if (status.config_error) return 'Error'
+  if (status.config_error || status.runtime_error) return 'Error'
   return 'Online'
 }
 export type EdgeView = {

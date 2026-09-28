@@ -342,6 +342,11 @@ export default function Topology({
                 {agentStatus.config_error}
               </p>
             )}
+            {agentStatus?.runtime_error && (
+              <p role="alert" className="error">
+                {agentStatus.runtime_error}
+              </p>
+            )}
             <h4>Advertised endpoints</h4>
             {agent?.endpoints?.length ? (
               agent.endpoints.map((ep) => (

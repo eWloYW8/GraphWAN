@@ -40,6 +40,14 @@ func (r *Reconciler) Report(version string) model.AgentReport {
 	report := model.AgentReport{Version: version, AppliedRevision: r.applied, ConfigError: r.configError}
 	r.mu.Unlock()
 	report.Links = r.runtime.Report()
+	if health, ok := r.runtime.(interface{ Health() error }); ok {
+		if err := health.Health(); err != nil {
+			report.RuntimeError = err.Error()
+			if len(report.RuntimeError) > 4096 {
+				report.RuntimeError = report.RuntimeError[:4096]
+			}
+		}
+	}
 	return report
 }
 func (r *Reconciler) status(revision uint64, err error) {

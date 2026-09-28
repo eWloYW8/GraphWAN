@@ -253,6 +253,7 @@ test('live view: agreeing paths, report-time rates, preference editing and conne
       connected: true,
       last_seen: '2026-01-01T00:00:00Z',
       version: 'browser-fixture',
+      runtime_error: '',
       applied_revision: 1,
       links: [
         {
@@ -319,6 +320,32 @@ test('live view: agreeing paths, report-time rates, preference editing and conne
     update,
   )
   await expect(page.getByText('UDP · 17.5 ms · 1.0 Mbps', { exact: true })).toBeVisible()
+  update.agents[0].runtime_error = 'network Production backbone: TUN device unavailable'
+  await page.evaluate(
+    (sample) =>
+      (window as unknown as { source: EventTarget }).source.dispatchEvent(
+        new MessageEvent('snapshot', { data: JSON.stringify(sample) }),
+      ),
+    update,
+  )
+  await page.locator('.react-flow__node').filter({ hasText: 'Paris' }).click()
+  await expect(page.getByRole('alert')).toContainText('TUN device unavailable')
+  await expect(
+    page.locator('.react-flow__node').filter({ hasText: 'Paris' }).getByTitle('Error'),
+  ).toBeVisible()
+  update.agents[0].runtime_error = ''
+  await page.evaluate(
+    (sample) =>
+      (window as unknown as { source: EventTarget }).source.dispatchEvent(
+        new MessageEvent('snapshot', { data: JSON.stringify(sample) }),
+      ),
+    update,
+  )
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(
+    page.locator('.react-flow__node').filter({ hasText: 'Paris' }).getByTitle('Online'),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Back to network details' }).click()
   await page.getByRole('button', { name: 'Paris ↔ Tokyo Weight 10' }).click()
   await expect(page.getByText('17.5 ms RTT')).toHaveCount(2)
   await page.evaluate(() => scrollTo(0, 0))

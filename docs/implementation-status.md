@@ -27,7 +27,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 
 - [x] Runnable agent CLI, durable private identity and cached configuration.
 - [x] Validate → persist → reconcile → ACK; old runtime retained on failed updates.
-- [ ] Per-network TUN, address/route setup and safe resource cleanup.
+- [ ] Per-network TUN, address/route setup and safe resource cleanup on all platforms.
+- [x] Local recovery from fatal TUN I/O, independent runtime health and Linux offline recovery.
 - [x] Actual multi-hop IP forwarding and network/source admission enforcement.
 - [x] TCP framing, native UDP and WS/WSS binary-message transports.
 - [x] gRPC bidirectional streams through manual endpoints.
@@ -227,3 +228,21 @@ Every feature below derives from the accepted proposal, including its suggestion
   Core cross-builds pass for Windows/amd64, macOS/arm64, FreeBSD/amd64 and
   Linux/arm64. Native non-Linux adapters, broader TCP NAT behavior and the other
   unchecked requirements above remain unverified or incomplete.
+
+- TUN runtime recovery: a failed reader or unavailable-device write retires that
+  device and publishes an independent runtime error. A bounded local retry loop
+  recreates only the failed interface with its address/route/MTU; unchanged Mesh,
+  router, healthy Networks and durable applied revision are preserved. Ten
+  race-enabled Agent test repetitions cover factory failures/backoff, local packet
+  delivery after recovery, unaffected Networks, stale-device errors, same-config
+  reapplication, membership removal and shutdown. A regression test verifies that
+  a fatal delivery callback does not wait on the configuration lock while a Mesh
+  may be retiring. Real TLS controller/client integration verifies runtime-error
+  publication and clearing without changing applied revision; browser tests verify
+  the Node error indicator and recovery. Native direct TCP/UDP and TCP-punch-only
+  tests delete a real endpoint TUN after controller shutdown, then verify a new
+  interface, restored MTU, multi-hop ICMP/TCP and final cleanup. The TCP NAT case
+  uses 9000-byte overlay MTU over a 1280-byte underlay. Full Go race tests and vet,
+  frontend tests/build/format/browser checks, and the four existing core
+  cross-build targets pass. Native non-Linux adapters and detection of arbitrary
+  external route/address edits remain outside this evidence.
