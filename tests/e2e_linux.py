@@ -41,10 +41,10 @@ def main():
                         help="auto/udp/tcp use discovered endpoints; other transports require manual endpoints")
     parser.add_argument("--mtu", type=int, default=1280, help="overlay TUN MTU")
     parser.add_argument("--underlay-mtu", type=int, default=1500, help="isolated bridge/veth MTU")
-    parser.add_argument("--nat", action="store_true", help="place each agent behind a separate restricted NAT; requires --transport udp and iptables")
+    parser.add_argument("--nat", action="store_true", help="place each agent behind a separate restricted NAT; requires --transport udp/tcp and iptables")
     args = parser.parse_args()
-    if args.nat and args.transport != "udp":
-        parser.error("--nat currently verifies UDP punching; use --transport udp")
+    if args.nat and args.transport not in ("udp", "tcp"):
+        parser.error("--nat verifies UDP or TCP punching")
     if not 1280 <= args.mtu <= 9000 or not 1280 <= args.underlay_mtu <= 9000:
         parser.error("MTUs must be between 1280 and 9000")
     if os.geteuid() != 0 or os.readlink("/proc/self/ns/net") == os.readlink("/proc/1/ns/net"):
@@ -116,12 +116,15 @@ def main():
                     # Unsolicited datagrams must be dropped before conntrack
                     # confirmation, rather than becoming connections to the router.
                     command(*iptables, "-A", "INPUT", "-i", "eth0", "-p", "udp", "-j", "DROP")
+                    command(*iptables, "-A", "INPUT", "-i", "eth0", "-p", "tcp", "-j", "DROP")
+                    command(*iptables, "-A", "FORWARD", "-i", "lan", "-o", "eth0", "-p", "tcp", "--sport", "24752", "--dport", "33752:33754", "--tcp-flags", "SYN,ACK", "SYN", "-m", "comment", "--comment", "graphwan-syn", "-j", "ACCEPT")
                     command(*iptables, "-A", "FORWARD", "-i", "lan", "-o", "eth0", "-j", "ACCEPT")
                     command(*iptables, "-A", "FORWARD", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT")
                     command(*iptables, "-A", "FORWARD", "-j", "DROP")
                     # Fixed remapping proves that STUN must publish the mapped port,
                     # while conntrack admits replies only from contacted peers.
                     command(*iptables, "-t", "nat", "-A", "POSTROUTING", "-o", "eth0", "-p", "udp", "--sport", "24752", "-j", "SNAT", "--to-source", f"192.0.2.{11+index}:{32752+index}")
+                    command(*iptables, "-t", "nat", "-A", "POSTROUTING", "-o", "eth0", "-p", "tcp", "--sport", "24752", "-j", "SNAT", "--to-source", f"192.0.2.{11+index}:{33752+index}")
                     command(*iptables, "-t", "nat", "-A", "POSTROUTING", "-o", "eth0", "-j", "MASQUERADE")
                     client_prefix = ["nsenter", "-t", str(holder.pid), "-n"]
                     command(*client_prefix, "ip", "link", "set", "lo", "up")
@@ -162,10 +165,13 @@ def main():
             state = eventually(lambda: (s if len(s["agents"]) == 3 and all(a["endpoints"] for a in s["agents"]) else None) if (s := api("GET", "/state")) else None)
             by_name = {a["name"]: a for a in state["agents"]}
             if args.nat:
+                stun_services = ["192.0.2.1:3478"]
+                if args.transport == "tcp":
+                    stun_services.append("tcp://192.0.2.1:3478")
                 for agent in by_name.values():
                     def configure_stun():
                         try:
-                            return api("PATCH", f"/agents/{agent['id']}", {"stun_servers": ["192.0.2.1:3478"]}, api("GET", "/state")["revision"])
+                            return api("PATCH", f"/agents/{agent['id']}", {"stun_servers": stun_services}, api("GET", "/state")["revision"])
                         except urllib.error.HTTPError as error:
                             if error.code == 409:
                                 return None
@@ -175,24 +181,32 @@ def main():
                     state = api("GET", "/state")
                     for agent in state["agents"]:
                         index = int(agent["name"].split("-")[1])
-                        expected = f"udp://192.0.2.{11+index}:{32752+index}"
-                        if not any(e["source"] == "observed" and e["url"] == expected for e in agent["endpoints"]):
-                            return False
+                        expected = [f"udp://192.0.2.{11+index}:{32752+index}"]
+                        if args.transport == "tcp":
+                            expected.append(f"tcp://192.0.2.{11+index}:{33752+index}")
+                        for url in expected:
+                            if not any(e["source"] == "observed" and e["url"] == url for e in agent["endpoints"]):
+                                return False
                     return True
                 eventually(observed)
-                print("PASS: same-socket STUN discovered all three translated UDP ports through separate NATs", flush=True)
+                print("PASS: STUN discovered the independently translated data ports through all three NATs", flush=True)
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
                     probe.bind(("192.0.2.1", 0))
                     for index in range(3):
                         probe.sendto(b"unsolicited", (f"192.0.2.{11+index}", 32752+index))
+                if args.transport == "tcp":
+                    for index in range(3):
+                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                            probe.settimeout(0.1)
+                            assert probe.connect_ex((f"192.0.2.{11+index}", 33752+index)) != 0, "NAT allowed unsolicited TCP"
                 def restricted():
                     for router in routers:
                         rules = command("nsenter", "-t", str(router.pid), "-n", "/usr/sbin/iptables", "-L", "INPUT", "-nvx").stdout
-                        if not any(len(fields := row.split()) > 2 and fields[2] == "DROP" and int(fields[0]) > 0 for row in rules.splitlines()):
+                        if not any(len(fields := row.split()) > 3 and fields[2] == "DROP" and fields[3] == args.transport and int(fields[0]) > 0 for row in rules.splitlines()):
                             return False
                     return True
                 eventually(restricted)
-                print("PASS: all three NATs reject unsolicited incoming UDP before peer punching", flush=True)
+                print(f"PASS: all three NATs reject unsolicited incoming {args.transport.upper()} before peer punching", flush=True)
             transports = ["udp", "tcp"] if args.transport == "auto" else [args.transport]
             if args.transport not in ("auto", "udp", "tcp"):
                 for index in range(3):
@@ -238,6 +252,12 @@ def main():
                         return False
                 return all(len(active.get(edge["id"], [])) == 2 and len(set(active[edge["id"]])) == 1 for edge in network["edges"])
             eventually(connected)
+            if args.nat and args.transport == "tcp":
+                for index, router in enumerate(routers):
+                    rules = command("nsenter", "-t", str(router.pid), "-n", "/usr/sbin/iptables", "-L", "FORWARD", "-nvx").stdout
+                    syns = sum(int(row.split()[0]) for row in rules.splitlines() if "graphwan-syn" in row)
+                    assert syns >= (2 if index == 1 else 1), "TCP NAT opened without outgoing peer SYNs"
+                print("PASS: outbound peer SYNs from both sides of each restricted TCP NAT pair", flush=True)
             def ping():
                 return command("nsenter", "-t", str(namespaces[0].pid), "-n", "ping", "-c", "1", "-W", "1", "-M", "do", "-s", str(args.mtu - 28), "10.42.0.3", check=False).returncode == 0
             eventually(ping)

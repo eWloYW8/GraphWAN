@@ -3,6 +3,7 @@ package mesh
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"net"
 	"net/http"
@@ -106,6 +107,21 @@ func (m *Mesh) classify(conn net.Conn) {
 		}
 		var current net.Conn = &bufferedConn{Conn: conn, reader: reader}
 		switch first[0] {
+		case 'H': // Mutually authenticated, multiplexed TCP hole-punch session.
+			session, err := transport.NewPunchMux(ctx, current, m.identity.Public().(ed25519.PublicKey), m.tls, m.allowsTCPPunch)
+			if err != nil {
+				return
+			}
+			if !stop() {
+				session.Close()
+				return
+			}
+			transferred = m.installPunch(session)
+			if transferred {
+				release()
+			} else {
+				session.Close()
+			}
 		case 0: // A length-framed GraphWAN message is bounded to 16 KiB.
 			conn.SetReadDeadline(time.Time{})
 			if !stop() {

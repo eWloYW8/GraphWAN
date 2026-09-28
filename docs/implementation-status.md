@@ -18,8 +18,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Expiring single-use enrollment; agent authentication and revocation.
 - [x] Multi-network/node/edge/endpoint CRUD with concurrency conflict handling.
 - [x] Persistent control connection, config push, applied ACK and recovery.
-- [x] Observed endpoint exchange and UDP rendezvous through peer snapshots, never relay.
-- [ ] TCP punching coordination and broader NAT/platform acceptance.
+- [x] TCP/UDP observed endpoint exchange and rendezvous through peer snapshots, never relay.
+- [ ] Broader NAT/platform acceptance beyond the verified Linux scenarios.
 - [x] Batched live telemetry, stale/offline state and bounded event streaming.
 - [ ] Agent CPU/resource telemetry and its UI display from the accepted suggestions.
 
@@ -36,7 +36,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
 - [ ] Manual hostname/path endpoints and configurable listeners (default 24752).
 - [x] STUN from the data socket and UDP punching through verified restricted NATs.
-- [ ] Supported TCP hole punching and remaining NAT cases.
+- [x] Linux TCP hole punching, independent STUN mappings and pooled authenticated sessions.
+- [ ] Remaining NAT cases and native TCP punching support on other platforms.
 - [ ] IPv4/IPv6 direct and punch allowlists, bounded scheduling/backoff.
 - [ ] All viable Links retained; one active Link, preferred/lowest RTT selection.
 - [x] Heartbeat, RTT/loss/traffic metrics, hysteresis and standby failover.
@@ -147,8 +148,8 @@ Every feature below derives from the accepted proposal, including its suggestion
   revocation reaching browser events, authentication/origin rejection, connection
   limits, session expiry/logout and controller shutdown. Slow writes have deadlines
   and cannot hold status locks; no unbounded event queue is retained.
-- UDP punching is now verified below. TCP punching and broader NAT behavior
-  remain outstanding parts of the full acceptance scope.
+- UDP and TCP punching are verified below. Broader NAT/platform behavior
+  remains outstanding as part of the full acceptance scope.
 
 - WS/WSS: real binary-message, TLS and mesh tests verify message limits,
   cancellation, shared TCP/WS/WSS listener, configured-path admission, preferred
@@ -204,4 +205,25 @@ Every feature below derives from the accepted proposal, including its suggestion
   9000-byte overlay MTU over a 1280-byte underlay. Core cross-builds with STUN pass
   for Windows/amd64, macOS/arm64, FreeBSD/amd64 and Linux/arm64.
   This is evidence for that NAT behavior,
-  not arbitrary NATs, NAT64, TCP punching or all platform adapters.
+  not arbitrary NATs, NAT64 or all platform adapters. TCP evidence follows below.
+
+- TCP punching: actual TCP sockets verify fixed-source-port dialing while the
+  peer listener stays open, persistent IPv4/IPv6 STUN observations, independent
+  TCP/UDP endpoint identities, segmented replies, malformed/oversized/foreign
+  transaction rejection, cancellation, shutdown and the 32-service connection
+  bound. Physical punch connections authenticate both announced identities with
+  pinned TLS before exposing yamux streams; forged certificates are rejected in
+  both TLS roles. Tests cover bidirectional 16 KiB messages, stream cancellation
+  isolation and the 32-stream limit. Two graph Networks share one physical TCP
+  connection and renew their independent Noise sessions after observation expiry;
+  disabling punching revokes the connection. Five race-enabled repetitions pass.
+  Native three-Agent TUN tests behind separate restricted Linux NATs verify
+  distinct TCP/UDP mapped ports, rejection of unsolicited TCP, peer SYNs from both
+  sides, punch-only multi-hop ICMP/TCP, 9000-byte overlay MTU over a 1280-byte
+  underlay, STUN/controller outages, offline transit restart and owned TUN cleanup.
+  Native UDP NAT and ordinary TCP/UDP regression cases pass. Full Go race tests,
+  vet, frontend tests/build/format checks and both browser tests pass; the real
+  controller browser case now persists TCP and UDP STUN configuration together.
+  Core cross-builds pass for Windows/amd64, macOS/arm64, FreeBSD/amd64 and
+  Linux/arm64. Native non-Linux adapters, broader TCP NAT behavior and the other
+  unchecked requirements above remain unverified or incomplete.

@@ -194,13 +194,13 @@ function AgentEditor({
           </Field>
           <Field
             label="STUN servers"
-            hint="One UDP host:port per line, up to four. Used to discover mapped addresses for hole punching. Leave empty to disable discovery."
+            hint="One service per line, up to four: host:port for UDP, tcp://host:port for TCP. Each discovers its own mapping for hole punching. Leave empty to disable discovery."
           >
             <textarea
               value={stunServers}
               rows={3}
               maxLength={1204}
-              placeholder={'stun.example.com:3478\n[2001:db8::1]:3478'}
+              placeholder={'stun.example.com:3478\ntcp://stun.example.com:3478'}
               onChange={(e) => setSTUNServers(e.target.value)}
             />
           </Field>

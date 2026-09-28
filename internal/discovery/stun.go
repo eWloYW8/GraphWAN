@@ -19,7 +19,7 @@ import (
 
 const ObservedLifetime = 2 * time.Minute
 
-type Binding func(context.Context, netip.AddrPort) (netip.AddrPort, error)
+type Binding func(context.Context, model.Transport, netip.AddrPort) (netip.AddrPort, error)
 
 // Observe resolves both address families and probes with four bounded workers.
 // The caller supplies a binding operation on its live data socket. The returned
@@ -31,14 +31,19 @@ func Observe(ctx context.Context, identity []byte, servers []string, bind Bindin
 	var workers sync.WaitGroup
 	var mu sync.Mutex
 	errs := []error{}
-	results := map[netip.AddrPort]bool{}
+	type observation struct {
+		kind    model.Transport
+		address netip.AddrPort
+	}
+	results := map[observation]bool{}
 	addError := func(err error) { mu.Lock(); errs = append(errs, err); mu.Unlock() }
 	// One worker per configured service prevents a slow service or a large DNS
 	// answer from monopolizing all probes. Each transaction gets at most a second
 	// (including its first retransmission), within the caller's round deadline.
 	for _, server := range servers {
 		workers.Go(func() {
-			host, port, _ := net.SplitHostPort(server)
+			kind, service, _ := model.ParseSTUNServer(server)
+			host, port, _ := net.SplitHostPort(service)
 			n, _ := strconv.ParseUint(port, 10, 16)
 			addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 			if err != nil {
@@ -50,14 +55,14 @@ func Observe(ctx context.Context, identity []byte, servers []string, bind Bindin
 					return
 				}
 				attempt, cancel := context.WithTimeout(ctx, time.Second)
-				mapped, err := bind(attempt, netip.AddrPortFrom(address.Unmap(), uint16(n)))
+				mapped, err := bind(attempt, kind, netip.AddrPortFrom(address.Unmap(), uint16(n)))
 				cancel()
 				if err != nil {
 					addError(err)
 					continue
 				}
 				mu.Lock()
-				results[mapped] = true
+				results[observation{kind, mapped}] = true
 				mu.Unlock()
 			}
 		})
@@ -65,10 +70,10 @@ func Observe(ctx context.Context, identity []byte, servers []string, bind Bindin
 	workers.Wait()
 	endpoints := []model.Endpoint{}
 	expires := time.Now().Add(ObservedLifetime)
-	for address := range results {
-		endpointURL := "udp://" + address.String()
+	for observed := range results {
+		endpointURL := string(observed.kind) + "://" + observed.address.String()
 		sum := sha256.Sum256(append(append([]byte{}, identity...), []byte("/observed/"+endpointURL)...))
-		endpoints = append(endpoints, model.Endpoint{ID: model.ID(hex.EncodeToString(sum[:16])), Source: model.Observed, Transport: model.UDP, URL: endpointURL, ExpiresAt: expires})
+		endpoints = append(endpoints, model.Endpoint{ID: model.ID(hex.EncodeToString(sum[:16])), Source: model.Observed, Transport: observed.kind, URL: endpointURL, ExpiresAt: expires})
 	}
 	slices.SortFunc(endpoints, func(a, b model.Endpoint) int { return cmp.Compare(a.ID, b.ID) })
 	return endpoints, errors.Join(errs...)

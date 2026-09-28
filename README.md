@@ -6,7 +6,7 @@ weighted multi-hop routing and peer-to-peer data transport.
 **Under development.** The repository is implementing the full design in
 `proposal.md`. The Linux CLI now supports authenticated TCP/UDP/QUIC/WS/WSS/gRPC multi-hop networking;
 the embedded React management UI supports topology editing and live status. Other
-platform adapters and TCP hole punching are still in progress.
+platform adapters and the remaining acceptance items are still in progress.
 Progress and verification gaps are
 tracked in [the acceptance checklist](docs/implementation-status.md).
 
@@ -53,7 +53,7 @@ advertises TCP/UDP endpoints from underlay interfaces; manual endpoints are also
 supported. QUIC, WS/WSS and gRPC use explicit manual URLs; see
 [QUIC setup](docs/quic-operation.md), [WebSocket setup](docs/websocket-operation.md)
 and [gRPC setup](docs/grpc-operation.md).
-For STUN discovery and UDP hole punching, see [NAT setup](docs/nat-operation.md).
+For STUN discovery and TCP/UDP hole punching, see [NAT setup](docs/nat-operation.md).
 The default peer listen port is 24752. No controller packet relay is
 used. Agents keep forwarding and can restart from cached configuration while the
 controller is unavailable.

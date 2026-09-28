@@ -9,12 +9,12 @@ import (
 )
 
 func TestSTUNConfigurationValidationAndIsolation(t *testing.T) {
-	for _, servers := range [][]string{nil, {"stun.example.test:3478", "[2001:db8::1]:3478"}, {"127.0.0.1:1"}} {
+	for _, servers := range [][]string{nil, {"stun.example.test:3478", "[2001:db8::1]:3478"}, {"127.0.0.1:1"}, {"udp://host:3478", "tcp://host:3478", "tcp://[2001:db8::1]:3478"}} {
 		if err := model.ValidateSTUNServers(servers); err != nil {
 			t.Fatal(servers, err)
 		}
 	}
-	for _, servers := range [][]string{{"stun.example.test"}, {"stun://host:3478"}, {"user@host:3478"}, {"host:0"}, {"host:65536"}, {"[::]:3478"}, {"224.0.0.1:3478"}, {"[fe80::1%eth0]:3478"}, {"Host:3478", "host:3478"}, {"a:1", "b:1", "c:1", "d:1", "e:1"}} {
+	for _, servers := range [][]string{{"stun.example.test"}, {"stun://host:3478"}, {"user@host:3478"}, {"host:0"}, {"host:65536"}, {"[::]:3478"}, {"224.0.0.1:3478"}, {"[fe80::1%eth0]:3478"}, {"Host:3478", "host:3478"}, {"host:3478", "udp://HOST:03478"}, {"tcp://HOST:3478", "tcp://host:3478"}, {"tcp://host:3478/path"}, {"tcp://user@host:3478"}, {"a:1", "b:1", "c:1", "d:1", "e:1"}} {
 		if err := model.ValidateSTUNServers(servers); err == nil {
 			t.Fatal("invalid servers accepted:", servers)
 		}

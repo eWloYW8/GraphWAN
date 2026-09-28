@@ -34,7 +34,7 @@ func PeerServerTLS(identity ed25519.PrivateKey) (*tls.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		template := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "GraphWAN Agent"}, NotBefore: now.Add(-5 * time.Minute), NotAfter: now.Add(7 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, BasicConstraintsValid: true}
+		template := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "GraphWAN Agent"}, NotBefore: now.Add(-5 * time.Minute), NotAfter: now.Add(7 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, BasicConstraintsValid: true}
 		der, err := x509.CreateCertificate(rand.Reader, template, template, identity.Public(), identity)
 		if err != nil {
 			return nil, err

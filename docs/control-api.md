@@ -90,7 +90,10 @@ An Agent may acknowledge an older revision while applying an update. Its old Lin
 statistics are omitted until it catches up. Endpoint updates may only contain
 `interface` and `observed` TCP/UDP entries; manual entries remain authoritative
 on the controller. Observed endpoints include expiration and mapped port.
-`stun_servers` is an array of at most four UDP `host:port` strings, centrally
+`stun_servers` is an array of at most four service addresses: bare `host:port` or
+`udp://host:port` for UDP, and `tcp://host:port` for TCP. Hostnames and bracketed IPv6
+literals are supported. Duplicate normalized addresses within a transport are
+rejected; TCP and UDP may share a numeric address. Settings are centrally
 configured and included only in that Agent's snapshot. An empty array disables
 STUN discovery; omission preserves the setting. See [NAT operation](nat-operation.md)
 for refresh, expiration and offline behavior.

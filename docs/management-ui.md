@@ -34,8 +34,9 @@ memberships; deleting a Network removes all its memberships and Edges.
 TCP, UDP, QUIC, WS, WSS and gRPC data transports run in the Agent. WS/WSS require
 [manual endpoints](websocket-operation.md); gRPC uses [manual service prefixes](grpc-operation.md).
 [QUIC also requires a manual endpoint](quic-operation.md). Agent settings include
-[STUN servers for UDP hole punching](nat-operation.md); TCP punching and wider NAT
-coverage remain incomplete. See [the acceptance tracker](implementation-status.md).
+[STUN servers for TCP/UDP hole punching](nat-operation.md). Use `host:port` for UDP
+and `tcp://host:port` for TCP; the two protocols can have different NAT mappings.
+Wider NAT/platform coverage remains incomplete. See [the acceptance tracker](implementation-status.md).
 
 ## Observe actual connectivity
 

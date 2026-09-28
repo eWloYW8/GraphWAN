@@ -15,7 +15,7 @@ func TestObservePartialFailureDeduplicationAndStableIdentity(t *testing.T) {
 	servers := []string{"127.0.0.1:3478", "127.0.0.1:3479", "[::1]:3478", "127.0.0.1:3480"}
 	var inflight atomic.Int32
 	var calls atomic.Int32
-	bind := func(ctx context.Context, remote netip.AddrPort) (netip.AddrPort, error) {
+	bind := func(ctx context.Context, kind model.Transport, remote netip.AddrPort) (netip.AddrPort, error) {
 		calls.Add(1)
 		if inflight.Add(1) > 4 {
 			t.Error("unbounded probing")
@@ -74,5 +74,36 @@ func TestProbeOrderKeepsBothFamiliesAndBounds(t *testing.T) {
 	}
 	if len(probeOrder(nil)) != 0 {
 		t.Fatal("empty DNS response")
+	}
+}
+
+func TestObserveKeepsProtocolSpecificMappings(t *testing.T) {
+	for _, samePort := range []bool{false, true} {
+		bind := func(_ context.Context, kind model.Transport, _ netip.AddrPort) (netip.AddrPort, error) {
+			port := uint16(32752)
+			if kind == model.TCP && !samePort {
+				port = 33752
+			}
+			return netip.AddrPortFrom(netip.MustParseAddr("192.0.2.1"), port), nil
+		}
+		endpoints, err := Observe(context.Background(), []byte("identity"), []string{"127.0.0.1:3478", "tcp://127.0.0.1:3478"}, bind)
+		if err != nil || len(endpoints) != 2 {
+			t.Fatal("TCP and UDP observations conflated:", endpoints, err)
+		}
+		if endpoints[0].Transport == endpoints[1].Transport || endpoints[0].ID == endpoints[1].ID {
+			t.Fatal("protocol omitted from mapping identity")
+		}
+		for _, endpoint := range endpoints {
+			want := "udp://192.0.2.1:32752"
+			if endpoint.Transport == model.TCP {
+				want = "tcp://192.0.2.1:33752"
+				if samePort {
+					want = "tcp://192.0.2.1:32752"
+				}
+			}
+			if endpoint.URL != want || endpoint.Validate() != nil {
+				t.Fatal(endpoint)
+			}
+		}
 	}
 }

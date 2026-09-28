@@ -59,9 +59,6 @@ func (g *group) schedule() {
 		}
 		g.mu.Unlock()
 		for _, candidate := range candidates {
-			if candidate.Method == link.Punch && candidate.Endpoint.Transport == model.TCP {
-				continue
-			}
 			g.mu.Lock()
 			if g.ctx.Err() != nil {
 				g.mu.Unlock()
@@ -128,7 +125,13 @@ func (g *group) dial(candidate link.Candidate) error {
 		return err
 	}
 	var raw transport.Conn
-	if candidate.Endpoint.Transport == model.TCP {
+	if candidate.Endpoint.Transport == model.TCP && candidate.Method == link.Punch {
+		conn, err := g.mesh.dialTCPPunch(ctx, candidate, g.policy.Load().peer.PublicKey)
+		if err != nil {
+			return err
+		}
+		raw = conn
+	} else if candidate.Endpoint.Transport == model.TCP {
 		dialer := net.Dialer{}
 		conn, err := dialer.DialContext(ctx, "tcp"+strconv.Itoa(candidate.Family), parsed.Host)
 		if err != nil {

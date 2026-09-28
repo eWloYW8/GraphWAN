@@ -1,7 +1,7 @@
 # Peer data protocol v1
 
 This documents the packet/channel components integrated into the Linux Agent.
-Other platform adapters and TCP NAT punching are still
+Other platform adapters and broader NAT acceptance are still
 being implemented. See the full-scope acceptance tracker for verification status.
 
 ## Admission and handshake
@@ -68,6 +68,29 @@ Streams use an unsigned 32-bit big-endian length followed by one complete messag
 with a maximum of 16 KiB. Lengths are checked before allocation. Reads and writes
 have context cancellation; any partial I/O error closes the stream because its
 frame boundary cannot safely be recovered. Concurrent writes cannot interleave.
+
+TCP punch connections use a separate physical-session preface: bytes `H G W 01`
+followed by the Agent's 32-byte Ed25519 public identity. Both sides send the same
+format. This cleartext hint must match an adjacent peer with TCP punching enabled;
+it is authenticated by a subsequent mutually pinned TLS 1.3 exchange with ALPN
+`graphwan.punch.v1`. The lexicographically smaller public key acts as TLS client,
+independently of which socket was dialed or accepted. Both certificates must prove
+the announced identity, have valid lifetimes and signing/role usage, and contain
+no unhandled critical extensions. No CA/proxy fallback is allowed here. Each side
+then sends the four magic bytes inside TLS, confirming that both verifiers passed.
+
+The TLS connection carries yamux streams. A physical session is pooled by remote
+IP/port and authenticated Agent identity, allowing multiple Networks and fresh
+Noise sessions to share the same TCP four-tuple. Every stream uses the 32-bit
+length framing and ordinary Network/Edge Noise admission above. Admission also
+checks that a punch candidate arrived over this transport, not ordinary TCP.
+There are at most 64 physical sessions per Agent and 32 retained logical streams
+per session, an eight-stream accept backlog, and a 256 KiB window per stream.
+Writes time out after two seconds; unacknowledged stream opens and graceful stream
+closes expire after three seconds. Keepalives run every five seconds. Canceling a
+stream does not close unrelated streams. Disabling the last TCP punch Edge to an
+identity closes its physical sessions. See [NAT operation](nat-operation.md) for
+source-port reuse, platform limits and native verification.
 
 UDP datagrams use four magic/version bytes (`GWD`, `1`), a random 16-byte
 connection token and one complete message. A data socket multiplexes independent

@@ -85,7 +85,7 @@ func validHostname(host string) bool {
 	return true
 }
 
-// STUN servers are UDP host:port pairs, not peer endpoints or URLs. No public
+// STUN servers are UDP host:port pairs or explicit udp:// / tcp:// addresses. No public
 // service is contacted unless the administrator configures it explicitly.
 func ValidateSTUNServers(servers []string) error {
 	if len(servers) > 4 {
@@ -93,29 +93,46 @@ func ValidateSTUNServers(servers []string) error {
 	}
 	seen := map[string]bool{}
 	for _, server := range servers {
-		host, port, err := net.SplitHostPort(server)
-		if err != nil || len(server) > 300 {
-			return fmt.Errorf("STUN server requires host:port")
+		kind, address, err := ParseSTUNServer(server)
+		if err != nil {
+			return err
 		}
-		n, err := strconv.ParseUint(port, 10, 16)
-		if err != nil || n == 0 {
-			return fmt.Errorf("invalid STUN server port")
-		}
-		ip, err := netip.ParseAddr(host)
-		if err == nil {
-			if ip.IsUnspecified() || ip.IsMulticast() || ip.Is4In6() || ip.Zone() != "" {
-				return fmt.Errorf("invalid STUN server address")
-			}
-		} else if !validHostname(host) {
-			return fmt.Errorf("invalid STUN server hostname")
-		}
-		key := strings.ToLower(net.JoinHostPort(host, strconv.Itoa(int(n))))
+		key := string(kind) + "/" + address
 		if seen[key] {
 			return fmt.Errorf("duplicate STUN server")
 		}
 		seen[key] = true
 	}
 	return nil
+}
+
+func ParseSTUNServer(server string) (Transport, string, error) {
+	kind, address := UDP, server
+	if strings.Contains(server, "://") {
+		scheme, rest, _ := strings.Cut(server, "://")
+		kind, address = Transport(scheme), rest
+		if kind != UDP && kind != TCP {
+			return "", "", fmt.Errorf("STUN service must use UDP or TCP")
+		}
+	}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || len(server) > 300 {
+		return "", "", fmt.Errorf("STUN server requires host:port")
+	}
+	n, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || n == 0 {
+		return "", "", fmt.Errorf("invalid STUN server port")
+	}
+	ip, err := netip.ParseAddr(host)
+	if err == nil {
+		if ip.IsUnspecified() || ip.IsMulticast() || ip.Is4In6() || ip.Zone() != "" || ip == netip.AddrFrom4([4]byte{255, 255, 255, 255}) {
+			return "", "", fmt.Errorf("invalid STUN server address")
+		}
+		host = ip.String()
+	} else if !validHostname(host) {
+		return "", "", fmt.Errorf("invalid STUN server hostname")
+	}
+	return kind, strings.ToLower(net.JoinHostPort(host, strconv.Itoa(int(n)))), nil
 }
 
 // Validate rejects ambiguous topology before persistence or compilation.

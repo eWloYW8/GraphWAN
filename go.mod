@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/flynn/noise v1.1.0
+	github.com/hashicorp/yamux v0.1.2
 	github.com/pion/stun/v3 v3.1.7
 	github.com/quic-go/quic-go v0.63.0
 	github.com/vishvananda/netlink v1.3.1

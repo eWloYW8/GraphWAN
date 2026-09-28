@@ -40,6 +40,9 @@ type Mesh struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	listener     net.Listener
+	tcp          *transport.TCP
+	punches      map[punchKey]*transport.PunchMux
+	punchDials   map[punchKey]*punchDial
 	webListener  *connIngress
 	webServer    *http.Server
 	grpcListener *connIngress
@@ -68,7 +71,7 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 	if err != nil {
 		return nil, err
 	}
-	listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(int(port))))
+	listener, err := transport.ListenTCP(parent, net.JoinHostPort(host, strconv.Itoa(int(port))))
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +83,9 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 	ctx, cancel := context.WithCancel(parent)
 	m := &Mesh{grpcSlots: make(chan struct{}, 512), sniffSlots: make(chan struct{}, 8), pending: map[net.Conn]bool{}, identity: bytes.Clone(identity), ctx: ctx, cancel: cancel, listener: listener, udp: udp, receive: receive, groups: map[key]*group{}, slots: make(chan struct{}, 8), acceptSlots: make(chan struct{}, 8)}
 	m.quic = quicHub
+	m.tcp = listener
+	m.punches = map[punchKey]*transport.PunchMux{}
+	m.punchDials = map[punchKey]*punchDial{}
 	m.tls = tlsConfig
 	m.tls.NextProtos = []string{"h2", "http/1.1"}
 	m.startHTTP()
@@ -92,7 +98,13 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 }
 func (m *Mesh) Port() uint16 { return uint16(m.listener.Addr().(*net.TCPAddr).Port) }
 
-func (m *Mesh) STUNBinding(ctx context.Context, server netip.AddrPort) (netip.AddrPort, error) {
+func (m *Mesh) STUNBinding(ctx context.Context, kind model.Transport, server netip.AddrPort) (netip.AddrPort, error) {
+	if kind == model.TCP {
+		return m.tcp.STUNBinding(ctx, server)
+	}
+	if kind != model.UDP {
+		return netip.AddrPort{}, errors.New("unsupported STUN transport")
+	}
 	return m.udp.STUNBinding(ctx, server)
 }
 func (m *Mesh) Close() error {
@@ -105,6 +117,8 @@ func (m *Mesh) Close() error {
 	m.cancel()
 	groups := m.groups
 	m.groups = map[key]*group{}
+	punches := m.punches
+	m.punches = map[punchKey]*transport.PunchMux{}
 	pending := make([]net.Conn, 0, len(m.pending))
 	for conn := range m.pending {
 		pending = append(pending, conn)
@@ -119,6 +133,9 @@ func (m *Mesh) Close() error {
 		conn.Close()
 	}
 	m.udp.Close()
+	for _, session := range punches {
+		session.Close()
+	}
 	for _, g := range groups {
 		g.close()
 	}
@@ -162,7 +179,17 @@ func (m *Mesh) Apply(snapshot model.Snapshot) error {
 		}
 	}
 	m.groups = next
+	stalePunches := []*transport.PunchMux{}
+	for k, session := range m.punches {
+		if !m.allowsTCPPunchLocked(session.Identity()) {
+			delete(m.punches, k)
+			stalePunches = append(stalePunches, session)
+		}
+	}
 	m.mu.Unlock()
+	for _, session := range stalePunches {
+		session.Close()
+	}
 	for _, g := range retired {
 		g.close()
 	}
@@ -427,6 +454,12 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 }
 
 func candidateIngress(candidate link.Candidate, conn transport.Conn) bool {
+	if candidate.Endpoint.Transport == model.TCP {
+		_, punched := conn.(interface{ TCPPunch() bool })
+		if (candidate.Method == link.Punch) != punched {
+			return false
+		}
+	}
 	if path, ok := conn.(interface{ EndpointPath() string }); ok {
 		parsed, err := url.Parse(candidate.Endpoint.URL)
 		if err != nil || candidate.Endpoint.Source != model.Manual {
