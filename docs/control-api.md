@@ -46,7 +46,9 @@ The current cipher suite is `chacha20-poly1305`.
 Manual endpoints have `id`, `transport`, `url` and `source: "manual"`. URLs require
 an explicit port. WS/WSS/gRPC may include a path. Automatic endpoints cannot be
 edited by a browser. `PATCH` replaces the complete manual endpoint list while
-retaining agent-discovered entries.
+retaining agent-discovered entries. WS/WSS paths are literal upgrade paths;
+gRPC paths are prefixes for `/graphwan.v1.Peer/Connect`. GraphWAN gRPC endpoints
+always dial TLS. See [the gRPC endpoint guide](grpc-operation.md).
 
 ## Enrollment
 

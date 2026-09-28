@@ -23,6 +23,7 @@ import (
 	"github.com/graphwan/graphwan/internal/peer"
 	"github.com/graphwan/graphwan/internal/secure"
 	"github.com/graphwan/graphwan/internal/transport"
+	"google.golang.org/grpc"
 )
 
 type Receive func(context.Context, model.ID, []byte) error
@@ -35,24 +36,27 @@ type policy struct {
 	endpoints []model.Endpoint
 }
 type Mesh struct {
-	identity    ed25519.PrivateKey
-	ctx         context.Context
-	cancel      context.CancelFunc
-	listener    net.Listener
-	webListener *httpIngress
-	webServer   *http.Server
-	tls         *tls.Config
-	sniffSlots  chan struct{}
-	pending     map[net.Conn]bool
-	udp         *transport.UDP
-	receive     Receive
-	mu          sync.Mutex
-	groups      map[key]*group
-	slots       chan struct{}
-	acceptSlots chan struct{}
-	wg          sync.WaitGroup
-	closed      bool
-	linkOptions link.Options
+	identity     ed25519.PrivateKey
+	ctx          context.Context
+	cancel       context.CancelFunc
+	listener     net.Listener
+	webListener  *connIngress
+	webServer    *http.Server
+	grpcListener *connIngress
+	grpcServer   *grpc.Server
+	grpcSlots    chan struct{}
+	tls          *tls.Config
+	sniffSlots   chan struct{}
+	pending      map[net.Conn]bool
+	udp          *transport.UDP
+	receive      Receive
+	mu           sync.Mutex
+	groups       map[key]*group
+	slots        chan struct{}
+	acceptSlots  chan struct{}
+	wg           sync.WaitGroup
+	closed       bool
+	linkOptions  link.Options
 }
 
 func New(parent context.Context, identity ed25519.PrivateKey, host string, port uint16, receive Receive) (*Mesh, error) {
@@ -73,8 +77,11 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
-	m := &Mesh{sniffSlots: make(chan struct{}, 8), pending: map[net.Conn]bool{}, identity: bytes.Clone(identity), ctx: ctx, cancel: cancel, listener: listener, udp: udp, receive: receive, groups: map[key]*group{}, slots: make(chan struct{}, 8), acceptSlots: make(chan struct{}, 8)}
-	m.startHTTP(tlsConfig)
+	m := &Mesh{grpcSlots: make(chan struct{}, 512), sniffSlots: make(chan struct{}, 8), pending: map[net.Conn]bool{}, identity: bytes.Clone(identity), ctx: ctx, cancel: cancel, listener: listener, udp: udp, receive: receive, groups: map[key]*group{}, slots: make(chan struct{}, 8), acceptSlots: make(chan struct{}, 8)}
+	m.tls = tlsConfig
+	m.tls.NextProtos = []string{"h2", "http/1.1"}
+	m.startHTTP()
+	m.startGRPC()
 	m.wg.Add(2)
 	go m.acceptTCP()
 	go m.acceptUDP()
@@ -99,6 +106,8 @@ func (m *Mesh) Close() error {
 	m.listener.Close()
 	m.webListener.Close()
 	m.webServer.Close()
+	m.grpcListener.Close()
+	m.grpcServer.Stop()
 	for _, conn := range pending {
 		conn.Close()
 	}
@@ -393,7 +402,13 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 func candidateIngress(candidate link.Candidate, conn transport.Conn) bool {
 	if path, ok := conn.(interface{ EndpointPath() string }); ok {
 		parsed, err := url.Parse(candidate.Endpoint.URL)
-		return err == nil && candidate.Endpoint.Source == model.Manual && transport.WebSocketPath(parsed) == path.EndpointPath()
+		if err != nil || candidate.Endpoint.Source != model.Manual {
+			return false
+		}
+		if candidate.Endpoint.Transport == model.GRPC {
+			return transport.GRPCMethod(parsed) == path.EndpointPath()
+		}
+		return transport.WebSocketPath(parsed) == path.EndpointPath()
 	}
 	return candidate.Family == addressFamily(conn.RemoteAddr())
 }

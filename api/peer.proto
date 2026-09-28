@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package graphwan.v1;
+
+option go_package = "github.com/graphwan/graphwan/api/peerv1";
+
+import "google/protobuf/wrappers.proto";
+
+// Each value is one complete GraphWAN peer message, including Noise handshake
+// or encrypted Link data. Values must be nonempty and at most 16 KiB.
+service Peer {
+  rpc Connect(stream google.protobuf.BytesValue) returns (stream google.protobuf.BytesValue);
+}

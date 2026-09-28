@@ -70,6 +70,8 @@ func TestEndpointValidation(t *testing.T) {
 	}{
 		{"wss://node.example.com:443/overlay", model.WSS, model.Manual, true},
 		{"grpc://node.example.com:443/overlay", model.GRPC, model.Manual, true},
+		{"grpc://node.example.com:443/overlay?", model.GRPC, model.Manual, false},
+		{"ws://node.example.com:24752/overlay?", model.WS, model.Manual, false},
 		{"udp://[2001:db8::1]:24752", model.UDP, model.Interface, true},
 		{"tcp://[fe80::1%25eth0]:24752", model.TCP, model.Interface, true},
 		{"udp://192.0.2.1:41234", model.UDP, model.Observed, true},

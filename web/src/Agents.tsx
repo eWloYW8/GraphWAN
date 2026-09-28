@@ -204,11 +204,18 @@ function AgentEditor({
                   ))}
                 </select>
               </Field>
-              <Field label={`Endpoint ${i + 1} URL`}>
+              <Field
+                label={`Endpoint ${i + 1} URL`}
+                hint={
+                  ep.transport === 'grpc'
+                    ? 'Uses TLS. An optional path is a service prefix, such as /overlay.'
+                    : undefined
+                }
+              >
                 <input
                   required
                   value={ep.url}
-                  placeholder="udp://host:24752"
+                  placeholder={`${ep.transport}://host:24752`}
                   onChange={(e) => change(ep.id, { url: e.target.value })}
                 />
               </Field>

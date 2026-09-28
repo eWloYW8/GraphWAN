@@ -37,8 +37,8 @@ def eventually(fn, timeout=30):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", required=True)
-    parser.add_argument("--transport", choices=("auto", "ws", "wss"), default="auto",
-                        help="auto verifies discovered TCP/UDP; ws/wss use only manual endpoints")
+    parser.add_argument("--transport", choices=("auto", "ws", "wss", "grpc"), default="auto",
+                        help="auto verifies discovered TCP/UDP; ws/wss/grpc use only manual endpoints")
     args = parser.parse_args()
     if os.geteuid() != 0 or os.readlink("/proc/self/ns/net") == os.readlink("/proc/1/ns/net"):
         raise SystemExit("Run with sudo unshare --net; an isolated network namespace is required")

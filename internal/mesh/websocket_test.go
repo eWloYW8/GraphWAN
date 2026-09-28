@@ -65,46 +65,61 @@ func webMeshes(t *testing.T) (context.Context, []*Mesh, *model.State, <-chan []b
 	}
 	return ctx, meshes, &state, delivered
 }
-func TestWebSocketIntroductionMustMatchIngressPath(t *testing.T) {
-	ctx, meshes, state, _ := webMeshes(t)
-	other := state.Agents[1].Endpoints[1]
-	other.ID = testutil.ID(150)
-	other.URL += "/other"
-	state.Agents[1].Endpoints = append(state.Agents[1].Endpoints, other)
-	// Only the responder reconciles; the test dialer supplies the authenticated
-	// initiator identity and then lies about which allowed endpoint it used.
-	snapshot, err := routing.Compile(*state, state.Agents[1].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := meshes[1].Apply(snapshot); err != nil {
-		t.Fatal(err)
-	}
-	conn, err := transport.DialWebSocket(ctx, state.Agents[1].Endpoints[1], 4, state.Agents[1].PublicKey, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-	initiator, err := routing.Compile(*state, state.Agents[0].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	network := initiator.Networks[0]
-	cfg := &policy{network: network.ID, self: network.Self.ID, cipher: network.Cipher, peer: network.Peers[0], endpoints: initiator.Endpoints}
-	channel, err := peer.Dial(ctx, conn, meshes[0].secure(cfg, model.WS))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer channel.Close()
-	candidate := link.CandidateID(network.Peers[0].Edge.ID, network.Self.ID, other.ID, 4, link.Direct)
-	intro, _ := json.Marshal(introduction{Candidate: candidate})
-	if err := channel.Send(ctx, append([]byte{0}, intro...)); err != nil {
-		t.Fatal(err)
-	}
-	readCtx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	if _, err := channel.Receive(readCtx); err == nil || errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("wrong ingress path was not immediately rejected: %v", err)
+func TestManualTransportIntroductionMustMatchIngressPath(t *testing.T) {
+	for _, kind := range []model.Transport{model.WS, model.GRPC} {
+		t.Run(string(kind), func(t *testing.T) {
+			ctx, meshes, state, _ := webMeshes(t)
+			index := 1
+			if kind == model.GRPC {
+				addGRPCEndpoints(meshes, state, "/custom")
+				index = 3
+			}
+			other := state.Agents[1].Endpoints[index]
+			other.ID = testutil.ID(150)
+			other.URL += "/other"
+			state.Agents[1].Endpoints = append(state.Agents[1].Endpoints, other)
+			// Only the responder reconciles; the test dialer supplies the authenticated
+			// initiator identity and then lies about which allowed endpoint it used.
+			snapshot, err := routing.Compile(*state, state.Agents[1].ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := meshes[1].Apply(snapshot); err != nil {
+				t.Fatal(err)
+			}
+			var conn transport.Conn
+			if kind == model.GRPC {
+				conn, err = transport.DialGRPC(ctx, state.Agents[1].Endpoints[index], 4, state.Agents[1].PublicKey, nil)
+			} else {
+				conn, err = transport.DialWebSocket(ctx, state.Agents[1].Endpoints[index], 4, state.Agents[1].PublicKey, nil)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			initiator, err := routing.Compile(*state, state.Agents[0].ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			network := initiator.Networks[0]
+			cfg := &policy{network: network.ID, self: network.Self.ID, cipher: network.Cipher, peer: network.Peers[0], endpoints: initiator.Endpoints}
+			channel, err := peer.Dial(ctx, conn, meshes[0].secure(cfg, kind))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer channel.Close()
+			candidate := link.CandidateID(network.Peers[0].Edge.ID, network.Self.ID, other.ID, 4, link.Direct)
+			intro, _ := json.Marshal(introduction{Candidate: candidate})
+			if err := channel.Send(ctx, append([]byte{0}, intro...)); err != nil {
+				t.Fatal(err)
+			}
+			readCtx, cancel := context.WithTimeout(ctx, time.Second)
+			defer cancel()
+			if _, err := channel.Receive(readCtx); err == nil || errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("wrong ingress path was not immediately rejected: %v", err)
+			}
+
+		})
 	}
 }
 

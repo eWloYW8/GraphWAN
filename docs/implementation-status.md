@@ -29,7 +29,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [ ] Per-network TUN, address/route setup and safe resource cleanup.
 - [x] Actual multi-hop IP forwarding and network/source admission enforcement.
 - [x] TCP framing, native UDP and WS/WSS binary-message transports.
-- [ ] QUIC datagrams and gRPC bidirectional streams.
+- [x] gRPC bidirectional streams through manual endpoints.
+- [ ] QUIC datagrams.
 - [x] Authenticated ephemeral peer keys, cipher policy, replay protection/rekey.
 - [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
 - [ ] Manual hostname/path endpoints and configurable listeners (default 24752).
@@ -95,7 +96,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   concurrent nonce uniqueness and session age/message limits are tested.
 - Actual TCP/UDP sockets: authenticated channel round trips pass, including loss
   of each UDP handshake message and duplicate handshake/data delivery. Queue and
-  connection bounds are implemented. QUIC/gRPC adapters remain pending;
+  connection bounds are implemented. The QUIC adapter remains pending;
   automatic session replacement is covered by a real-socket test below.
 - Forwarding engine: IP packets traverse A→B→C and C→B→A over actual encrypted
   TCP and UDP channels. Tests reject unknown Networks, nonadjacent senders,
@@ -144,7 +145,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   revocation reaching browser events, authentication/origin rejection, connection
   limits, session expiry/logout and controller shutdown. Slow writes have deadlines
   and cannot hold status locks; no unbounded event queue is retained.
-- Runtime adapters for QUIC/gRPC and full NAT punching are still pending, even
+- The QUIC adapter and full NAT punching are still pending, even
   though their desired policies can now be configured in the management UI.
 
 - WS/WSS: real binary-message, TLS and mesh tests verify message limits,
@@ -155,3 +156,17 @@ Every feature below derives from the accepted proposal, including its suggestion
   Native three-Agent TUN tests pass separately for WS-only and WSS-only Edges,
   including multi-hop ICMP/TCP, controller outage, offline transit-Agent restart
   and owned-interface cleanup. The original automatic TCP/UDP case also passes.
+
+- gRPC: standard protobuf bidirectional streams now carry authenticated peer
+  messages through manual endpoints on the shared listener. Real TLS tests cover
+  the 16 KiB message boundary, remote protobuf-size rejection, empty messages,
+  independent CA-trusted frontends, per-operation and dial cancellation, and
+  cancellation under HTTP/2 flow control. Mesh tests cover shared-port coexistence,
+  configured-prefix and encrypted candidate admission, endpoint removal, fallback
+  to existing standby Links, and IPv6 TLS proxies with IPv4 HTTP/2 backends.
+  Shutdown cancels incomplete prefaces before waiting for grpc-go's Serve loop;
+  the regression tests pass in five race-enabled repetitions. Native three-Agent
+  TUN tests pass with gRPC-only Edges, controller outage and offline transit restart;
+  TCP/UDP, WS-only and WSS-only regression cases also pass. Windows/amd64,
+  macOS/arm64 and FreeBSD/amd64 core cross-builds pass with the new dependencies;
+  their native TUN adapters remain outstanding.

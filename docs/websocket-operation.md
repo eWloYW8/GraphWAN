@@ -10,8 +10,8 @@ Enable the corresponding transport and IPv4/IPv6 direct method on the Edge.
 Both directions may dial if both Agents publish an eligible endpoint. A single
 reachable endpoint is sufficient to establish a bidirectional Link.
 
-The Agent's configured listen port (24752 by default) accepts native TCP, WS and
-WSS on the same TCP listener. UDP uses the same port number on its separate UDP
+The Agent's configured listen port (24752 by default) accepts native TCP, WS, WSS
+and gRPC on the same TCP listener. UDP uses the same port number on its separate UDP
 socket. A manual endpoint advertises a reachable URL; it does not open an extra
 listener. Different external ports require port forwarding or a reverse proxy.
 An empty URL path means `/`; otherwise the exact escaped path must be preserved.

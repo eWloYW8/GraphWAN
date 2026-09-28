@@ -36,7 +36,8 @@ Wire handshake messages start with one kind byte:
 | 5 / Data | session-encrypted application message |
 
 Transport codes are UDP=0, TCP=1, QUIC=2, WS=3, WSS=4, gRPC=5. The current
-transport implementations are TCP streams, native UDP and WS/WSS binary messages. A kind in this table
+transport implementations are TCP streams, native UDP, WS/WSS binary messages
+and gRPC bidirectional streams. A kind in this table
 does not imply that its transport adapter has been implemented yet.
 
 The initiator requires an authenticated Ready before exposing its channel. The
@@ -87,6 +88,14 @@ configured Agent identity or a trusted proxy certificate and hostname; the inner
 handshake always verifies the Agent. See [WS/WSS operation](websocket-operation.md)
 for listener sharing, reverse proxy setup and address-family policy.
 
+gRPC uses the `graphwan.v1.Peer/Connect` bidirectional protobuf service. The
+manual URL path prefixes this service method. A `google.protobuf.BytesValue`
+carries each peer message, with a 16 KiB value limit and a 16,388-byte encoded
+message limit. TLS admission follows the same Agent-pin-or-proxy-PKI policy as
+WSS. The client requires `h2` ALPN and the `graphwan-protocol: graphwan-peer-v1`
+response before starting Noise. See [the schema](../api/peer.proto) and
+[gRPC operation](grpc-operation.md) for paths, proxying and resource limits.
+
 ## Overlay forwarding
 
 The 80-byte `GW` v1 header contains payload length, hop limit, Network/Source/
@@ -114,8 +123,8 @@ After Ready, the dialer sends a type-0 plaintext message containing a JSON
 `candidate` identifier. The responder reconstructs allowed candidates from its
 own advertised endpoints, the configured Edge methods/transports, and the remote
 Node identity. The identifier and actual socket address family must match for
-TCP/UDP. For WS/WSS, the exact escaped HTTP path must match the identified manual
-endpoint. The dialer enforces IPv4/IPv6 on its socket; the responder cannot infer
+TCP/UDP. For WS/WSS and gRPC, the HTTP/RPC path must match the identified manual
+endpoint (gRPC appends the service method to its URL prefix). The dialer enforces IPv4/IPv6 on its socket; the responder cannot infer
 that family from a reverse proxy's backend connection. This metadata is encrypted
 by the established peer session.
 

@@ -1,7 +1,7 @@
 # Linux operation and native verification
 
 The Linux Agent currently supports TUN interfaces, IPv4/IPv6 packet parsing,
-weighted forwarding, authenticated TCP/UDP/WS/WSS peer channels, multiple retained Links,
+weighted forwarding, authenticated TCP/UDP/WS/WSS/gRPC peer channels, multiple retained Links,
 health probes and durable controller configuration. The process-level test verifies
 an IPv4 overlay and underlay; native IPv6 verification remains to be added.
 
@@ -20,8 +20,9 @@ Agent identity to a second concurrently running installation.
 
 A new Agent waits for Network memberships. Use the management API to create a
 Network, assign each enrolled Agent a fixed virtual address and add explicit Edges.
-TCP, UDP, WS and WSS direct connectivity are operational. Configure WS/WSS
-using [manual endpoints](websocket-operation.md). QUIC/gRPC adapters, STUN
+TCP, UDP, WS, WSS and gRPC direct connectivity are operational. Configure WS/WSS
+using [manual endpoints](websocket-operation.md); gRPC has its own
+[endpoint guide](grpc-operation.md). The QUIC adapter, STUN
 and full NAT coordination are not implemented yet. See the acceptance tracker.
 
 ## Runtime behavior
@@ -75,6 +76,7 @@ go build -o /tmp/graphwan-e2e ./cmd/graphwan
 sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e
 sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport ws
 sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport wss
+sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport grpc
 ```
 
 The process test needs Python 3.8+, `ip`, `unshare`, `nsenter`, `ping`, and `sleep`.

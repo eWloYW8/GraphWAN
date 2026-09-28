@@ -42,7 +42,7 @@ func (e Endpoint) Validate() error {
 	if err != nil {
 		return fmt.Errorf("invalid endpoint URL: %w", err)
 	}
-	if u.Scheme != string(e.Transport) || u.Hostname() == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.Opaque != "" {
+	if u.Scheme != string(e.Transport) || u.Hostname() == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.ForceQuery || u.Opaque != "" {
 		return fmt.Errorf("endpoint must be a %s URL without credentials, query or fragment", e.Transport)
 	}
 	port, err := strconv.ParseUint(u.Port(), 10, 16)
