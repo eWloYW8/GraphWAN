@@ -30,7 +30,7 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Actual multi-hop IP forwarding and network/source admission enforcement.
 - [x] TCP framing, native UDP and WS/WSS binary-message transports.
 - [x] gRPC bidirectional streams through manual endpoints.
-- [ ] QUIC datagrams.
+- [x] QUIC datagrams, shared UDP listener and bounded message fragmentation.
 - [x] Authenticated ephemeral peer keys, cipher policy, replay protection/rekey.
 - [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
 - [ ] Manual hostname/path endpoints and configurable listeners (default 24752).
@@ -96,7 +96,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   concurrent nonce uniqueness and session age/message limits are tested.
 - Actual TCP/UDP sockets: authenticated channel round trips pass, including loss
   of each UDP handshake message and duplicate handshake/data delivery. Queue and
-  connection bounds are implemented. The QUIC adapter remains pending;
+  connection bounds are implemented;
   automatic session replacement is covered by a real-socket test below.
 - Forwarding engine: IP packets traverse A→B→C and C→B→A over actual encrypted
   TCP and UDP channels. Tests reject unknown Networks, nonadjacent senders,
@@ -145,8 +145,8 @@ Every feature below derives from the accepted proposal, including its suggestion
   revocation reaching browser events, authentication/origin rejection, connection
   limits, session expiry/logout and controller shutdown. Slow writes have deadlines
   and cannot hold status locks; no unbounded event queue is retained.
-- The QUIC adapter and full NAT punching are still pending, even
-  though their desired policies can now be configured in the management UI.
+- Full NAT punching remains pending, even though its desired policies can be
+  configured in the management UI.
 
 - WS/WSS: real binary-message, TLS and mesh tests verify message limits,
   cancellation, shared TCP/WS/WSS listener, configured-path admission, preferred
@@ -170,3 +170,20 @@ Every feature below derives from the accepted proposal, including its suggestion
   TCP/UDP, WS-only and WSS-only regression cases also pass. Windows/amd64,
   macOS/arm64 and FreeBSD/amd64 core cross-builds pass with the new dependencies;
   their native TUN adapters remain outstanding.
+
+- QUIC: real datagram tests verify IPv4/IPv6, TLS identity admission, legacy
+  native UDP compatibility on the shared port, message sizes through 16 KiB,
+  reorder/duplicate/loss handling, bounded fragment assembly and expiry,
+  cancellation under congestion and socket shutdown. A UDP loss proxy verifies
+  that user data is not retransmitted. All six transports remain healthy on one
+  Edge and QUIC failure selects an already established standby. Five race-enabled
+  rotation test repetitions replace QUIC/TCP sessions while forwarding continues.
+  Fragment-parser fuzzing completed 162,829 executions without failure (5 seconds;
+  bounded evidence, not a proof). Native QUIC-only and native UDP-only runs each
+  pass with 9000-byte overlay MTU, 1280-byte underlay MTU, full-sized ICMP packets,
+  TCP transfer, controller outage, offline transit restart and interface cleanup.
+  QUIC also passes the default-MTU run and a wildcard listener receiving on a
+  secondary IPv4 address. Core cross-builds with QUIC pass for Windows/amd64,
+  macOS/arm64, FreeBSD/amd64 and Linux/arm64; these do not verify native TUN adapters.
+  Wider path-MTU/IPv6 overlay and NAT cases
+  remain part of the outstanding acceptance scope.

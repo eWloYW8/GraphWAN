@@ -37,9 +37,13 @@ def eventually(fn, timeout=30):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", required=True)
-    parser.add_argument("--transport", choices=("auto", "ws", "wss", "grpc"), default="auto",
-                        help="auto verifies discovered TCP/UDP; ws/wss/grpc use only manual endpoints")
+    parser.add_argument("--transport", choices=("auto", "udp", "tcp", "ws", "wss", "grpc", "quic"), default="auto",
+                        help="auto/udp/tcp use discovered endpoints; other transports require manual endpoints")
+    parser.add_argument("--mtu", type=int, default=1280, help="overlay TUN MTU")
+    parser.add_argument("--underlay-mtu", type=int, default=1500, help="isolated bridge/veth MTU")
     args = parser.parse_args()
+    if not 1280 <= args.mtu <= 9000 or not 1280 <= args.underlay_mtu <= 9000:
+        parser.error("MTUs must be between 1280 and 9000")
     if os.geteuid() != 0 or os.readlink("/proc/self/ns/net") == os.readlink("/proc/1/ns/net"):
         raise SystemExit("Run with sudo unshare --net; an isolated network namespace is required")
     binary = str(Path(args.binary).resolve())
@@ -70,6 +74,7 @@ def main():
         try:
             command("ip", "link", "set", "lo", "up")
             command("ip", "link", "add", "gw-underlay", "type", "bridge")
+            command("ip", "link", "set", "gw-underlay", "mtu", str(args.underlay_mtu))
             command("ip", "addr", "add", "192.0.2.1/24", "dev", "gw-underlay")
             command("ip", "link", "set", "gw-underlay", "up")
             namespaces = []
@@ -79,6 +84,8 @@ def main():
                 namespaces.append(holder)
                 outside, inside = f"gwh{index}", f"gwn{index}"
                 command("ip", "link", "add", outside, "type", "veth", "peer", "name", inside)
+                command("ip", "link", "set", outside, "mtu", str(args.underlay_mtu))
+                command("ip", "link", "set", inside, "mtu", str(args.underlay_mtu))
                 command("ip", "link", "set", outside, "master", "gw-underlay")
                 command("ip", "link", "set", outside, "up")
                 command("ip", "link", "set", inside, "netns", str(holder.pid))
@@ -116,11 +123,12 @@ def main():
             state = eventually(lambda: (s if len(s["agents"]) == 3 and all(a["endpoints"] for a in s["agents"]) else None) if (s := api("GET", "/state")) else None)
             by_name = {a["name"]: a for a in state["agents"]}
             transports = ["udp", "tcp"] if args.transport == "auto" else [args.transport]
-            if args.transport != "auto":
+            if args.transport not in ("auto", "udp", "tcp"):
                 for index in range(3):
                     agent = by_name[f"node-{index}"]
+                    path = "" if args.transport in ("udp", "tcp", "quic") else "/custom/overlay"
                     endpoint = {"id": uuid.uuid4().hex, "source": "manual", "transport": args.transport,
-                                "url": f"{args.transport}://192.0.2.{11+index}:24752/custom/overlay"}
+                                "url": f"{args.transport}://192.0.2.{11+index}:24752{path}"}
                     def configure_endpoint():
                         try:
                             return api("PATCH", f"/agents/{agent['id']}", {"manual_endpoints": [endpoint]}, api("GET", "/state")["revision"])
@@ -131,6 +139,7 @@ def main():
                     eventually(configure_endpoint)
             nodes = [{"id": uuid.uuid4().hex, "agent_id": by_name[f"node-{i}"]["id"], "name": f"node-{i}", "address": f"10.42.0.{i+1}"} for i in range(3)]
             network = {"name": "native three-node test", "cidr": "10.42.0.0/24", "nodes": nodes, "edges": [{"id": uuid.uuid4().hex, "a": nodes[i]["id"], "b": nodes[i+1]["id"], "weight": 10, "enabled": True, "transports": transports, "methods": {"ipv4_direct": True, "ipv6_direct": False, "hole_punch": False}} for i in range(2)]}
+            network["mtu"] = args.mtu
             def create_network():
                 try:
                     return api("POST", "/networks", network, api("GET", "/state")["revision"])
@@ -156,7 +165,7 @@ def main():
                 return all(len(active.get(edge["id"], [])) == 2 and len(set(active[edge["id"]])) == 1 for edge in network["edges"])
             eventually(connected)
             def ping():
-                return command("nsenter", "-t", str(namespaces[0].pid), "-n", "ping", "-c", "1", "-W", "1", "10.42.0.3", check=False).returncode == 0
+                return command("nsenter", "-t", str(namespaces[0].pid), "-n", "ping", "-c", "1", "-W", "1", "-M", "do", "-s", str(args.mtu - 28), "10.42.0.3", check=False).returncode == 0
             eventually(ping)
 
             echo_code = "import socket\ns=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind(('10.42.0.3',9876));s.listen()\nwhile True:\n c,_=s.accept()\n with c:\n  while data:=c.recv(65536): c.sendall(data)\n"
@@ -166,7 +175,7 @@ def main():
                 result = command("nsenter", "-t", str(namespaces[0].pid), "-n", "python3", "-c", exchange_code, check=False, timeout=15)
                 return result.returncode == 0
             eventually(exchange)
-            print(f"PASS: three native TUN agents, {transports} links, multi-hop ICMP and TCP", flush=True)
+            print(f"PASS: three native TUN agents, {transports} links, MTU {args.mtu}/{args.underlay_mtu}, multi-hop ICMP and TCP", flush=True)
             stop(server)
             eventually(ping)
             eventually(exchange)

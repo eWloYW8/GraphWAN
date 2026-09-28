@@ -31,10 +31,10 @@ listen port, revocation and manual endpoints, including protocol-specific URL
 paths. Discovered endpoints are read-only. Deleting an Agent removes its network
 memberships; deleting a Network removes all its memberships and Edges.
 
-TCP, UDP, WS, WSS and gRPC data transports run in the Agent. WS/WSS require
+TCP, UDP, QUIC, WS, WSS and gRPC data transports run in the Agent. WS/WSS require
 [manual endpoints](websocket-operation.md); gRPC uses [manual service prefixes](grpc-operation.md).
-QUIC and punch policies can be
-stored but their runtime adapters and NAT coordination remain incomplete. See [the acceptance tracker](implementation-status.md).
+[QUIC also requires a manual endpoint](quic-operation.md). Punch policies can be
+stored but full NAT coordination remains incomplete. See [the acceptance tracker](implementation-status.md).
 
 ## Observe actual connectivity
 

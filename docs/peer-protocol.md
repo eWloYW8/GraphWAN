@@ -1,7 +1,7 @@
 # Peer data protocol v1
 
 This documents the packet/channel components integrated into the Linux Agent.
-Other platform adapters, remaining transports and NAT coordination are still
+Other platform adapters and NAT coordination are still
 being implemented. See the full-scope acceptance tracker for verification status.
 
 ## Admission and handshake
@@ -36,9 +36,8 @@ Wire handshake messages start with one kind byte:
 | 5 / Data | session-encrypted application message |
 
 Transport codes are UDP=0, TCP=1, QUIC=2, WS=3, WSS=4, gRPC=5. The current
-transport implementations are TCP streams, native UDP, WS/WSS binary messages
-and gRPC bidirectional streams. A kind in this table
-does not imply that its transport adapter has been implemented yet.
+transport implementations cover all six codes: TCP streams, native UDP, QUIC
+datagrams, WS/WSS binary messages and gRPC bidirectional streams.
 
 The initiator requires an authenticated Ready before exposing its channel. The
 whole handshake has a 10-second deadline. UDP retransmits the same serialized
@@ -79,6 +78,14 @@ per peer. Unauthenticated peers expire after 10 seconds; authenticated peers
 expire after two minutes without a validated keepalive/data message. Invalid
 packets cannot keep a peer alive. A slow reader drops UDP messages rather than
 allowing an unbounded queue. STUN and rendezvous integration remains pending.
+
+QUIC shares this UDP socket while preserving native UDP wire compatibility. It
+uses QUIC v1 / TLS 1.3 / ALPN `graphwan.quic.v1`, then the same Noise admission.
+Peer messages use unreliable RFC 9221 DATAGRAM frames, with a versioned 13-byte
+fragment header and 1024-byte fragment payloads. Missing fragments cause message
+loss; they do not add data retransmission. Fragment assembly is bounded by size,
+count and expiry. See [QUIC operation](quic-operation.md) for the exact fragment
+format, connection-ID namespace, socket dispatch and MTU constraints.
 
 WS/WSS use one nonempty binary message per peer message, bounded to 16 KiB.
 Text messages are rejected and compression is disabled. They negotiate
@@ -123,7 +130,7 @@ After Ready, the dialer sends a type-0 plaintext message containing a JSON
 `candidate` identifier. The responder reconstructs allowed candidates from its
 own advertised endpoints, the configured Edge methods/transports, and the remote
 Node identity. The identifier and actual socket address family must match for
-TCP/UDP. For WS/WSS and gRPC, the HTTP/RPC path must match the identified manual
+TCP/UDP/QUIC. For WS/WSS and gRPC, the HTTP/RPC path must match the identified manual
 endpoint (gRPC appends the service method to its URL prefix). The dialer enforces IPv4/IPv6 on its socket; the responder cannot infer
 that family from a reverse proxy's backend connection. This metadata is encrypted
 by the established peer session.

@@ -129,81 +129,86 @@ func TestRealUDPFailureFallsBackToExistingTCP(t *testing.T) {
 }
 
 func TestSessionRotationKeepsTrafficOnHealthyReplacement(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	state := testutil.Topology()
-	state.Agents = state.Agents[:2]
-	state.Networks[0].Nodes = state.Networks[0].Nodes[:2]
-	state.Networks[0].Edges = state.Networks[0].Edges[:1]
-	state.Networks[0].Edges[0].Methods = model.ConnectionMethods{IPv4Direct: true}
-	state.Networks[0].Edges[0].Transports = []model.Transport{model.TCP}
-	delivered := make(chan []byte, 8)
-	meshes := []*Mesh{}
-	defer func() {
-		for _, m := range meshes {
-			m.Close()
-		}
-	}()
-	for i := range 2 {
-		seed := make([]byte, ed25519.SeedSize)
-		seed[0] = byte(i + 1)
-		m, err := New(ctx, ed25519.NewKeyFromSeed(seed), "127.0.0.1", 0, func(ctx context.Context, remote model.ID, raw []byte) error { delivered <- raw; return nil })
-		if err != nil {
-			t.Fatal(err)
-		}
-		m.linkOptions = link.Options{Heartbeat: 10 * time.Millisecond, Timeout: 500 * time.Millisecond, RenewAfter: 150 * time.Millisecond}
-		meshes = append(meshes, m)
-		state.Agents[i].ListenPort = m.Port()
-		state.Agents[i].Endpoints = []model.Endpoint{{ID: testutil.ID(100 + i), Transport: model.TCP, Source: model.Manual, URL: "tcp://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(int(m.Port())))}}
-	}
-	for i, m := range meshes {
-		snapshot, err := routing.Compile(state, state.Agents[i].ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := m.Apply(snapshot); err != nil {
-			t.Fatal(err)
-		}
-	}
-	old := map[string]bool{}
-	for len(old) == 0 {
-		for _, stat := range meshes[0].Report() {
-			if stat.Active {
-				old[stat.LinkID] = true
+	for _, kind := range []model.Transport{model.TCP, model.QUIC} {
+		t.Run(string(kind), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			state := testutil.Topology()
+			state.Agents = state.Agents[:2]
+			state.Networks[0].Nodes = state.Networks[0].Nodes[:2]
+			state.Networks[0].Edges = state.Networks[0].Edges[:1]
+			state.Networks[0].Edges[0].Methods = model.ConnectionMethods{IPv4Direct: true}
+			state.Networks[0].Edges[0].Transports = []model.Transport{kind}
+			delivered := make(chan []byte, 8)
+			meshes := []*Mesh{}
+			defer func() {
+				for _, m := range meshes {
+					m.Close()
+				}
+			}()
+			for i := range 2 {
+				seed := make([]byte, ed25519.SeedSize)
+				seed[0] = byte(i + 1)
+				m, err := New(ctx, ed25519.NewKeyFromSeed(seed), "127.0.0.1", 0, func(ctx context.Context, remote model.ID, raw []byte) error { delivered <- raw; return nil })
+				if err != nil {
+					t.Fatal(err)
+				}
+				m.linkOptions = link.Options{Heartbeat: 10 * time.Millisecond, Timeout: 500 * time.Millisecond, RenewAfter: 150 * time.Millisecond}
+				meshes = append(meshes, m)
+				state.Agents[i].ListenPort = m.Port()
+				state.Agents[i].Endpoints = []model.Endpoint{{ID: testutil.ID(100 + i), Transport: kind, Source: model.Manual, URL: string(kind) + "://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(int(m.Port())))}}
 			}
-		}
-		select {
-		case <-ctx.Done():
-			t.Fatal("initial link unavailable")
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
-	replaced := false
-	for range 50 {
-		frame := make([]byte, 100)
-		if err := meshes[0].Send(ctx, state.Networks[0].ID, state.Networks[0].Nodes[1].ID, frame); err != nil {
-			t.Fatalf("rotation interrupted traffic: %v", err)
-		}
-		select {
-		case <-delivered:
-		case <-ctx.Done():
-			t.Fatal("rotation stalled traffic")
-		}
-		active := 0
-		for _, stat := range meshes[0].Report() {
-			if stat.Active {
-				active++
-				if !old[stat.LinkID] {
-					replaced = true
+			for i, m := range meshes {
+				snapshot, err := routing.Compile(state, state.Agents[i].ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := m.Apply(snapshot); err != nil {
+					t.Fatal(err)
 				}
 			}
-		}
-		if active != 1 {
-			t.Fatalf("active links during rotation: %d", active)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !replaced {
-		t.Fatal("session was not replaced before retirement")
+			old := map[string]bool{}
+			for len(old) == 0 {
+				for _, stat := range meshes[0].Report() {
+					if stat.Active {
+						old[stat.LinkID] = true
+					}
+				}
+				select {
+				case <-ctx.Done():
+					t.Fatal("initial link unavailable")
+				case <-time.After(10 * time.Millisecond):
+				}
+			}
+			replaced := false
+			for range 50 {
+				frame := make([]byte, 100)
+				if err := meshes[0].Send(ctx, state.Networks[0].ID, state.Networks[0].Nodes[1].ID, frame); err != nil {
+					t.Fatalf("rotation interrupted traffic: %v", err)
+				}
+				select {
+				case <-delivered:
+				case <-ctx.Done():
+					t.Fatal("rotation stalled traffic")
+				}
+				active := 0
+				for _, stat := range meshes[0].Report() {
+					if stat.Active {
+						active++
+						if !old[stat.LinkID] {
+							replaced = true
+						}
+					}
+				}
+				if active != 1 {
+					t.Fatalf("active links during rotation: %d", active)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			if !replaced {
+				t.Fatal("session was not replaced before retirement")
+			}
+
+		})
 	}
 }

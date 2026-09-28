@@ -36,6 +36,7 @@ type UDP struct {
 	done      chan struct{}
 	closeOnce sync.Once
 	wg        sync.WaitGroup
+	closeQUIC func() error
 }
 
 type Datagram struct {
@@ -59,16 +60,24 @@ func ListenUDP(address string) (*UDP, error) {
 	}
 	return NewUDP(conn), nil
 }
-func NewUDP(socket *net.UDPConn) *UDP {
+func NewUDP(socket *net.UDPConn) *UDP { return newUDP(socket, true) }
+
+func newUDP(socket *net.UDPConn, read bool) *UDP {
 	hub := &UDP{socket: socket, peers: map[udpKey]*Datagram{}, accept: make(chan *Datagram, 64), done: make(chan struct{})}
-	hub.wg.Add(2)
-	go hub.readLoop()
+	hub.wg.Add(1)
+	if read {
+		hub.wg.Add(1)
+		go hub.readLoop()
+	}
 	go hub.expireLoop()
 	return hub
 }
 func (h *UDP) LocalAddr() net.Addr { return h.socket.LocalAddr() }
 func (h *UDP) Close() error {
 	h.stop()
+	if h.closeQUIC != nil {
+		h.closeQUIC()
+	}
 	h.wg.Wait()
 	return nil
 }
@@ -135,39 +144,51 @@ func (h *UDP) readLoop() {
 		if err != nil {
 			return
 		}
-		if n <= udpHeaderSize || n > MaxMessage+udpHeaderSize || [4]byte(buffer[:4]) != udpMagic {
-			continue
-		}
-		key := udpKey{remote: netip.AddrPortFrom(remote.Addr().Unmap(), remote.Port()), token: [16]byte(buffer[4:20])}
-		if key.token == [16]byte{} {
-			continue
-		}
-		h.mu.Lock()
-		peer := h.peers[key]
-		if peer == nil {
-			if len(h.peers) >= maxUDPPeers {
-				h.mu.Unlock()
-				continue
-			}
-			peer = h.newPeer(key)
-			select {
-			case h.accept <- peer:
-			default:
-				delete(h.peers, key)
-				peer.closeOnce.Do(func() { close(peer.done) })
-				h.mu.Unlock()
-				continue
-			}
-		}
-		h.mu.Unlock()
-		payload := append([]byte{}, buffer[udpHeaderSize:n]...)
-		select {
-		case <-peer.done:
-		case peer.incoming <- payload:
-		default:
-		}
+		h.receivePacket(buffer[:n], remote)
 	}
 }
+
+func (h *UDP) receivePacket(raw []byte, remote netip.AddrPort) {
+	n := len(raw)
+	if n <= udpHeaderSize || n > MaxMessage+udpHeaderSize || [4]byte(raw[:4]) != udpMagic {
+		return
+	}
+	key := udpKey{remote: netip.AddrPortFrom(remote.Addr().Unmap(), remote.Port()), token: [16]byte(raw[4:20])}
+	if key.token == [16]byte{} {
+		return
+	}
+	h.mu.Lock()
+	select {
+	case <-h.done:
+		h.mu.Unlock()
+		return
+	default:
+	}
+	peer := h.peers[key]
+	if peer == nil {
+		if len(h.peers) >= maxUDPPeers {
+			h.mu.Unlock()
+			return
+		}
+		peer = h.newPeer(key)
+		select {
+		case h.accept <- peer:
+		default:
+			delete(h.peers, key)
+			peer.closeOnce.Do(func() { close(peer.done) })
+			h.mu.Unlock()
+			return
+		}
+	}
+	h.mu.Unlock()
+	payload := append([]byte{}, raw[udpHeaderSize:]...)
+	select {
+	case <-peer.done:
+	case peer.incoming <- payload:
+	default:
+	}
+}
+
 func (h *UDP) expireLoop() {
 	defer h.wg.Done()
 	ticker := time.NewTicker(time.Second)

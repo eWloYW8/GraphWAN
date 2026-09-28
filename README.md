@@ -4,9 +4,9 @@ A centrally managed overlay network with administrator-defined graph topology,
 weighted multi-hop routing and peer-to-peer data transport.
 
 **Under development.** The repository is implementing the full design in
-`proposal.md`. The Linux CLI now supports authenticated TCP/UDP/WS/WSS/gRPC multi-hop networking;
+`proposal.md`. The Linux CLI now supports authenticated TCP/UDP/QUIC/WS/WSS/gRPC multi-hop networking;
 the embedded React management UI supports topology editing and live status. Other
-platform adapters, remaining transports and NAT coordination are still in progress.
+platform adapters and NAT coordination are still in progress.
 Progress and verification gaps are
 tracked in [the acceptance checklist](docs/implementation-status.md).
 
@@ -50,8 +50,9 @@ sudo --preserve-env=GRAPHWAN_ENROLLMENT_TOKEN ./bin/graphwan agent \
 TUN setup requires root or `CAP_NET_ADMIN`. Add the enrolled Agent to a Network
 with a fixed virtual address, then create the desired Edges. Linux automatically
 advertises TCP/UDP endpoints from underlay interfaces; manual endpoints are also
-supported. WS/WSS and gRPC use explicit manual URLs; see
-[WebSocket setup](docs/websocket-operation.md) and [gRPC setup](docs/grpc-operation.md).
+supported. QUIC, WS/WSS and gRPC use explicit manual URLs; see
+[QUIC setup](docs/quic-operation.md), [WebSocket setup](docs/websocket-operation.md)
+and [gRPC setup](docs/grpc-operation.md).
 The default peer listen port is 24752. No controller packet relay is
 used. Agents keep forwarding and can restart from cached configuration while the
 controller is unavailable.

@@ -49,6 +49,7 @@ type Mesh struct {
 	sniffSlots   chan struct{}
 	pending      map[net.Conn]bool
 	udp          *transport.UDP
+	quic         *transport.QUICHub
 	receive      Receive
 	mu           sync.Mutex
 	groups       map[key]*group
@@ -71,20 +72,22 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 	if err != nil {
 		return nil, err
 	}
-	udp, err := transport.ListenUDP(listener.Addr().String())
+	udp, quicHub, err := transport.ListenUDPQUIC(listener.Addr().String(), identity)
 	if err != nil {
 		listener.Close()
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
 	m := &Mesh{grpcSlots: make(chan struct{}, 512), sniffSlots: make(chan struct{}, 8), pending: map[net.Conn]bool{}, identity: bytes.Clone(identity), ctx: ctx, cancel: cancel, listener: listener, udp: udp, receive: receive, groups: map[key]*group{}, slots: make(chan struct{}, 8), acceptSlots: make(chan struct{}, 8)}
+	m.quic = quicHub
 	m.tls = tlsConfig
 	m.tls.NextProtos = []string{"h2", "http/1.1"}
 	m.startHTTP()
 	m.startGRPC()
-	m.wg.Add(2)
+	m.wg.Add(3)
 	go m.acceptTCP()
 	go m.acceptUDP()
+	go m.acceptQUIC()
 	return m, nil
 }
 func (m *Mesh) Port() uint16 { return uint16(m.listener.Addr().(*net.TCPAddr).Port) }
@@ -226,6 +229,16 @@ func (m *Mesh) acceptUDP() {
 			return
 		}
 		m.accept(conn, model.UDP)
+	}
+}
+func (m *Mesh) acceptQUIC() {
+	defer m.wg.Done()
+	for {
+		conn, err := m.quic.Accept(m.ctx)
+		if err != nil {
+			return
+		}
+		m.accept(conn, model.QUIC)
 	}
 }
 func (m *Mesh) accept(conn transport.Conn, kind model.Transport) {
