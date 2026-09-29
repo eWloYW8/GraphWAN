@@ -175,3 +175,22 @@ The tests compare the Go Windows ABI structures, exercise the socket options,
 send to a secondary IPv4 loopback address and IPv6 loopback, inject oversized UDP
 packets and require replies from the intended address. Native execution remains
 pending, along with multi-interface/NAT acceptance.
+
+## Automatic interface endpoints
+
+Discovery uses `GetIfTable2Ex` interface metadata. An adapter must report itself
+as hardware, must not be a filter or endpoint interface, and must not have a
+loopback, virtual, tunnel or bridge interface type. Alias names and MAC-address
+presence do not determine eligibility. Ethernet, Wi-Fi and cellular interfaces
+can advertise their global-unicast IPv4/IPv6 addresses when up; each address gets
+TCP and UDP endpoints at the configured Agent port. Guest NIC eligibility depends
+on the hardware flag reported by its driver. IPv6 link-local discovery is pending.
+
+Linux fixture tests cover the metadata decision, alias-independent classification,
+duplicate addresses, deterministic IDs and rejecting partial address snapshots.
+Production and discovery tests cross-compile for Windows amd64, arm64 and 386.
+Actual Windows enumeration and driver flags remain unverified. Native acceptance
+must compare advertised endpoints with Ethernet/Wi-Fi/cellular and guest NICs,
+confirm Wintun/TAP/bridge exclusion after alias changes, and exercise address
+addition/removal and down/up transitions while another Link keeps carrying data.
+See [discovery and live updates](endpoint-resolution.md#automatic-interface-discovery).

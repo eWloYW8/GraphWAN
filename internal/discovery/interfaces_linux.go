@@ -3,17 +3,21 @@
 package discovery
 
 import (
-	"github.com/vishvananda/netlink"
 	"net"
+
+	"github.com/vishvananda/netlink"
 )
 
-func physical(iface net.Interface) bool {
-	link, err := netlink.LinkByIndex(iface.Index)
+func physicalInterfaces(_ []net.Interface) (map[int]bool, error) {
+	links, err := netlink.LinkList()
 	if err != nil {
-		return false
+		return nil, err
 	}
-	// veth is the underlay NIC exposed inside containers/network namespaces.
-	// TUN/TAP, bridge, WireGuard and other overlay devices are excluded by type,
-	// not by a name prefix that could accidentally match a physical interface.
-	return link.Type() == "device" || link.Type() == "veth"
+	result := make(map[int]bool, len(links))
+	for _, link := range links {
+		// A veth is the underlay NIC exposed inside a container/network namespace.
+		// Query kernel types so aliases do not determine whether TUN/TAP is excluded.
+		result[link.Attrs().Index] = link.Type() == "device" || link.Type() == "veth"
+	}
+	return result, nil
 }

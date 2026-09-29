@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !windows
 
 package discovery
 
@@ -18,4 +18,12 @@ func physical(iface net.Interface) bool {
 		}
 	}
 	return true
+}
+
+func physicalInterfaces(interfaces []net.Interface) (map[int]bool, error) {
+	result := make(map[int]bool, len(interfaces))
+	for _, iface := range interfaces {
+		result[iface.Index] = physical(iface)
+	}
+	return result, nil
 }
