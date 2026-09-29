@@ -22,7 +22,6 @@ export function Enrollment({ csrf, close }: { csrf: string; close: () => void })
   const [copied, setCopied] = useState(false)
   return (
     <Modal title="Enroll an agent" close={close}>
-      <p className="muted">Create a single-use token to register an agent with this controller.</p>
       {error && <ErrorBox>{error}</ErrorBox>}
       {result ? (
         <>
@@ -42,29 +41,20 @@ export function Enrollment({ csrf, close }: { csrf: string; close: () => void })
             <Copy size={15} />
             {copied ? 'Copied' : 'Copy token'}
           </button>
-          <p className="muted">
-            Expires {new Date(result.expires_at).toLocaleString()}. This token is shown only here.
-          </p>
-          <h4>On the agent machine</h4>
-          <p>
-            Copy the controller’s <code>ca.pem</code> securely, set{' '}
-            <code>GRAPHWAN_ENROLLMENT_TOKEN</code> to this token, then run:
-          </p>
+          <dl>
+            <dt>Expires</dt>
+            <dd>{new Date(result.expires_at).toLocaleString()}</dd>
+          </dl>
+          <h4>Command</h4>
+
           <pre>
-            graphwan agent --server{' '}
+            GRAPHWAN_ENROLLMENT_TOKEN=&apos;&lt;token&gt;&apos; graphwan agent --server{' '}
             {location.protocol === 'https:'
               ? location.origin
               : 'https://CONTROLLER_HOST:HTTPS_PORT'}
             {' \\\n'} --ca ./ca.pem --name my-agent
           </pre>
-          {location.protocol !== 'https:' && (
-            <p className="muted">
-              Use the controller’s HTTPS address for agents, not this HTTP management address.
-            </p>
-          )}
-          <p className="muted">
-            The agent needs permission to create TUN devices. After enrollment, add it to a network.
-          </p>
+
           <button className="primary wide" onClick={close}>
             Done
           </button>
@@ -212,14 +202,8 @@ function AgentEditor({
             />
             Exclude container IPs
           </label>
-          <p className="muted">
-            Skip Linux container veth addresses while keeping the Agent’s default-route uplink.
-            Manual endpoints are preserved.
-          </p>
-          <Field
-            label="STUN servers"
-            hint="One service per line, up to four: host:port for UDP, tcp://host:port for TCP. New agents start with public STUN services. Each discovers its own mapping for hole punching. Leave empty to disable discovery."
-          >
+
+          <Field label="STUN servers">
             <textarea
               value={stunServers}
               rows={3}
@@ -237,9 +221,7 @@ function AgentEditor({
             Revoke this agent’s access
           </label>
           <h4>Manual endpoints</h4>
-          <p className="muted">
-            WS/WSS and gRPC require an explicit endpoint. Automatic addresses use TCP and UDP.
-          </p>
+
           {endpoints.map((ep, i) => (
             <div className="endpoint-editor" key={ep.id}>
               <Field label={`Endpoint ${i + 1} transport`}>
@@ -259,14 +241,7 @@ function AgentEditor({
                   ))}
                 </select>
               </Field>
-              <Field
-                label={`Endpoint ${i + 1} URL`}
-                hint={
-                  ep.transport === 'grpc'
-                    ? 'Uses TLS. An optional path is a service prefix, such as /overlay.'
-                    : undefined
-                }
-              >
+              <Field label={`Endpoint ${i + 1} URL`}>
                 <input
                   required
                   value={ep.url}
@@ -350,9 +325,7 @@ export default function Agents({
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">INFRASTRUCTURE</div>
           <h1>Agents</h1>
-          <p>Registered machines and their connection endpoints.</p>
         </div>
         <button className="primary" onClick={enroll}>
           <Plus size={17} />
@@ -416,7 +389,7 @@ export default function Agents({
           <div className="empty-page">
             <Server size={32} />
             <h2>No agents enrolled</h2>
-            <p>Generate a token and start an agent to register your first machine.</p>
+
             <button className="primary" onClick={enroll}>
               Enroll first agent
             </button>

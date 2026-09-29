@@ -11,18 +11,15 @@ export function Badge({ children, tone = '' }: { children: ReactNode; tone?: str
 export function Field({
   label,
   children,
-  hint,
 }: {
   label: string
-  children: ReactElement<{ id?: string; 'aria-describedby'?: string }>
-  hint?: string
+  children: ReactElement<{ id?: string }>
 }) {
   const id = useId()
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
-      {cloneElement(children, { id, 'aria-describedby': hint ? `${id}-hint` : undefined })}
-      {hint && <small id={`${id}-hint`}>{hint}</small>}
+      {cloneElement(children, { id })}
     </div>
   )
 }

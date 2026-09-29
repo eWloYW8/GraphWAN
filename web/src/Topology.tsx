@@ -14,7 +14,7 @@ import {
   type NodeProps,
   type Node as FlowNode,
 } from '@xyflow/react'
-import { Server, Plus, Settings2, Cable, CircleDot, MousePointer2 } from 'lucide-react'
+import { Server, Plus, Settings2, Cable, MousePointer2 } from 'lucide-react'
 import { FloatingEdge, FloatingConnection } from './FloatingEdge'
 import { planAnchors } from './edgeGeometry'
 import { ResourceDetails } from './Resources'
@@ -67,7 +67,6 @@ function AgentNode({ data, isConnectable }: NodeProps<GraphNode>) {
         position={Position.Top}
         className="node-connect-surface"
         isConnectable={isConnectable}
-        title="Drag from anywhere on the node border to connect"
       />
       <Handle
         id="target"
@@ -224,22 +223,13 @@ export default function Topology({
   return (
     <div className="workspace">
       <section className="canvas-card" aria-label="Network topology">
-        <div className="canvas-toolbar">
-          <span>
-            <CircleDot size={15} />
-            {editing
-              ? connecting
-                ? 'Drag between any two nodes to connect'
-                : 'Drag center to move · Drag border to connect'
-              : 'Select a node or edge to inspect'}
-          </span>
-          {editing && (
+        {editing && (
+          <div className="canvas-toolbar">
             <div className="actions">
               <button
                 aria-label="Move nodes"
                 aria-pressed={!connecting}
                 onClick={() => setConnecting(false)}
-                title="Drag node centers to move"
               >
                 <MousePointer2 size={14} />
                 Move
@@ -248,7 +238,6 @@ export default function Topology({
                 aria-label="Connect nodes"
                 aria-pressed={connecting}
                 onClick={() => setConnecting(true)}
-                title="Drag anywhere on a node to connect"
               >
                 <Cable size={14} />
                 Connect
@@ -262,8 +251,8 @@ export default function Topology({
                 Add edge
               </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
         <div className="canvas">
           <ReactFlow
             nodes={nodes}
@@ -336,8 +325,8 @@ export default function Topology({
               <div className="empty-symbol">
                 <Server size={29} />
               </div>
-              <h3>Your topology starts here</h3>
-              <p>Add an enrolled agent as a node, then define the connections between nodes.</p>
+              <h3>No nodes</h3>
+
               <button className="primary" onClick={addNode} disabled={!editing}>
                 <Plus size={16} />
                 {editing ? 'Add first node' : 'Switch to Edit to add nodes'}
@@ -354,14 +343,12 @@ export default function Topology({
             <i className="dot offline" />
             Down / unknown
           </span>
-          <span className="muted">Weighted shortest-path routing</span>
         </div>
       </section>
       <aside className="inspector" aria-label="Inspector">
         <div className="inspector-title">
           <Settings2 size={17} />
           <h2>{node ? 'Node details' : edge ? 'Edge details' : 'Network details'}</h2>
-          <span className="eyebrow">{editing ? 'EDIT' : 'OBSERVE'}</span>
         </div>
         {node ? (
           <>
@@ -409,7 +396,7 @@ export default function Topology({
                     ))}
                 </select>
               </Field>
-              <Field label="Virtual IP" hint={`A fixed address within ${network.cidr}`}>
+              <Field label="Virtual IP">
                 <input
                   value={node.address}
                   onChange={(e) =>
@@ -490,10 +477,7 @@ export default function Topology({
                 />
                 Enable edge
               </label>
-              <Field
-                label="Routing weight"
-                hint="Lower total weight wins. Independent of Link RTT."
-              >
+              <Field label="Routing weight">
                 <input
                   type="number"
                   min={1}
@@ -540,10 +524,7 @@ export default function Topology({
                   {label}
                 </label>
               ))}
-              <Field
-                label="Preferred path"
-                hint="An unavailable preference falls back to the lowest RTT."
-              >
+              <Field label="Preferred path">
                 <select
                   value={edge.preferred_candidate ?? ''}
                   onChange={(e) => updateEdge({ preferred_candidate: e.target.value })}
@@ -594,9 +575,7 @@ export default function Topology({
               </div>
             ))}
             {!edgeView(network, edge, statuses, rates, live).links.length && (
-              <p className="muted">
-                No links reported. Check agent connectivity and allowed endpoints.
-              </p>
+              <p className="muted">No links reported.</p>
             )}
             {editing && (
               <button
@@ -614,7 +593,6 @@ export default function Topology({
           <>
             <div className="inspector-intro">
               <h3>{network.name}</h3>
-              <span className="mono muted">{network.cidr}</span>
             </div>
             <fieldset disabled={!editing}>
               <Field label="Network name">
@@ -630,10 +608,7 @@ export default function Topology({
                   onChange={(e) => change({ ...network, cidr: e.target.value })}
                 />
               </Field>
-              <Field
-                label="TUN MTU"
-                hint="1280 is the default; account for underlay encapsulation."
-              >
+              <Field label="TUN MTU">
                 <input
                   type="number"
                   min={1280}

@@ -21,7 +21,7 @@ export function ResourceSummary({ status, live }: { status?: AgentStatus; live: 
   if (!usage) return <span className="muted">Unavailable</span>
   return (
     <>
-      <span title="Agent process CPU; 100% is one logical core">CPU {cpu(usage.cpu_percent)}</span>
+      <span>CPU {cpu(usage.cpu_percent)}</span>
       <small>Go memory {bytes(usage.go_memory_bytes)}</small>
     </>
   )
@@ -31,9 +31,7 @@ export function ResourceDetails({ status, live }: { status?: AgentStatus; live: 
   return (
     <>
       <h4>Agent resources</h4>
-      <p className="muted">
-        Process CPU: 100% is one logical core. Memory covers Go-managed allocations.
-      </p>
+
       <dl aria-label="Agent resources">
         <dt>CPU</dt>
         <dd>{usage ? cpu(usage.cpu_percent) : 'Unavailable'}</dd>

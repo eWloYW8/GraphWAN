@@ -47,17 +47,6 @@ function Login({ ready }: { ready: (csrf: string) => void }) {
           GraphWAN
         </a>
         <div>
-          <div className="eyebrow">YOUR NETWORK. YOUR TOPOLOGY.</div>
-          <h1>
-            Every connection,
-            <br />
-            on your terms.
-          </h1>
-          <p>
-            Define the graph. Choose the paths.
-            <br />
-            Keep your networks connected.
-          </p>
           <div className="login-graph" aria-hidden="true">
             <span>01</span>
             <i />
@@ -66,7 +55,6 @@ function Login({ ready }: { ready: (csrf: string) => void }) {
             <span>03</span>
           </div>
         </div>
-        <small>Central control · Peer-to-peer data</small>
       </div>
       <main className="login-form">
         <form
@@ -88,9 +76,8 @@ function Login({ ready }: { ready: (csrf: string) => void }) {
             }
           }}
         >
-          <div className="eyebrow">CONTROLLER ACCESS</div>
-          <h2>Welcome back</h2>
-          <p className="muted">Sign in to manage your GraphWAN networks.</p>
+          <h1>Sign in</h1>
+
           {error && <ErrorBox>{error}</ErrorBox>}
           <Field label="Administrator password">
             <input
@@ -106,9 +93,6 @@ function Login({ ready }: { ready: (csrf: string) => void }) {
             {busy ? 'Signing in…' : 'Sign in'}
             <ArrowUpRight size={17} />
           </button>
-          <small className="muted">
-            Use the administrator password configured on this controller.
-          </small>
         </form>
       </main>
     </div>
@@ -356,11 +340,6 @@ export default function App() {
             <span className={`dot ${live ? 'online' : 'offline'}`} />
             <strong>{live ? 'Controller connected' : 'Reconnecting…'}</strong>
           </div>
-          <small>
-            Configuration lives here.
-            <br />
-            Traffic flows between agents.
-          </small>
         </div>
       </aside>
       <div className="app-content">
@@ -409,7 +388,7 @@ export default function App() {
             <div className="empty-page" role="status">
               <Activity size={32} />
               <h2>{live ? 'Loading workspace…' : 'Waiting for the controller'}</h2>
-              <p>Live updates reconnect automatically.</p>
+
               <button onClick={() => location.reload()}>
                 <RefreshCw size={15} />
                 Reload
@@ -428,14 +407,7 @@ export default function App() {
             <>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">NETWORK TOPOLOGY</div>
                   <h1>{network.name}</h1>
-                  <p>
-                    <span className="mono">{network.cidr}</span>
-                    <span className="separator">·</span>
-                    {network.cipher}
-                    <span className="separator">·</span>MTU {network.mtu}
-                  </p>
                 </div>
                 <div className="actions">
                   {draft ? (
@@ -545,9 +517,7 @@ export default function App() {
                     Configuration
                     <strong>
                       {draft ? 'Draft' : `r${state.revision}`}
-                      <small>
-                        {draft ? (dirty ? 'Unsaved changes' : 'No changes yet') : 'Desired state'}
-                      </small>
+                      {draft && <small>{dirty ? 'Unsaved changes' : 'No changes yet'}</small>}
                     </strong>
                   </span>
                 </div>
@@ -569,11 +539,6 @@ export default function App() {
                     Edit
                   </button>
                 </div>
-                <span className="muted">
-                  {draft
-                    ? 'Changes apply together when saved.'
-                    : 'Live paths over your configured topology.'}
-                </span>
               </div>
               <Topology
                 key={network.id}
@@ -594,9 +559,7 @@ export default function App() {
             <>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">YOUR WORKSPACE</div>
                   <h1>Networks</h1>
-                  <p>Build the connections your infrastructure needs.</p>
                 </div>
                 <button className="primary" onClick={beginNetwork}>
                   <Plus size={17} />
@@ -644,8 +607,8 @@ export default function App() {
               ) : (
                 <div className="empty-page">
                   <NetworkIcon size={35} />
-                  <h2>Design your first network</h2>
-                  <p>Choose a subnet, add your agents, and draw the connections.</p>
+                  <h2>No networks</h2>
+
                   <button className="primary" onClick={beginNetwork}>
                     Create a network
                   </button>
@@ -664,7 +627,6 @@ export default function App() {
               Licenses
             </a>
           </span>
-          <span>Explicit topology. Autonomous connectivity.</span>
         </footer>
       </div>
       {modal === 'enroll' && <Enrollment csrf={csrf} close={() => setModal(null)} />}
@@ -766,9 +728,7 @@ function CreateNetwork({
             onChange={(e) => setMTU(Number(e.target.value))}
           />
         </Field>
-        <p className="muted">
-          New networks start without nodes or edges. Connections are defined explicitly.
-        </p>
+
         <button className="primary wide" disabled={busy}>
           {busy ? 'Creating…' : 'Create network'}
         </button>
@@ -796,10 +756,7 @@ function AddNode({
   return (
     <Modal title="Add node" close={close}>
       {!available.length ? (
-        <p>
-          All available agents are already in this network, or none are enrolled. Enroll another
-          agent from the Agents page.
-        </p>
+        <p>No available agents.</p>
       ) : (
         <form
           onSubmit={(e) => {
@@ -845,7 +802,7 @@ function AddNode({
               onChange={(e) => setName(e.target.value)}
             />
           </Field>
-          <Field label="Virtual IP" hint={`Enter an unused host address in ${network.cidr}.`}>
+          <Field label="Virtual IP">
             <input
               required
               placeholder="10.42.0.1"
@@ -903,10 +860,7 @@ function AddEdge({
             ))}
           </select>
         </Field>
-        <p className="muted">
-          Starts with weight 10, TCP/UDP, and IPv4/IPv6 direct connections. Select the edge to
-          customize it.
-        </p>
+
         <button className="primary wide">Add to draft</button>
       </form>
     </Modal>

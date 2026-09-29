@@ -535,7 +535,7 @@ fieldset:disabled select {
   padding: 0 16px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
   color: #82917d;
   font-size: 10px;
@@ -1126,9 +1126,9 @@ dialog .primary.wide {
   width: 340px;
   max-width: 100%;
 }
-.login-form h2 {
+.login-form h1 {
   font-size: 30px;
-  margin: 13px 0 10px;
+  margin: 0 0 28px;
   font-weight: 550;
 }
 .login-form p {
@@ -1424,7 +1424,7 @@ dialog .primary.wide {
   .login-form form {
     width: 100%;
   }
-  .login-form h2 {
+  .login-form h1 {
     font-size: 26px;
   }
   .login-story:after {
