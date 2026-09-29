@@ -84,22 +84,22 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 	}
 	next := &runtimeState{snapshot: snapshot.Clone(), devices: map[model.ID]*runtimeTunnel{}}
 	prepared := []tunnel.Device{}
-	type mtuUpdate struct {
+	type tunnelUpdate struct {
 		network       model.ID
 		device        *runtimeTunnel
-		setter        tunnel.MTUSetter
-		before, after int
+		apply         func(tunnel.Config) error
+		before, after tunnel.Config
 	}
-	var mtuUpdates []mtuUpdate
-	updatedMTUs := 0
+	var tunnelUpdates []tunnelUpdate
+	updatedTunnels := 0
 	committed := false
 	newMesh := false
 	defer func() {
 		if !committed {
-			for i := updatedMTUs - 1; i >= 0; i-- {
-				update := mtuUpdates[i]
-				if err := update.setter.SetMTU(update.before); err != nil {
-					r.failTunnel(update.network, update.device, fmt.Errorf("rollback TUN MTU: %w", err))
+			for i := updatedTunnels - 1; i >= 0; i-- {
+				update := tunnelUpdates[i]
+				if err := update.apply(update.before); err != nil {
+					r.failTunnel(update.network, update.device, fmt.Errorf("rollback TUN configuration: %w", err))
 				}
 			}
 			for _, device := range prepared {
@@ -113,14 +113,21 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 	for _, network := range snapshot.Networks {
 		cfg := tunnel.Config{Address: netip.PrefixFrom(network.Self.Address, network.CIDR.Bits()), MTU: network.MTU}
 		if previous != nil {
-			if old := previous.devices[network.ID]; old != nil && old.failure.Load() == nil && old.Configuration().Address == cfg.Address {
-				before := old.Configuration().MTU
-				if before == cfg.MTU {
+			if old := previous.devices[network.ID]; old != nil && old.failure.Load() == nil {
+				before := old.Configuration()
+				if before.Address == cfg.Address && before.MTU == cfg.MTU {
 					next.devices[network.ID] = old
 					continue
 				}
-				if setter, ok := old.Device.(tunnel.MTUSetter); ok {
-					mtuUpdates = append(mtuUpdates, mtuUpdate{network.ID, old, setter, before, cfg.MTU})
+				var apply func(tunnel.Config) error
+				if updater, ok := old.Device.(tunnel.Reconfigurable); ok {
+					apply = updater.Reconfigure
+				} else if setter, ok := old.Device.(tunnel.MTUSetter); ok && before.Address == cfg.Address {
+					apply = func(c tunnel.Config) error { return setter.SetMTU(c.MTU) }
+				}
+				if apply != nil {
+					cfg.Name = before.Name
+					tunnelUpdates = append(tunnelUpdates, tunnelUpdate{network.ID, old, apply, before, cfg})
 					next.devices[network.ID] = old
 					continue
 				}
@@ -151,11 +158,14 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	for _, update := range mtuUpdates {
-		if err := update.setter.SetMTU(update.after); err != nil {
-			return fmt.Errorf("network %s: update TUN MTU: %w", update.network, err)
+	for _, update := range tunnelUpdates {
+		if err := update.apply(update.after); err != nil {
+			if errors.Is(err, tunnel.ErrUnavailable) {
+				r.failTunnel(update.network, update.device, err)
+			}
+			return fmt.Errorf("network %s: update TUN configuration: %w", update.network, err)
 		}
-		updatedMTUs++
+		updatedTunnels++
 	}
 	if err := next.mesh.Apply(snapshot); err != nil {
 		return err

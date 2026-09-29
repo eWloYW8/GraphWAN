@@ -77,6 +77,13 @@ func TestFreeBSDReplacement(t *testing.T) {
 
 func checkNativeRoute(t *testing.T, iface *net.Interface, config tunnel.Config) {
 	t.Helper()
+	if !hasNativeRoute(t, iface, config) {
+		t.Fatalf("connected route missing for %s on %s", config.Address.Masked(), iface.Name)
+	}
+}
+
+func hasNativeRoute(t *testing.T, iface *net.Interface, config tunnel.Config) bool {
+	t.Helper()
 	family := unix.AF_INET
 	if config.Address.Addr().Is6() {
 		family = unix.AF_INET6
@@ -110,8 +117,66 @@ func checkNativeRoute(t *testing.T, iface *net.Interface, config tunnel.Config) 
 		}
 		ones, _ := mask.Size()
 		if dst.IsValid() && netip.PrefixFrom(dst, ones) == config.Address.Masked() {
-			return
+			return true
 		}
 	}
-	t.Fatalf("connected route missing for %s on %s", config.Address.Masked(), iface.Name)
+	return false
+}
+
+func TestFreeBSDAddressReconfigure(t *testing.T) {
+	if os.Geteuid() != 0 || os.Getenv("GRAPHWAN_TEST_VM") != "1" {
+		t.Skip("requires disposable root VM")
+	}
+	for _, pair := range [][2]string{
+		{"10.240.35.1/24", "10.240.35.1/25"},
+		{"10.240.35.1/25", "10.240.35.1/24"},
+		{"fd42:6781::1/64", "fd42:6781::1/80"},
+		{"fd42:6781::1/80", "fd42:6781::1/64"},
+		{"fd42:6781::1/64", "fd42:6782::1/80"},
+		{"10.240.35.1/24", "fd42:6781::1/64"},
+		{"fd42:6781::1/64", "10.240.35.1/24"},
+	} {
+		t.Run(pair[0]+"→"+pair[1], func(t *testing.T) {
+			before := tunnel.Config{Address: netip.MustParsePrefix(pair[0]), MTU: 1280}
+			device, err := tunnel.Open(before)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer device.Close()
+			original, err := net.InterfaceByName(device.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			after := tunnel.Config{Address: netip.MustParsePrefix(pair[1]), MTU: 9000}
+			if err := device.(tunnel.Reconfigurable).Reconfigure(after); err != nil {
+				t.Fatal(err)
+			}
+			current, err := net.InterfaceByName(device.Name())
+			if err != nil || current.Index != original.Index {
+				t.Fatalf("reconfiguration replaced interface: %v", err)
+			}
+			if hasNativeRoute(t, current, before) {
+				t.Fatal("old subnet route survived update")
+			}
+			addresses, err := current.Addrs()
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, address := range addresses {
+				if address.String() == before.Address.String() {
+					t.Fatal("old address or prefix survived update")
+				}
+				found = found || address.String() == after.Address.String()
+			}
+			if !found {
+				t.Fatal("new address missing")
+			}
+			reported := device.Configuration()
+			if reported.Address != after.Address || reported.MTU != after.MTU || reported.Name != device.Name() {
+				t.Fatal("device reports stale configuration")
+			}
+			checkConfiguredNativeTunnel(t, device, after, after.Address.Addr().Next())
+		})
+	}
 }

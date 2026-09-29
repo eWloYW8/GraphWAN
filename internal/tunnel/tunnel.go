@@ -59,3 +59,12 @@ type Factory func(Config) (Device, error)
 type MTUSetter interface {
 	SetMTU(int) error
 }
+
+// Reconfigurable changes address, prefix and MTU on an owned live interface.
+// An empty Name preserves its name; renaming is not supported. On error the old
+// configuration is restored, unless ErrUnavailable signals that restoration
+// failed and the caller must retire the device. Configuration and Close may run
+// concurrently with Reconfigure.
+type Reconfigurable interface {
+	Reconfigure(Config) error
+}

@@ -29,7 +29,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Validate → persist → reconcile → ACK; old runtime retained on failed updates.
 - [ ] Per-network TUN, address/route setup and safe resource cleanup on all platforms.
 - [x] FreeBSD native IPv4/IPv6 TUN, full-MTU kernel I/O and live MTU reconciliation.
-- [ ] FreeBSD multi-host/NAT acceptance, older kernels and IPv6 same-IP prefix changes.
+- [x] FreeBSD live address/prefix/MTU edits, multi-Network rollback and applied-state recovery.
+- [ ] FreeBSD multi-host/NAT acceptance and older kernels.
 - [x] Local recovery from fatal TUN I/O, independent runtime health and Linux offline recovery.
 - [x] Actual multi-hop IP forwarding and network/source admission enforcement.
 - [x] Native Linux IPv4/IPv6 overlays and underlays, all six IPv6 transports and mixed families.
@@ -291,5 +292,21 @@ Every feature below derives from the accepted proposal, including its suggestion
   TCP+UDP process test pass. Core cross-builds pass for FreeBSD amd64/arm64/386/arm/
   riscv64, macOS/arm64, Windows/amd64 and Linux/arm64. Other platforms' native
   adapters, FreeBSD multi-host/NAT acceptance,
-  earlier kernel versions and same-address IPv6 prefix changes remain open.
+  earlier kernel versions remain open. Address migration evidence follows below.
   See [FreeBSD operation and reproduction](freebsd-operation.md).
+
+- FreeBSD configuration migration: seven native IPv4/IPv6 cases cover same-IP
+  prefix narrowing/widening, new addresses and both directions of address-family
+  changes. Each retains its interface index, removes the old address/subnet route
+  and passes full-MTU bidirectional kernel UDP traffic afterwards. The actual
+  Agent retains its original readers and Mesh through two-Network updates. A
+  second-Network kernel IPv6 address conflict rolls back the first Network's
+  completed prefix/MTU edit and preserves the applied runtime. Ten Linux race
+  repetitions cover full-configuration and MTU transactions, command failures
+  before/after mutation, rollback failures, retiring unavailable devices and
+  recovery from the applied snapshot. This closes the same-IP IPv6 prefix gap
+  noted in the earlier FreeBSD evidence. Full Go race tests/vet, native Linux TUN
+  checks, the Linux three-Agent IPv6/IPv6 TCP+UDP test and the complete native
+  FreeBSD Agent/TUN suites pass. Core cross-builds pass for the five FreeBSD
+  architectures listed above, macOS/arm64, Windows/amd64 and Linux/arm64.
+  Broader platform acceptance stays open.

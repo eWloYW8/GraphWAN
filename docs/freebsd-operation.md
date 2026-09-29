@@ -52,15 +52,24 @@ the controller assigns unique overlay addresses. Physical interfaces and global
 IPv6 settings are not changed. Configuration commands use absolute executable
 paths, separate validated arguments, a five-second timeout and bounded output.
 
-An MTU-only update changes the owned descriptor through a kernel ioctl and keeps
-its interface, reader, routes and peer sessions. This avoids creating a second
-interface with an IPv6 address already assigned to the first. If another Network
-fails during the update, previously changed MTUs are restored. If restoration
-itself fails, the runtime reports the device failure and recreates it from the
-last applied snapshot. Address changes to a new IP prepare a replacement device;
-IPv4 and IPv6 route handoff have native test coverage. Subnet-prefix changes that
-retain the exact IPv6 host address still need an in-place address migration and
-are an open acceptance item.
+Address, subnet-prefix and MTU edits reuse the owned interface, reader and peer
+sessions. MTU-only edits use a kernel ioctl. A new host address is added before
+removing the previous address; IPv4/IPv6 family changes follow the same sequence.
+When the host address stays the same but its prefix changes, the adapter removes
+and re-adds that address: FreeBSD's
+[IPv6 address implementation](https://github.com/freebsd/freebsd-src/blob/releng/15.1/sys/netinet6/in6.c)
+rejects direct prefix edits. This produces a short address/route transition during
+the update; it does not close the TUN or replace its blocked reader.
+
+On a failed operation the adapter reads the kernel addresses, restores the old
+address/prefix and MTU, and retains the old reported configuration. This also
+handles a command failing after it changed kernel state. An error restoring the
+old configuration marks the device unavailable, so the Agent retires it and
+recovers the last applied snapshot. If a later Network fails during a multi-Network
+update, earlier successful updates are rolled back too. The applied revision and
+Mesh stay unchanged until every device update succeeds. Interface names cannot
+be edited through this operation; name-based address commands first verify the
+name against the owned descriptor to reject an externally renamed device.
 
 ## Reproduce the native checks
 
@@ -81,13 +90,19 @@ connected routes, full-MTU kernel UDP traffic in both directions, exclusive
 ownership, cancellation of blocked reads, repeated close, MTU edits, replacement
 addresses, explicit cleanup and SIGKILL cleanup on supported kernels. The Agent
 test applies two Networks through the production TUN factory, increases and
-decreases their MTUs, verifies retained interface/runtime ownership and checks
-shutdown cleanup. The complete Agent package also passes in the FreeBSD VM;
+decreases their MTUs, changes prefixes/addresses/address families, verifies retained
+interface/runtime ownership and checks shutdown cleanup. Seven adapter migration
+cases check removal of old addresses/routes and full-MTU bidirectional kernel UDP
+traffic after each migration. A real duplicate-IPv6-address error on a second
+Network verifies rollback of the first Network's completed prefix/MTU edit.
+The complete Agent package also passes in the FreeBSD VM;
 its other tests include controller/cache and encrypted TCP/UDP forwarding with
 in-memory tunnel fixtures.
 
-Linux race tests cover multi-Network MTU success, rollback, rollback failure and
-recovery of the last applied MTU. Native FreeBSD tests above are not race-enabled.
+Linux race tests cover MTU and full configuration transactions, failures before
+and after address operations mutate state, rollback failures, device retirement
+and recovery of the last applied configuration. Native FreeBSD tests above are
+not race-enabled.
 Full FreeBSD multi-host forwarding, NAT behavior, discovery changes, older kernel
-releases and remaining address-reconfiguration cases remain open in the
+releases and the other platform adapters remain open in the
 [acceptance tracker](implementation-status.md).

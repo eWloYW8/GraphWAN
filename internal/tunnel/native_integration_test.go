@@ -13,16 +13,21 @@ import (
 )
 
 func checkNativeTunnel(t *testing.T, config tunnel.Config, remote netip.Addr) {
-	udp, version := "udp4", byte(4)
-	if config.Address.Addr().Is6() {
-		udp, version = "udp6", 6
-	}
-	localIP, remoteIP := net.IP(config.Address.Addr().AsSlice()), net.IP(remote.AsSlice())
 	device, err := tunnel.Open(config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer device.Close()
+	checkConfiguredNativeTunnel(t, device, config, remote)
+}
+
+func checkConfiguredNativeTunnel(t *testing.T, device tunnel.Device, config tunnel.Config, remote netip.Addr) {
+	t.Helper()
+	udp, version := "udp4", byte(4)
+	if config.Address.Addr().Is6() {
+		udp, version = "udp6", 6
+	}
+	localIP, remoteIP := net.IP(config.Address.Addr().AsSlice()), net.IP(remote.AsSlice())
 	config.Name = device.Name()
 	if other, err := tunnel.Open(config); err == nil {
 		other.Close()

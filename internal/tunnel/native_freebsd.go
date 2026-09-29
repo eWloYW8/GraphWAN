@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"unsafe"
@@ -21,6 +22,7 @@ const (
 	tunSetTransient = 0x80047462
 	tunGetInfo      = 0x4008745c
 	tunSetInfo      = 0x8008745b
+	tunGetName      = 0x4020745d
 )
 
 type freeBSDIfreq struct {
@@ -126,18 +128,95 @@ func Open(config Config) (Device, error) {
 	return device, nil
 }
 
-// Use a single kernel operation so a failed update cannot partially apply.
 func (d *framedDevice) SetMTU(mtu int) error {
 	d.configMu.Lock()
 	defer d.configMu.Unlock()
+	config := d.config
+	config.MTU = mtu
+	return d.reconfigureLocked(config)
+}
+
+func (d *framedDevice) Reconfigure(config Config) error {
+	d.configMu.Lock()
+	defer d.configMu.Unlock()
+	return d.reconfigureLocked(config)
+}
+
+func (d *framedDevice) reconfigureLocked(config Config) error {
 	if d.closed {
 		return os.ErrClosed
 	}
-	config := d.config
-	config.MTU = mtu
+	if config.Name == "" {
+		config.Name = d.config.Name
+	}
 	if err := config.Validate(); err != nil {
 		return err
 	}
+	if config.Name != d.config.Name {
+		return errors.New("cannot rename an owned TUN during reconfiguration")
+	}
+	if config == d.config {
+		return nil
+	}
+	// Resolve the name from the owned descriptor before invoking name-based
+	// address operations. Never act on a different device that reused our name.
+	raw, err := d.file.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var req freeBSDIfreq
+	var ioctlError error
+	if err := raw.Control(func(fd uintptr) { ioctlError = interfaceIOCTL(int(fd), tunGetName, &req) }); err != nil {
+		return err
+	}
+	if ioctlError != nil {
+		return fmt.Errorf("%w: %w", ErrUnavailable, ioctlError)
+	}
+	if unix.ByteSliceToString(req.Name[:]) != d.config.Name {
+		return fmt.Errorf("%w: owned TUN was renamed", ErrUnavailable)
+	}
+	ops := configOperations{
+		setMTU: d.setMTULocked,
+		addresses: func() ([]netip.Prefix, error) {
+			iface, err := net.InterfaceByName(d.config.Name)
+			if err != nil {
+				return nil, err
+			}
+			addresses, err := iface.Addrs()
+			if err != nil {
+				return nil, err
+			}
+			var prefixes []netip.Prefix
+			for _, address := range addresses {
+				prefix, err := netip.ParsePrefix(address.String())
+				if err != nil {
+					return nil, err
+				}
+				prefixes = append(prefixes, prefix)
+			}
+			return prefixes, nil
+		},
+		add:    func(address netip.Prefix) error { return freeBSDAddress(d.config.Name, address, "alias") },
+		remove: func(address netip.Prefix) error { return freeBSDAddress(d.config.Name, address, "delete") },
+	}
+	if err := changeConfig(d.config, config, ops); err != nil {
+		return err
+	}
+	d.config.Address, d.config.MTU = config.Address, config.MTU
+	return nil
+}
+
+func freeBSDAddress(name string, address netip.Prefix, operation string) error {
+	family := "inet"
+	if address.Addr().Is6() {
+		family = "inet6"
+	}
+	return interfaceCommand("/sbin/ifconfig", name, family, address.String(), operation)
+}
+
+// Use a single kernel operation so a failed MTU update cannot partially apply.
+// The caller holds configMu and publishes the config only after all edits succeed.
+func (d *framedDevice) setMTULocked(mtu int) error {
 	raw, err := d.file.SyscallConn()
 	if err != nil {
 		return err
@@ -168,6 +247,5 @@ func (d *framedDevice) SetMTU(mtu int) error {
 	if ioctlError != nil {
 		return ioctlError
 	}
-	d.config.MTU = mtu
 	return nil
 }
