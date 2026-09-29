@@ -58,6 +58,7 @@ checks are listed separately from outstanding implementation work.
 - [x] FreeBSD kernel driver/type discovery with native renamed-interface and address-change tests.
 - [x] OpenBSD kernel type/cloner discovery with native clone exclusion and address-change tests.
 - [x] NetBSD kernel type/cloner discovery with native clone exclusion and address-change tests.
+- [x] macOS kernel family/subfamily/clone discovery with Linux policy tests and Intel/Apple Silicon cross-builds.
 - [ ] Manual hostname/path endpoints and configurable listeners (default 24752), Linux acceptance and cross-platform review.
 - [x] Per-address DNS Candidates across all six transports, refresh, preference and healthy rekey on Linux.
 - [x] Windows UDP packet-info implementation and portable 32/64-bit ABI validation.
@@ -660,3 +661,17 @@ These checks are not required for completion under the agreed Linux validation s
   was started or native execution claimed. Authoritative DragonFly physical
   interface discovery remains separate outstanding work.
   See [DragonFly operation and kernel references](dragonfly-operation.md).
+
+- macOS physical-interface discovery now queries concrete kernel interface type,
+  family, subfamily and extended flags rather than requiring a MAC and using a
+  broad prefix blacklist. Cloned Ethernet, AWDL, VMNET, simulated cellular,
+  VLAN/bond/tunnel families and canonical legacy TAP/TUN drivers are excluded;
+  Ethernet/Wi-Fi, FireWire and cellular hardware are accepted independently of
+  an Ethernet MAC. Name/index mismatches and ioctl failures reject incomplete
+  snapshots. XNU's delegated functional type is intentionally not used. Linux
+  race tests pass for the classification rules, discovery and Agent; both Darwin
+  production/test architectures cross-build, target vet passes and production
+  manifest sizes/hashes are verified. No macOS native execution is claimed.
+  This completes the macOS classification implementation item; DragonFly
+  classification and link-local scope mapping remain open. Details and pinned
+  kernel references are in [macOS operation](macos-operation.md#physical-interface-discovery).

@@ -3,9 +3,10 @@
 The macOS adapter is implemented and cross-builds for `darwin/amd64` and
 `darwin/arm64`. Its route/configuration algorithms pass Linux race-enabled tests.
 **Native macOS execution has not been verified in the current development
-environment.** The native test binaries compile, but their checks must be run on
-a Mac before treating macOS networking as accepted. The overall platform acceptance
-item remains open in the [implementation tracker](implementation-status.md).
+environment.** The native test binaries compile. Under the agreed validation
+scope, runtime acceptance is required on Linux; macOS source review and
+cross-compilation are required, while native execution is optional supplemental
+evidence. See the [implementation tracker](implementation-status.md).
 
 ## Build and run
 
@@ -72,7 +73,37 @@ lifetime design follow Apple's [utun control definitions](https://github.com/app
 [utun implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)
 and [route utility documentation](https://github.com/apple-oss-distributions/network_cmds/blob/main/route.tproj/route.8).
 
-## Native verification procedure
+## Physical-interface discovery
+
+Automatic discovery reads XNU's `SIOCGIFTYPE` and `SIOCGIFEFLAGS` metadata through
+a close-on-exec socket. It accepts Ethernet/Wi-Fi, FireWire and cellular families
+with hardware transport subfamilies, without requiring an Ethernet MAC address.
+It excludes kernel clones (including fake Ethernet), AWDL, VMNET, simulated
+cellular, VLAN, bonds, utun and other tunnel families. It also excludes the
+canonical legacy `tapN`/`tunN` driver names because older third-party TAP drivers
+register as ordinary Ethernet without using XNU's clone framework. System
+Settings' editable network-service labels do not determine classification.
+
+The concrete family is used instead of functional type: the latter can report a
+tunnel's delegated physical transport. Discovery checks that the interface name
+still maps to the original index after querying metadata and rejects incomplete
+snapshots on errors. It does not fall back to advertising every MAC-bearing
+interface if an ioctl is unavailable. Unknown families/subfamilies are excluded;
+an arbitrary third-party kernel driver that presents itself as standard hardware
+is not distinguishable from hardware through these ioctls.
+
+Classification rules have Linux tests covering accepted hardware, software
+exclusions, legacy TAP, cellular without MAC dependence and misleading name
+prefixes. Both Intel and Apple Silicon production/test binaries cross-compile
+and target vet passes. This is not a claim of execution on physical macOS NICs.
+The source reference is XNU revision
+`f6217f891ac0bb64f3d375211650a4c1ff8ca1ea`:
+[interface metadata and flags](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/net/if_private.h),
+[ioctl definitions](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/sys/sockio_private.h) and
+[kernel query/clone handling](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/net/if.c).
+IPv6 link-local scope mapping remains a separate outstanding feature.
+
+## Optional native verification procedure
 
 Use a disposable Mac or macOS VM. These tests require root and install temporary
 test addresses/routes on their owned interfaces. The environment flag is an
