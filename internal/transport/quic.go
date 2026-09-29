@@ -21,34 +21,37 @@ import (
 
 const quicProtocol = "graphwan.quic.v1"
 
-type QUICHub struct {
-	udp      *UDP
+type quicEndpoint struct {
+	socket   *net.UDPConn
 	engine   *quic.Transport
 	listener *quic.Listener
-	slots    chan struct{}
 }
 
-// ListenUDPQUIC owns one UDP socket for native UDP and QUIC. Native-only hubs
-// retain their independent ListenUDP constructor, including wire compatibility.
+type QUICHub struct {
+	udp       *UDP
+	endpoints []quicEndpoint
+	accepted  chan *quic.Conn
+	slots     chan struct{}
+	wg        sync.WaitGroup
+}
+
+// ListenUDPQUIC shares each address family's data socket between native UDP,
+// STUN and QUIC. Both families share peer and connection admission limits.
 func ListenUDPQUIC(address string, identity ed25519.PrivateKey) (*UDP, *QUICHub, error) {
 	tlsConfig, err := PeerServerTLS(identity)
 	if err != nil {
 		return nil, nil, err
 	}
 	tlsConfig.NextProtos = []string{quicProtocol}
-	addr, err := net.ResolveUDPAddr("udp", address)
+	sockets, err := listenUDPSockets(address)
 	if err != nil {
 		return nil, nil, err
 	}
-	socket, err := net.ListenUDP("udp", addr)
+	udp, err := newUDP(sockets, false)
 	if err != nil {
 		return nil, nil, err
 	}
-	udp, err := newUDP(socket, false)
-	if err != nil {
-		return nil, nil, err
-	}
-	h := &QUICHub{udp: udp, slots: make(chan struct{}, 512)}
+	h := &QUICHub{udp: udp, slots: make(chan struct{}, 512), accepted: make(chan *quic.Conn)}
 	reset, err := hkdf.Key(sha256.New, identity.Seed(), nil, "GraphWAN QUIC stateless reset v1", 32)
 	if err != nil {
 		udp.Close()
@@ -56,24 +59,60 @@ func ListenUDPQUIC(address string, identity ed25519.PrivateKey) (*UDP, *QUICHub,
 	}
 	var resetKey quic.StatelessResetKey
 	copy(resetKey[:], reset)
-	h.engine = &quic.Transport{
-		Conn:                  &quicSocket{PacketConn: socket, hub: udp},
-		ConnectionIDGenerator: quicIDs{}, StatelessResetKey: &resetKey,
-		DisableVersionNegotiationPackets: true,
-		VerifySourceAddress:              func(net.Addr) bool { return true },
-		ConnContext: func(ctx context.Context, _ *quic.ClientInfo) (context.Context, error) {
-			if err := h.reserve(); err != nil {
-				return nil, err
-			}
-			context.AfterFunc(ctx, func() { <-h.slots })
-			return ctx, nil
-		},
+	ctx, cancel := context.WithCancel(context.Background())
+	udp.closeQUIC = func() error {
+		cancel()
+		for _, endpoint := range h.endpoints {
+			endpoint.engine.Close()
+		}
+		h.wg.Wait()
+		return nil
 	}
-	udp.closeQUIC = h.engine.Close
-	h.listener, err = h.engine.Listen(tlsConfig, quicConfig())
-	if err != nil {
-		udp.Close()
-		return nil, nil, err
+	for _, socket := range sockets {
+		engine := &quic.Transport{
+			Conn:                  &quicSocket{PacketConn: socket, socket: socket, hub: udp},
+			ConnectionIDGenerator: quicIDs{}, StatelessResetKey: &resetKey,
+			DisableVersionNegotiationPackets: true,
+			VerifySourceAddress:              func(net.Addr) bool { return true },
+			ConnContext: func(ctx context.Context, _ *quic.ClientInfo) (context.Context, error) {
+				if err := h.reserve(); err != nil {
+					return nil, err
+				}
+				context.AfterFunc(ctx, func() { <-h.slots })
+				return ctx, nil
+			},
+		}
+		h.endpoints = append(h.endpoints, quicEndpoint{socket: socket, engine: engine})
+		listener, err := engine.Listen(tlsConfig, quicConfig())
+		if err != nil {
+			udp.Close()
+			return nil, nil, err
+		}
+		h.endpoints[len(h.endpoints)-1].listener = listener
+	}
+	h.wg.Add(len(h.endpoints))
+	for _, endpoint := range h.endpoints {
+		go func() {
+			defer h.wg.Done()
+			for {
+				conn, err := endpoint.listener.Accept(ctx)
+				if err != nil {
+					cancel()
+					udp.stop()
+					return
+				}
+				if !conn.ConnectionState().SupportsDatagrams.Remote {
+					conn.CloseWithError(1, "datagram support required")
+					continue
+				}
+				select {
+				case h.accepted <- conn:
+				case <-udp.done:
+					conn.CloseWithError(0, "listener closed")
+					return
+				}
+			}
+		}()
 	}
 	return udp, h, nil
 }
@@ -101,17 +140,30 @@ func (h *QUICHub) reserve() error {
 }
 func (h *QUICHub) Close() error { return h.udp.Close() }
 func (h *QUICHub) Accept(ctx context.Context) (*QUIC, error) {
-	for {
-		conn, err := h.listener.Accept(ctx)
-		if err != nil {
-			return nil, err
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-h.udp.done:
+		return nil, net.ErrClosed
+	case conn := <-h.accepted:
+		select {
+		case <-h.udp.done:
+			conn.CloseWithError(0, "listener closed")
+			return nil, net.ErrClosed
+		default:
+			return newQUIC(conn), nil
 		}
-		if !conn.ConnectionState().SupportsDatagrams.Remote {
-			conn.CloseWithError(1, "datagram support required")
-			continue
-		}
-		return newQUIC(conn), nil
 	}
+}
+
+func (h *QUICHub) engineFor(address netip.Addr) *quic.Transport {
+	socket := h.udp.socketFor(address)
+	for _, endpoint := range h.endpoints {
+		if endpoint.socket == socket {
+			return endpoint.engine
+		}
+	}
+	panic("QUIC socket has no transport")
 }
 func (h *QUICHub) Dial(ctx context.Context, endpoint model.Endpoint, family int, identity ed25519.PublicKey) (*QUIC, error) {
 	return h.DialAt(ctx, endpoint, family, identity, netip.Addr{})
@@ -158,7 +210,7 @@ func (h *QUICHub) DialAt(ctx context.Context, endpoint model.Endpoint, family in
 		if deadline, ok := ctx.Deadline(); ok {
 			attempt, cancel = context.WithTimeout(ctx, time.Until(deadline)/time.Duration(len(addresses)-i))
 		}
-		conn, dialErr := h.engine.Dial(attempt, net.UDPAddrFromAddrPort(netip.AddrPortFrom(address, uint16(port))), tlsConfig, quicConfig())
+		conn, dialErr := h.engineFor(address).Dial(attempt, net.UDPAddrFromAddrPort(netip.AddrPortFrom(address, uint16(port))), tlsConfig, quicConfig())
 		cancel()
 		if dialErr != nil {
 			err = dialErr

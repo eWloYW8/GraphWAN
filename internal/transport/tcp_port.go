@@ -8,15 +8,21 @@ import (
 	"time"
 )
 
-// ListenTCP retains one owned listener while allowing outgoing TCP connections
+// ListenTCP retains owned listeners while allowing outgoing TCP connections
 // from its source port. This is required for TCP mapping discovery and punching.
 func ListenTCP(ctx context.Context, address string) (*TCP, error) {
 	config := net.ListenConfig{Control: reuseTCPPort}
-	listener, err := config.Listen(ctx, "tcp", address)
+	listeners, err := listenIP(address, func(family, address string) (net.Listener, net.Addr, error) {
+		listener, err := config.Listen(ctx, "tcp"+family, address)
+		if err != nil {
+			return nil, nil, err
+		}
+		return listener, listener.Addr(), nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	t := &TCP{Listener: listener, bindings: map[netip.AddrPort]*tcpBinding{}, done: make(chan struct{})}
+	t := &TCP{Listener: mergeListeners(listeners), bindings: map[netip.AddrPort]*tcpBinding{}, done: make(chan struct{})}
 	t.wg.Add(1)
 	go t.expireBindings()
 	return t, nil

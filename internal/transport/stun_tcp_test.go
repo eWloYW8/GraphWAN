@@ -32,6 +32,12 @@ func readTCPBinding(t *testing.T, conn net.Conn) *stun.Message {
 }
 
 func TestTCPSTUNPersistentDataPortBothFamilies(t *testing.T) {
+	testTCPSTUNDataPort(t, false)
+}
+func TestTCPSTUNWildcardDataPortBothFamilies(t *testing.T) {
+	testTCPSTUNDataPort(t, true)
+}
+func testTCPSTUNDataPort(t *testing.T, wildcard bool) {
 	for _, host := range []string{"127.0.0.1:0", "[::1]:0"} {
 		t.Run(host, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -41,7 +47,11 @@ func TestTCPSTUNPersistentDataPortBothFamilies(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer server.Close()
-			hub, err := ListenTCP(ctx, host)
+			bind := host
+			if wildcard {
+				bind = ":0"
+			}
+			hub, err := ListenTCP(ctx, bind)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -60,7 +70,7 @@ func TestTCPSTUNPersistentDataPortBothFamilies(t *testing.T) {
 			}
 			defer conn.Close()
 			source := conn.RemoteAddr().(*net.TCPAddr)
-			if source.String() != hub.Addr().String() {
+			if source.Port != hub.Addr().(*net.TCPAddr).Port || (!wildcard && source.String() != hub.Addr().String()) {
 				t.Fatal("observation did not use the peer data port")
 			}
 			var previous [12]byte

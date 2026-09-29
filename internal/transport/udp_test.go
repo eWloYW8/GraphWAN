@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -97,7 +98,13 @@ func TestUDPRejectsUnknownFramesAndClosesWaiters(t *testing.T) {
 }
 
 func TestUDPConnectionBoundAndSlotRelease(t *testing.T) {
-	hub, err := transport.ListenUDP("127.0.0.1:0")
+	testUDPConnectionBound(t, "127.0.0.1:0", false)
+}
+func TestUDPWildcardConnectionBoundBothFamilies(t *testing.T) {
+	testUDPConnectionBound(t, ":0", true)
+}
+func testUDPConnectionBound(t *testing.T, bind string, wildcard bool) {
+	hub, err := transport.ListenUDP(bind)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +112,13 @@ func TestUDPConnectionBoundAndSlotRelease(t *testing.T) {
 	remote := hub.LocalAddr().(*net.UDPAddr).AddrPort()
 	var first *transport.Datagram
 	for i := range 512 {
+		if wildcard {
+			ip := netip.MustParseAddr("127.0.0.1")
+			if i%2 == 1 {
+				ip = netip.IPv6Loopback()
+			}
+			remote = netip.AddrPortFrom(ip, remote.Port())
+		}
 		peer, err := hub.Dial(remote)
 		if err != nil {
 			t.Fatal(err)

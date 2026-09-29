@@ -16,6 +16,7 @@ import (
 type quicSocket struct {
 	net.PacketConn
 	hub     *UDP
+	socket  *net.UDPConn
 	readMu  sync.Mutex
 	buffer  [MaxMessage + udpHeaderSize + 1]byte
 	control [256]byte
@@ -25,7 +26,7 @@ func (s *quicSocket) ReadFrom(raw []byte) (int, net.Addr, error) {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
 	for {
-		n, control, flags, remote, err := s.hub.socket.ReadMsgUDPAddrPort(s.buffer[:], s.control[:])
+		n, control, flags, remote, err := s.socket.ReadMsgUDPAddrPort(s.buffer[:], s.control[:])
 		if udpReadTruncated(flags, err) {
 			continue
 		}
@@ -55,8 +56,8 @@ func (s *quicSocket) WriteTo(raw []byte, remote net.Addr) (int, error) {
 	defer s.PacketConn.SetWriteDeadline(time.Time{})
 	return s.PacketConn.WriteTo(raw, remote)
 }
-func (s *quicSocket) SetReadBuffer(size int) error  { return s.hub.socket.SetReadBuffer(size) }
-func (s *quicSocket) SetWriteBuffer(size int) error { return s.hub.socket.SetWriteBuffer(size) }
+func (s *quicSocket) SetReadBuffer(size int) error  { return s.socket.SetReadBuffer(size) }
+func (s *quicSocket) SetWriteBuffer(size int) error { return s.socket.SetWriteBuffer(size) }
 
 // Every local CID starts with Q, so normal incoming short headers cannot start GWD\x01.
 // Long headers always have their high bit set. The remaining 120 bits are random.

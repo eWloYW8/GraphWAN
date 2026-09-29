@@ -116,7 +116,16 @@ literal or DNS endpoint. Agents predating this field cannot connect to the new
 implementation; upgrade both ends together. Older hostname/family-only Candidate
 IDs are also incompatible with address-specific introductions.
 
-## UDP source addresses and verification
+## Wildcard listeners and UDP source addresses
+
+Wildcard TCP and UDP binds (`:port`, `0.0.0.0:port`, `[::]:port`) reserve separate
+IPv4 and IPv6 sockets on the same port. Only a kernel-unavailable address family
+may be omitted. Other errors close all partial reservations; a port-zero
+collision retries at most eight times. Explicit non-wildcard addresses retain
+normal single-address binding behavior. Native UDP, STUN and QUIC share the
+selected family's socket, peer/admission budgets remain shared across families,
+and close interrupts accepts/readers on both sockets.
+
 
 A wildcard native UDP listener records the destination IP of the first incoming
 datagram and uses it as the reply source. This prevents a request to a secondary
@@ -127,7 +136,7 @@ STUN data-port reuse and IP fragmentation are preserved. The implementation uses
 Windows. Truncated datagrams/control data are discarded without stopping the
 listener, including Windows `WSAEMSGSIZE`. Native Windows wildcard/multiple-address
 acceptance remains open; its ABI codec is tested on Linux and cross-compiled.
-FreeBSD 15.1-p3/amd64 native tests verify reply sources, truncation recovery and
+FreeBSD 15.1-p3/amd64 and OpenBSD 7.9/amd64 native tests verify reply sources, truncation recovery and
 maximum-size IPv4/IPv6 messages with both listeners. Owned BSD sockets reserve a
 64 KiB send buffer because the default may be below the protocol's 16 KiB message
 limit. Other BSD/macOS ancillary behavior still requires native verification. See the

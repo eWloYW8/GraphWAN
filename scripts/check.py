@@ -39,7 +39,12 @@ NATIVE = {
 }
 OPT_IN = {"darwin": "GRAPHWAN_TEST_MACOS", "windows": "GRAPHWAN_TEST_WINDOWS", "freebsd": "GRAPHWAN_TEST_VM", "openbsd": "GRAPHWAN_TEST_VM"}
 SOCKET_GATES = {
-    "transport": ["TestUDPWildcardReplySource"],
+    "transport": [
+        "TestUDPWildcardReplySource", "TestTCPWildcardBothFamiliesAndClose",
+        "TestQUICWildcardBothFamilies", "TestSTUNWildcardBothFamilies",
+        "TestTCPSTUNWildcardDataPortBothFamilies", "TestWildcardBindCollisionCleanup",
+        "TestWildcardBindUnexpectedFailureCleanup", "TestUDPWildcardConnectionBoundBothFamilies",
+    ],
     # Run the complete Mesh package; these mandatory roots also catch missing
     # loopback fixtures that would otherwise turn the important cases into skips.
     "mesh": ["TestDNSAllAddressesRetainedAcrossTransports", "TestPolicyEditsPreserveUnaffectedLinks", "TestRealUDPFailureFallsBackToExistingTCP"],

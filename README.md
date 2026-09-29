@@ -12,8 +12,8 @@ cross-built for Intel and Apple Silicon. Windows Wintun support and a verified
 DLL download script are implemented with amd64/arm64/386 cross-builds. Native
 macOS/Windows validation, FreeBSD multi-host acceptance, remaining BSD adapters
 and other acceptance items are still in progress.
-OpenBSD now has native TUN and Agent configuration tests; IPv6 underlay listening
-and crash recovery remain incomplete, so full OpenBSD networking is not accepted.
+OpenBSD now has native TUN, Agent configuration and IPv4/IPv6 transport tests;
+crash recovery and multi-host/NAT acceptance remain incomplete.
 Progress and verification gaps are
 tracked in [the acceptance checklist](docs/implementation-status.md).
 

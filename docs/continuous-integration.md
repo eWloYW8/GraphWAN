@@ -31,6 +31,9 @@ cached Agent restart, full-MTU traffic and resource cleanup. The underlay MTU is
 1280; the automatic IPv4 baseline uses overlay MTU 1280 and the other scenarios
 use 9000. See [Linux testing](linux-operation.md) for the fixtures and their limits.
 
+The socket gate requires both address families for TCP, native UDP, QUIC and
+TCP/UDP STUN, plus failed-bind cleanup and shared UDP admission limits.
+
 Native checks parse `test2json` output and require named tests to finish with
 `pass`, including a successful package result. Missing tests, failed tests,
 truncated results and skipped required tests or their subtests fail the gate.
@@ -69,9 +72,9 @@ running the same command. Windows requires an elevated terminal and
 The script downloads the pinned, verified Wintun DLL into the test binary's
 temporary directory. See [Windows operation](windows-operation.md).
 OpenBSD can run the TUN/Agent `native` gate on a disposable root host with
-`GRAPHWAN_TEST_VM=1`; see [OpenBSD operation](openbsd-operation.md). Its full
-Go/socket gate currently fails the documented IPv6 wildcard-listener cases,
-and no hosted OpenBSD job is enabled yet.
+`GRAPHWAN_TEST_VM=1`; see [OpenBSD operation](openbsd-operation.md). Its complete
+transport and Mesh test binaries pass natively, including IPv6 wildcard listeners.
+No hosted OpenBSD job is enabled yet.
 
 The FreeBSD CI job cross-compiles with the pinned Go toolchain and executes using
 [vmactions/freebsd-vm](https://github.com/vmactions/freebsd-vm/tree/a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff).

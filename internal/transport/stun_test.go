@@ -13,7 +13,9 @@ import (
 	"github.com/pion/stun/v3"
 )
 
-func TestSTUNUsesSharedDataSocketAndRetries(t *testing.T) {
+func TestSTUNUsesSharedDataSocketAndRetries(t *testing.T) { testSTUNDataSocket(t, false) }
+func TestSTUNWildcardBothFamilies(t *testing.T)           { testSTUNDataSocket(t, true) }
+func testSTUNDataSocket(t *testing.T, wildcard bool) {
 	for _, family := range []string{"udp4", "udp6"} {
 		t.Run(family, func(t *testing.T) {
 			host := "127.0.0.1:0"
@@ -28,7 +30,11 @@ func TestSTUNUsesSharedDataSocketAndRetries(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer server.Close()
-			udp, _, _ := quicHubsAt(t, host)
+			bind := host
+			if wildcard {
+				bind = ":0"
+			}
+			udp, _, _ := quicHubsAt(t, bind)
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			type reply struct {
@@ -47,7 +53,7 @@ func TestSTUNUsesSharedDataSocketAndRetries(t *testing.T) {
 				t.Fatal(err)
 			}
 			first := bytes.Clone(buffer[:n])
-			if source.String() != udp[0].LocalAddr().String() {
+			if source.(*net.UDPAddr).Port != udp[0].LocalAddr().(*net.UDPAddr).Port || (!wildcard && source.String() != udp[0].LocalAddr().String()) {
 				t.Fatal("STUN used another socket")
 			}
 			request := &stun.Message{Raw: bytes.Clone(first)}
@@ -86,7 +92,11 @@ func TestSTUNUsesSharedDataSocketAndRetries(t *testing.T) {
 				t.Fatal("STUN leaked a peer or transaction")
 			}
 			// Native peer traffic continues through the same multiplexed reader.
-			a, err := udp[0].Dial(udp[1].LocalAddr().(*net.UDPAddr).AddrPort())
+			target := udp[1].LocalAddr().(*net.UDPAddr).AddrPort()
+			if wildcard {
+				target = netip.AddrPortFrom(server.LocalAddr().(*net.UDPAddr).AddrPort().Addr(), target.Port())
+			}
+			a, err := udp[0].Dial(target)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -25,11 +25,11 @@ type udpKey struct {
 	token  [16]byte
 }
 
-// UDP multiplexes independent message connections over one data socket. The
-// same socket is used for STUN and hole punching; a NAT mapping must
+// UDP multiplexes independent message connections over one data socket per address
+// family. The same socket is used for STUN and hole punching; a NAT mapping must
 // never be discovered on a different socket than the one carrying peer traffic.
 type UDP struct {
-	socket      *net.UDPConn
+	sockets     []*net.UDPConn
 	mu          sync.Mutex
 	writeMu     sync.Mutex
 	peers       map[udpKey]*Datagram
@@ -54,45 +54,46 @@ type Datagram struct {
 }
 
 func ListenUDP(address string) (*UDP, error) {
-	addr, err := net.ResolveUDPAddr("udp", address)
+	sockets, err := listenUDPSockets(address)
 	if err != nil {
 		return nil, err
 	}
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		return nil, err
-	}
-	return NewUDP(conn)
+	return newUDP(sockets, true)
 }
 
 // NewUDP takes ownership of socket, including cleanup if setup fails.
-func NewUDP(socket *net.UDPConn) (*UDP, error) { return newUDP(socket, true) }
+func NewUDP(socket *net.UDPConn) (*UDP, error) { return newUDP([]*net.UDPConn{socket}, true) }
 
-func newUDP(socket *net.UDPConn, read bool) (*UDP, error) {
-	// BSD send-buffer defaults can be smaller than one permitted GraphWAN
-	// message (FreeBSD commonly defaults to 9216 bytes). Reserve enough space
-	// per owned socket; do not require changing the host's global UDP sysctls.
-	switch runtime.GOOS {
-	case "darwin", "dragonfly", "freebsd", "netbsd", "openbsd":
-		if err := socket.SetWriteBuffer(64 << 10); err != nil {
-			socket.Close()
+func newUDP(sockets []*net.UDPConn, read bool) (*UDP, error) {
+	for _, socket := range sockets {
+		// BSD defaults may be smaller than one permitted GraphWAN message.
+		var err error
+		switch runtime.GOOS {
+		case "darwin", "dragonfly", "freebsd", "netbsd", "openbsd":
+			err = socket.SetWriteBuffer(64 << 10)
+		}
+		if err == nil {
+			err = enableUDPPacketInfo(socket)
+		}
+		if err != nil {
+			for _, owned := range sockets {
+				owned.Close()
+			}
 			return nil, err
 		}
 	}
-	if err := enableUDPPacketInfo(socket); err != nil {
-		socket.Close()
-		return nil, err
-	}
-	hub := &UDP{socket: socket, peers: map[udpKey]*Datagram{}, accept: make(chan *Datagram, 64), done: make(chan struct{})}
+	hub := &UDP{sockets: sockets, peers: map[udpKey]*Datagram{}, accept: make(chan *Datagram, 64), done: make(chan struct{})}
 	hub.wg.Add(1)
 	if read {
-		hub.wg.Add(1)
-		go hub.readLoop()
+		hub.wg.Add(len(sockets))
+		for _, socket := range sockets {
+			go hub.readLoop(socket)
+		}
 	}
 	go hub.expireLoop()
 	return hub, nil
 }
-func (h *UDP) LocalAddr() net.Addr { return h.socket.LocalAddr() }
+func (h *UDP) LocalAddr() net.Addr { return h.sockets[0].LocalAddr() }
 func (h *UDP) Close() error {
 	h.stop()
 	if h.closeQUIC != nil {
@@ -104,7 +105,9 @@ func (h *UDP) Close() error {
 func (h *UDP) stop() {
 	h.closeOnce.Do(func() {
 		close(h.done)
-		h.socket.Close()
+		for _, socket := range h.sockets {
+			socket.Close()
+		}
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		for _, peer := range h.peers {
@@ -155,13 +158,13 @@ func (h *UDP) Accept(ctx context.Context) (*Datagram, error) {
 		}
 	}
 }
-func (h *UDP) readLoop() {
+func (h *UDP) readLoop(socket *net.UDPConn) {
 	defer h.wg.Done()
 	defer h.stop()
 	buffer := make([]byte, MaxMessage+udpHeaderSize+1)
 	oob := make([]byte, 256)
 	for {
-		n, control, flags, remote, err := h.socket.ReadMsgUDPAddrPort(buffer, oob)
+		n, control, flags, remote, err := socket.ReadMsgUDPAddrPort(buffer, oob)
 		if udpReadTruncated(flags, err) {
 			continue
 		}
@@ -243,7 +246,7 @@ func (h *UDP) expireLoop() {
 		}
 	}
 }
-func (d *Datagram) LocalAddr() net.Addr  { return d.hub.LocalAddr() }
+func (d *Datagram) LocalAddr() net.Addr  { return d.hub.socketFor(d.key.remote.Addr()).LocalAddr() }
 func (d *Datagram) RemoteAddr() net.Addr { return net.UDPAddrFromAddrPort(d.key.remote) }
 
 // Authenticated is called only after validating a peer handshake. Validated
@@ -284,12 +287,13 @@ func (h *UDP) writeDatagram(ctx context.Context, raw []byte, remote netip.AddrPo
 func (h *UDP) writeDatagramControl(ctx context.Context, raw []byte, remote netip.AddrPort, control []byte) error {
 	h.writeMu.Lock()
 	defer h.writeMu.Unlock()
-	cleanup, err := deadline(ctx, h.socket.SetWriteDeadline)
+	socket := h.socketFor(remote.Addr())
+	cleanup, err := deadline(ctx, socket.SetWriteDeadline)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	n, _, err := h.socket.WriteMsgUDPAddrPort(raw, control, remote)
+	n, _, err := socket.WriteMsgUDPAddrPort(raw, control, remote)
 	if err != nil {
 		return ctxError(ctx, err)
 	}
@@ -310,3 +314,14 @@ func (d *Datagram) Receive(ctx context.Context) ([]byte, error) {
 }
 
 func (d *Datagram) Unreliable() bool { return true }
+
+// A single externally supplied socket may support both families. With separate
+// wildcard sockets, select the family before sending native, STUN or QUIC data.
+func (h *UDP) socketFor(remote netip.Addr) *net.UDPConn {
+	for _, socket := range h.sockets {
+		if socket.LocalAddr().(*net.UDPAddr).AddrPort().Addr().Unmap().Is4() == remote.Unmap().Is4() {
+			return socket
+		}
+	}
+	return h.sockets[0]
+}

@@ -391,3 +391,68 @@ func TestQUICHubClosureInterruptsDatagramWaiters(t *testing.T) {
 		t.Fatal("shared native UDP did not close:", err)
 	}
 }
+
+func TestQUICWildcardBothFamilies(t *testing.T) {
+	udp, hubs, keys := quicHubsAt(t, ":0")
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		t.Run(host, func(t *testing.T) {
+			family := 4
+			if host == "::1" {
+				family = 6
+			}
+			endpoint := model.Endpoint{ID: testutil.ID(1), Source: model.Manual, Transport: model.QUIC, URL: "quic://" + net.JoinHostPort(host, fmt.Sprint(udp[1].LocalAddr().(*net.UDPAddr).Port))}
+			client, err := hubs[0].Dial(ctx, endpoint, family, keys[1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			server, err := hubs[1].Accept(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Close()
+			// Keep both native UDP and QUIC active through this family's same port.
+			datagram, err := udp[0].Dial(netip.AddrPortFrom(netip.MustParseAddr(host), uint16(udp[1].LocalAddr().(*net.UDPAddr).Port)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer datagram.Close()
+			if err := datagram.Send(ctx, []byte("native")); err != nil {
+				t.Fatal(err)
+			}
+			peer, err := udp[1].Accept(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer peer.Close()
+			if raw, err := peer.Receive(ctx); err != nil || string(raw) != "native" {
+				t.Fatal("native dispatch:", err)
+			}
+			if peer.RemoteAddr().(*net.UDPAddr).Port != server.RemoteAddr().(*net.UDPAddr).Port || client.LocalAddr().(*net.UDPAddr).Port != udp[0].LocalAddr().(*net.UDPAddr).Port {
+				t.Fatal("native UDP and QUIC used different data ports")
+			}
+			payload := bytes.Repeat([]byte{49}, MaxMessage)
+			for _, pair := range [][2]*QUIC{{client, server}, {server, client}} {
+				if err := pair[0].Send(ctx, payload); err != nil {
+					t.Fatal(err)
+				}
+				if got, err := pair[1].Receive(ctx); err != nil || !bytes.Equal(got, payload) {
+					t.Fatal("QUIC delivery:", err)
+				}
+			}
+		})
+	}
+	done := make(chan error, 1)
+	go func() { _, err := hubs[0].Accept(context.Background()); done <- err }()
+	hubs[0].Close()
+	select {
+	case err := <-done:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("close did not interrupt QUIC Accept")
+	}
+}

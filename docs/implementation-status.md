@@ -32,7 +32,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] FreeBSD live address/prefix/MTU edits, multi-Network rollback and applied-state recovery.
 - [ ] FreeBSD multi-host/NAT acceptance and older kernels.
 - [x] OpenBSD native IPv4/IPv6 TUN, live configuration, route rollback and ownership checks.
-- [ ] OpenBSD dual-stack underlay listeners, crash recovery and multi-host/NAT acceptance.
+- [x] Coordinated IPv4/IPv6 listeners with native OpenBSD transport/Mesh evidence.
+- [ ] OpenBSD crash recovery and multi-host/NAT acceptance.
 - [x] macOS utun adapter code and Intel/Apple Silicon cross-builds.
 - [ ] Native macOS utun/route/reconfiguration, multi-host and NAT acceptance.
 - [x] Windows Wintun adapter code, pinned DLL retrieval and amd64/arm64/386 cross-builds.
@@ -486,9 +487,20 @@ Every feature below derives from the accepted proposal, including its suggestion
   The shared BSD route reader also cross-builds for both macOS architectures;
   portable race tests reject foreign equal-prefix routes regardless of list order.
   Full Linux race tests and vet pass.
-  Native transport testing also establishes an open defect: default wildcard
-  listeners on OpenBSD are IPv4-only. The IPv6 UDP wildcard cases and the IPv6
-  DNS/policy tests across all six transports fail; they remain enabled. Coordinated
-  IPv4/IPv6 listeners, SIGKILL cleanup/restart recovery, authoritative interface
-  discovery and multi-host/NAT acceptance are still required. Other architectures
-  have compile evidence only. See [OpenBSD operation](openbsd-operation.md).
+  The IPv6 wildcard-listener defect found by native transport testing is fixed:
+  TCP/UDP reserve separate IPv4/IPv6 sockets on the same port, retaining shared
+  admission limits and STUN/QUIC data-socket reuse. Failed partial binds close
+  owned sockets; ephemeral collisions retry, and unavailable families may be
+  omitted. The entire OpenBSD transport suite passes three consecutive runs
+  without skips; the complete Mesh suite passes 66 tests/subtests, including
+  IPv6 DNS/punch and live policy edits across all six transports. Required socket
+  gates now include dual-family TCP, QUIC, TCP/UDP STUN, cleanup and peer bounds.
+  SIGKILL cleanup/restart recovery, authoritative interface discovery and
+  multi-host/NAT acceptance are still required. Other OpenBSD architectures have
+  compile evidence only. See [OpenBSD operation](openbsd-operation.md).
+  This listener change passes the uncached Linux full-repository race/vet gate
+  and all thirteen isolated three-Agent scenarios with underlay MTU 1500,
+  including IPv6 transports, mixed families and TCP/UDP NAT. All 33 production
+  targets build with the pinned toolchain; manifest sizes and SHA-256 hashes
+  match the artifacts. These cross-builds are not native Windows/macOS/BSD
+  execution evidence.

@@ -3,9 +3,8 @@
 The OpenBSD TUN adapter has native kernel and Agent configuration evidence on
 OpenBSD 7.9/amd64. It supports IPv4/IPv6 packet I/O, live address/prefix/MTU changes,
 route-conflict rollback and owned-interface cleanup. **Complete OpenBSD networking
-is not accepted yet:** native transport tests expose a default wildcard-listener
-limitation that prevents IPv6 underlay connections. Multi-host/NAT and crash
-recovery also remain open. See the [acceptance tracker](implementation-status.md).
+is not accepted yet:** multi-host/NAT and crash recovery remain open. Native
+transport and Mesh tests pass for both IPv4 and IPv6 underlay connections. See the [acceptance tracker](implementation-status.md).
 
 ## Build and run
 
@@ -29,9 +28,9 @@ export GRAPHWAN_ENROLLMENT_TOKEN='<one-time-token>'
 
 Use routing table/domain 0. Creating interfaces and reading routes in a different
 routing domain are not implemented; the adapter rejects a nonzero process
-routing table before changing host state. The default Agent peer listener
-currently supports IPv4 underlay on OpenBSD; IPv6 overlay packet I/O is a separate,
-verified TUN capability and does not establish IPv6 underlay connectivity.
+routing table before changing host state. Wildcard peer listeners bind separate
+IPv4 and IPv6 sockets on the same port; native UDP, STUN and QUIC share the data
+socket for each family. This avoids relying on IPv4-mapped IPv6 socket support.
 
 ## Device ownership and configuration
 
@@ -112,13 +111,6 @@ These are kernel/component checks, not three-host forwarding acceptance.
 
 ## Known incomplete behavior
 
-- **Default IPv6 underlay listening:** OpenBSD does not provide the IPv4-mapped
-  dual-stack socket behavior assumed by the current wildcard listeners. Native
-  `TestUDPWildcardReplySource` passes its IPv4 cases but fails its IPv6 cases;
-  `TestDNSIPv6AndPunchMethods` and `TestPolicyEditsPreserveUnaffectedLinks` fail
-  their IPv6 connection checks across all six transports. Those failures remain
-  visible; tests have not been skipped or weakened. Production needs coordinated
-  IPv4/IPv6 listeners on the same configured port, including STUN and QUIC sharing.
 - **SIGKILL recovery:** an atomically cloned OpenBSD TUN remains allocated after
   its descriptor closes, unlike a TUN created implicitly by opening `/dev/tunN`.
   The latter can adopt an existing interface and is not used. Normal shutdown
@@ -130,15 +122,26 @@ These are kernel/component checks, not three-host forwarding acceptance.
   multi-host forwarding/NAT, nonzero routing domains, other OpenBSD releases and
   other CPU architectures still need implementation or acceptance evidence.
 
-To reproduce the socket failures, compile `./internal/transport` and
-`./internal/mesh` with `go test -c` for OpenBSD, copy both test binaries to the
-disposable VM, and add the reserved `127.0.0.2/32` and `127.0.0.3/32` aliases to
-`lo0` as in the [BSD socket fixture procedure](freebsd-operation.md#native-transport-checks).
-Run `transport.test -test.v -test.run TestUDPWildcardReplySource` and
-`mesh.test -test.v -test.timeout=180s`, retaining their nonzero statuses and
-removing the fixture aliases afterwards. The local run completed the full Mesh
-package in about 141 seconds; its two failed roots were the DNS IPv6/punch and
-live policy-update tests named above. No timeout or skip is counted as a pass.
+## Native transport checks
+
+Compile `./internal/transport` and `./internal/mesh` with `go test -c` for
+OpenBSD, copy both test binaries to the disposable VM, and add the reserved
+`127.0.0.2/32` and `127.0.0.3/32` aliases to `lo0` as in the
+[BSD socket fixture procedure](freebsd-operation.md#native-transport-checks).
+Run `transport.test -test.v -test.count=3 -test.timeout=120s` and
+`mesh.test -test.v -test.timeout=180s`, retaining exit statuses and removing the
+fixture aliases afterwards. Capture results through `go tool test2json` (or a
+cross-built `cmd/test2json`) to enforce the named roots in `SOCKET_GATES` from
+`scripts/check.py`; a timeout, missing test or required skip is not a pass.
+
+The complete transport package passes three consecutive native runs with no
+skips. Tests cover wildcard TCP accepts, native UDP reply-source selection and
+maximum-size messages, bidirectional QUIC datagrams, and TCP/UDP STUN data-port
+reuse in both address families. Partial-bind failure cleanup, same-port retry,
+unavailable-family fallback and UDP peer bounds are also covered. The complete
+Mesh package passes all 66 tests/subtests without skips, including the previously
+failing IPv6 DNS/punch and live policy-update cases across all six transports.
+These local socket checks do not establish multi-host or NAT acceptance.
 
 The VM used the official OpenBSD 7.9 amd64 `install79.iso`, verified against the
 release's [SHA-256 file](https://cdn.openbsd.org/pub/OpenBSD/7.9/amd64/SHA256):
