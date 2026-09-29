@@ -950,3 +950,19 @@ These checks are not required for completion under the agreed Linux validation s
   This completes physical-interface discovery under the agreed Linux execution
   scope; previous entries calling DragonFly classification open are historical.
   No DragonFly native execution or physical-hardware test is claimed.
+
+- Final TUN source review found the same unverified name-only cleanup path in
+  FreeBSD that had already been removed from OpenBSD/NetBSD. All three adapters
+  now share initial clone-index validation; FreeBSD preserves the allocated
+  interface on lookup failure and reports its name. Later cleanup uses the
+  verified index or transient descriptor. The documented pre-transient window
+  can leave an unconfigured clone after interruption; automatic deletion without
+  ownership evidence is deliberately avoided.
+- The shared ownership fault cases pass in the uncached full Linux race suite,
+  together with repository formatting, module verification and vet. All four
+  Go-advertised FreeBSD targets cross-build; its amd64 native TUN test binary and
+  target vet pass without execution. Frontend locked install, formatting,
+  production/embedded-asset comparison, unit tests and both real-controller
+  Chromium tests pass. Linux native TUN/discovery gates execute without skips,
+  deployment-unit verification passes without installation, and the Python
+  verifier/packager tests pass. These are local results, not hosted CI execution.

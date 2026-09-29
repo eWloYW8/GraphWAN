@@ -73,20 +73,19 @@ func Open(config Config) (Device, error) {
 		return nil, fmt.Errorf("create TUN (requires root): %w", err)
 	}
 	name := unix.ByteSliceToString(req.Name[:])
-	iface, err := net.InterfaceByName(name)
+	index, err := createdTunIndex(name, net.InterfaceByName)
 	if err != nil {
-		_ = interfaceIOCTL(control, unix.SIOCIFDESTROY, &req)
 		return nil, err
 	}
 	fd, err := unix.Open("/dev/"+name, unix.O_RDWR|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
 	if err != nil {
-		_ = destroyFreeBSDInterface(name, iface.Index)
+		_ = destroyFreeBSDInterface(name, index)
 		return nil, fmt.Errorf("open cloned TUN: %w", err)
 	}
 	device := &framedDevice{file: os.NewFile(uintptr(fd), "/dev/"+name), config: config, ipv6Family: unix.AF_INET6}
 	transient := unix.IoctlSetPointerInt(fd, tunSetTransient, 1)
 	if transient != nil {
-		device.cleanup = func() error { return destroyFreeBSDInterface(name, iface.Index) }
+		device.cleanup = func() error { return destroyFreeBSDInterface(name, index) }
 	}
 	success := false
 	defer func() {

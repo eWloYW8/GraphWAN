@@ -51,6 +51,17 @@ same automatic interface destruction after SIGKILL. The driver APIs are defined
 in FreeBSD's [TUN header](https://github.com/freebsd/freebsd-src/blob/releng/15.1/sys/net/if_tun.h)
 and [driver implementation](https://github.com/freebsd/freebsd-src/blob/releng/15.1/sys/net/if_tuntap.c).
 
+Exclusive cloning, interface-index lookup, opening the descriptor and enabling
+`TUNSTRANSIENT` are separate operations. An interruption before the last step can
+leave an unconfigured clone even on a kernel that supports transient TUNs. If the
+initial lookup fails, GraphWAN reports the allocated name and preserves the
+interface: deleting by name alone cannot establish ownership after a failed
+lookup. Later setup failures use the verified index or the owned transient
+descriptor. An administrator may remove an orphan only after confirming it is
+unused. Coordinate manual interface changes with the Agent; this is not an
+atomic creation-and-ownership API. Linux fault tests exercise the shared index
+validation, including failed lookups, absent/wrong names and invalid indices.
+
 The TUN uses broadcast/multicast mode for subnet routes. IPv6 duplicate-address
 detection and automatic link-local configuration are disabled on this interface;
 the controller assigns unique overlay addresses. Physical interfaces and global
