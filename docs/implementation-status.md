@@ -43,6 +43,7 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] QUIC datagrams, shared UDP listener and bounded message fragmentation.
 - [x] Authenticated ephemeral peer keys, cipher policy, replay protection/rekey.
 - [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
+- [x] FreeBSD kernel driver/type discovery with native renamed-interface and address-change tests.
 - [ ] Manual hostname/path endpoints and configurable listeners (default 24752), full platform acceptance.
 - [x] Per-address DNS Candidates across all six transports, refresh, preference and healthy rekey on Linux.
 - [x] Windows UDP packet-info implementation and portable 32/64-bit ABI validation.
@@ -411,3 +412,29 @@ Every feature below derives from the accepted proposal, including its suggestion
   BSD/macOS classification and IPv6 link-local scope mapping remain open, so the
   overall interface-discovery acceptance item is still unchecked. See
   [endpoint discovery and updates](endpoint-resolution.md).
+
+- FreeBSD discovery: native interface types, read-only driver/unit sysctls and
+  registered cloners replace alias/MAC heuristics. Wi-Fi VAPs and jail epairs
+  remain eligible; TUN/TAP, bridges and other software overlays are excluded.
+  Ten FreeBSD 15.1-p3/amd64 native repetitions verify renamed epair/TUN/TAP/bridge
+  fixtures after removing their default groups, stable unrelated guest-NIC
+  endpoints, IPv4/IPv6 address changes and interface down/up discovery. The native
+  test also checks the cloner ioctl ABI size and destroys its owned fixtures.
+  The native Agent configuration-reconciliation test and full Mesh package pass.
+  The latter includes all six transports' DNS address refresh/retention and live
+  policy changes, with explicitly configured BSD loopback aliases. Ordinary tests
+  skip multi-address cases when those required aliases are absent; native results
+  here include actual execution, not skips.
+  Testing exposed FreeBSD's 9216-byte default UDP send limit; owned BSD sockets
+  now reserve 64 KiB without changing global sysctls. Five native repetitions
+  verify maximum 16 KiB IPv4/IPv6 messages in both directions, exact reply sources
+  and oversized-packet rejection, with standalone and QUIC-shared listeners.
+  Ten corresponding Linux race repetitions, the full Linux race suite and vet
+  pass. Production binaries, discovery/transport/Mesh test binaries and vet pass
+  for FreeBSD amd64/arm64/386/arm/riscv64, macOS arm64, Windows amd64 and Linux arm64.
+  The Go 1.26.8 i386 discovery binary and a minimal Go hello program both crash
+  under this VM's i386 compatibility mode; cause remains unresolved. Therefore
+  32-bit native acceptance is explicitly not met despite successful cross-builds.
+  Other BSD/macOS discovery, broader hardware coverage, link-local scope mapping,
+  multi-host and NAT acceptance remain open. Reproduction and limitations are in
+  [FreeBSD operation](freebsd-operation.md).

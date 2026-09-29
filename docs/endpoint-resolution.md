@@ -38,8 +38,12 @@ and interface-type metadata instead of adapter aliases or MAC-address presence.
 The hardware flag permits Ethernet, Wi-Fi and cellular devices, including guest
 NICs reported as hardware; software loopback, virtual, tunnel and bridge types
 are excluded. Windows API calls are cross-compiled but still need native testing.
-BSD/macOS currently use name/MAC heuristics; authoritative classification there
-and IPv6 link-local scope mapping remain incomplete.
+FreeBSD combines kernel interface types, original driver identities and registered
+cloners. Wi-Fi VAPs and jail epairs qualify; software overlays are excluded even
+after alias/group edits. Native tests cover guest NIC discovery and renamed
+epair/TUN/TAP/bridge fixtures with address changes. Other BSDs and macOS currently
+use name/MAC heuristics; authoritative classification there and IPv6 link-local
+scope mapping remain incomplete. See [FreeBSD operation](freebsd-operation.md).
 
 ## Live policy changes
 
@@ -123,7 +127,10 @@ STUN data-port reuse and IP fragmentation are preserved. The implementation uses
 Windows. Truncated datagrams/control data are discarded without stopping the
 listener, including Windows `WSAEMSGSIZE`. Native Windows wildcard/multiple-address
 acceptance remains open; its ABI codec is tested on Linux and cross-compiled.
-BSD/macOS ancillary behavior also requires native verification. See the
+FreeBSD 15.1-p3/amd64 native tests verify reply sources, truncation recovery and
+maximum-size IPv4/IPv6 messages with both listeners. Owned BSD sockets reserve a
+64 KiB send buffer because the default may be below the protocol's 16 KiB message
+limit. Other BSD/macOS ancillary behavior still requires native verification. See the
 [Windows UDP verification procedure](windows-operation.md#udp-packet-information).
 
 Real-socket Linux tests cover all six transports with two live DNS answers,
