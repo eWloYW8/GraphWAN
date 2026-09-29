@@ -104,6 +104,8 @@ jobs:
       matrix:
         include:
           - {name: auto-v4, transport: auto, overlay: 4, underlay: 4, mtu: 1280, nat: false}
+          - {name: auto-listener-change, transport: auto, overlay: 6, underlay: 4, mtu: 9000, nat: false, listen_port_change: true}
+          - {name: grpc-listener-change, transport: grpc, overlay: 6, underlay: 6, mtu: 9000, nat: false, listen_port_change: true}
           - {name: auto-v4-over-v6, transport: auto, overlay: 4, underlay: 6, mtu: 9000, nat: false}
           - {name: auto-v6-over-v4, transport: auto, overlay: 6, underlay: 4, mtu: 9000, nat: false}
           - {name: auto-link-local-v4, transport: auto, overlay: 6, underlay: 4, mtu: 9000, nat: false, link_local: true}
@@ -150,6 +152,7 @@ jobs:
           NAT_REMAP: ${{ matrix.nat_remap || false }}
           NAT_NODES: ${{ matrix.nat_nodes || 3 }}
           PUNCH_ONLY: ${{ matrix.punch_only || false }}
+          LISTEN_PORT_CHANGE: ${{ matrix.listen_port_change || false }}
           LINK_LOCAL: ${{ matrix.link_local || false }}
           PEER_LINK_LOCAL_V6: ${{ matrix.peer_link_local_v6 || false }}
           GRAPHWAN_BINARY: ${{ runner.temp }}/graphwan
@@ -160,6 +163,7 @@ jobs:
           if [[ "$NAT" == true ]]; then args+=(--nat --nat-nodes "$NAT_NODES"); fi
           if [[ "$NAT_REMAP" == true ]]; then args+=(--nat-remap); fi
           if [[ "$PUNCH_ONLY" == true ]]; then args+=(--punch-only); fi
+          if [[ "$LISTEN_PORT_CHANGE" == true ]]; then args+=(--listen-port-change); fi
           if [[ "$LINK_LOCAL" == true ]]; then args+=(--link-local); fi
           if [[ "$PEER_LINK_LOCAL_V6" == true ]]; then args+=(--peer-link-local-v6); fi
           sudo -n unshare --net python3 tests/e2e_linux.py "${args[@]}" 2>&1 | tee "$GRAPHWAN_LOG"

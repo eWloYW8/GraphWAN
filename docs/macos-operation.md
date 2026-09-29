@@ -101,7 +101,9 @@ The source reference is XNU revision
 [interface metadata and flags](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/net/if_private.h),
 [ioctl definitions](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/sys/sockio_private.h) and
 [kernel query/clone handling](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/net/if.c).
-IPv6 link-local scope mapping remains a separate outstanding feature.
+IPv6 link-local scope mapping is implemented in the shared Mesh and verified
+with Linux multi-NIC fixtures; see [scope identities and policy](endpoint-resolution.md#ipv6-link-local-scopes).
+Native macOS scope behavior has not been exercised.
 
 ## Optional native verification procedure
 

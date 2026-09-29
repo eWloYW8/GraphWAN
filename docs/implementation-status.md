@@ -59,7 +59,7 @@ checks are listed separately from outstanding implementation work.
 - [x] OpenBSD kernel type/cloner discovery with native clone exclusion and address-change tests.
 - [x] NetBSD kernel type/cloner discovery with native clone exclusion and address-change tests.
 - [x] macOS kernel family/subfamily/clone discovery with Linux policy tests and Intel/Apple Silicon cross-builds.
-- [ ] Manual hostname/path endpoints and configurable listeners (default 24752), Linux acceptance and cross-platform review.
+- [x] Manual hostname/path endpoints and configurable listeners (default 24752), Linux acceptance and cross-platform review.
 - [x] Per-address DNS Candidates across all six transports, refresh, preference and healthy rekey on Linux.
 - [x] Windows UDP packet-info implementation and portable 32/64-bit ABI validation.
 - [x] STUN from the data socket and UDP punching through verified restricted NATs.
@@ -821,3 +821,30 @@ These checks are not required for completion under the agreed Linux validation s
   STUN/controller outage, offline TUN recovery, cached restart and cleanup.
   No non-Linux native execution was added. Full Link-retention/selection and
   final feature-by-feature acceptance remain separate outstanding audit items.
+
+
+- Manual endpoint/listener acceptance is complete under the Linux execution scope.
+  Current Linux race tests cover all six transports' per-address DNS candidates,
+  hostname/SNI/authority/path preservation, configured-path admission, DNS refresh,
+  retained healthy answers/rekey, endpoint edits/removal and wildcard/failed binds.
+  The shared listener construction, separate family binding, partial-close paths,
+  Unix/Windows bind-error classification and default-24752 enrollment were reviewed;
+  prior seven-platform cross-build evidence still applies to unchanged production
+  code. This does not claim new non-Linux runtime or system-DNS outage coverage.
+- The new Linux `--listen-port-change` fixture uses the real controller API and
+  three native-TUN Agents. It occupies the requested UDP port and verifies the
+  configuration error, unchanged applied revision/TUN, preserved original Link
+  IDs at adjacent Agents, full-MTU traffic and release of both partial TCP binds.
+  Releasing that port must trigger automatic retry, endpoint republication and
+  recovery without restarting the Agent or TUN. Exact expected Candidate IDs
+  must be healthy in both dialing directions on every Edge. Both old TCP/UDP
+  ports become available on both families. Manual URL IDs/paths are preserved across their
+  explicit port update. Controller outage, offline TUN recovery, cached restart
+  on the new port and final cleanup all pass.
+- Local runs pass for automatic TCP/UDP on IPv4 underlay and manual WS, WSS, gRPC
+  and QUIC on IPv6 underlay, each with IPv6 overlay, MTU 9000/1280 and restricted
+  capabilities. Existing production code handled all five cases without a fix.
+  CI adds automatic and gRPC listener-change cases (24 Linux network cases in
+  total); Python syntax and pinned actionlint pass. Discovery/operation docs now
+  reflect implemented macOS metadata and IPv4/IPv6 link-local support instead of
+  stale pre-implementation descriptions. Hosted CI execution is not claimed.

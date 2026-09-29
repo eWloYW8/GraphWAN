@@ -24,7 +24,9 @@ proxy or port forward. See [WebSocket](websocket-operation.md),
 ## Automatic interface discovery
 
 The Agent scans interfaces every five seconds and publishes TCP/UDP endpoints
-for global-unicast IPv4/IPv6 addresses, including private and ULA addresses.
+for global-unicast and link-local IPv4/IPv6 addresses, including private and ULA
+addresses. IPv6 link-local URLs carry the owner’s interface scope, as described
+[below](#ipv6-link-local-scopes).
 Down and loopback interfaces are excluded. Duplicate address URLs collapse to
 one endpoint; enumeration order does not change its identity. An address-read
 failure rejects the entire scan, leaving the last published snapshot in place
@@ -37,7 +39,8 @@ regardless of their names. Windows uses `GetIfTable2Ex` hardware, filter, endpoi
 and interface-type metadata instead of adapter aliases or MAC-address presence.
 The hardware flag permits Ethernet, Wi-Fi and cellular devices, including guest
 NICs reported as hardware; software loopback, virtual, tunnel and bridge types
-are excluded. Windows API calls are cross-compiled but still need native testing.
+are excluded. Windows API calls are cross-compiled; native NIC execution remains unverified
+and is optional under the Linux acceptance scope.
 FreeBSD combines kernel interface types, original driver identities and registered
 cloners. Wi-Fi VAPs and jail epairs qualify; software overlays are excluded even
 after alias/group edits. Native tests cover guest NIC discovery and renamed
@@ -60,9 +63,35 @@ interfaces while observing IPv4/IPv6 changes on an independent virtio NIC.
 Descriptions do not influence classification or endpoint IDs. See
 [NetBSD operation](netbsd-operation.md#physical-interface-discovery).
 
-DragonFly and macOS still use name/MAC heuristics. Authoritative
-classification there, native Windows acceptance and IPv6 link-local scope
-mapping remain incomplete.
+macOS queries kernel interface type, family, subfamily and clone flags. Its
+classification policy is tested on Linux, and Intel/Apple Silicon adapters are
+cross-compiled; native macOS discovery is not claimed. See
+[macOS operation](macos-operation.md#physical-interface-discovery).
+DragonFly still uses name/MAC heuristics; authoritative classification there
+remains an outstanding implementation item.
+
+## Live listener changes
+
+Set the Agent's `listen_port` through the management UI or
+[`PATCH /api/v1/agents/{id}`](control-api.md). The default is 24752; TCP/WS/WSS/gRPC
+share its TCP listener and UDP/QUIC share its UDP socket. Wildcard binding covers
+both IPv4 and IPv6 where available. A manual URL's port describes the advertised
+entry point; it does not create an extra listener or change `listen_port`.
+
+The Agent prepares the new TCP/UDP listeners before replacing its current Mesh.
+A bind failure releases every partial reservation and keeps the existing TUN,
+Links and forwarding configuration. The desired revision stays cached while the
+applied revision stays unchanged, and the Agent retries automatically. The
+controller reports the configuration error; Links from an Agent behind the
+current desired revision are omitted from its telemetry until it catches up.
+
+After a successful change, automatic TCP/UDP endpoints advertise the new port;
+old listener sockets and sessions are closed. The TUN and Agent process remain
+in place. Manual URLs and external proxies are administrator-managed: update
+their destination/advertised ports when appropriate. Peers reconnect under the
+new endpoint policy, so a successful port change may briefly interrupt traffic.
+See [Linux listener acceptance](linux-operation.md#live-listener-reconfiguration)
+for the real-process fault and recovery fixture.
 
 ## Live policy changes
 

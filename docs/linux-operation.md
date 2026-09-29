@@ -108,6 +108,39 @@ deletes an endpoint TUN while offline and verifies automatic interface/route/MTU
 recovery and traffic, then checks that TUNs disappear on shutdown. All child
 processes and namespaces are cleaned up on success or failure.
 
+## Live listener reconfiguration
+
+`--listen-port-change` first establishes three Agents and native multi-hop traffic.
+It occupies UDP port 25752 in the transit Agent's namespace, then patches that
+Agent's `listen_port` from 24752 to 25752 through the controller API. The test
+requires a reported bind error, unchanged applied revision and TUN identity, the
+original healthy Link IDs at adjacent Agents, and working full-MTU ICMP/TCP
+traffic. Both IPv4 and IPv6 TCP binds must be released after the failed setup.
+
+After releasing the conflicting UDP socket, the same desired configuration must
+apply automatically. Discovery must republish the new port; manual URLs are
+updated explicitly while preserving their endpoint IDs and paths. The test
+requires the expected healthy Candidate IDs in both dialing directions on every
+Edge, common active Links, traffic, unchanged Agent PIDs/TUN identity, and
+both old TCP/UDP ports available on both address families. Controller outage,
+offline TUN repair, cached transit-Agent restart and cleanup then run using the
+new listener configuration. All six transports pass locally on Linux at overlay
+MTU 9000 and underlay MTU 1280, with the restricted Agent capability set.
+
+```sh
+sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
+  --transport auto --listen-port-change --restricted-agent \
+  --overlay-family 6 --mtu 9000 --underlay-mtu 1280
+sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
+  --transport grpc --listen-port-change --restricted-agent \
+  --overlay-family 6 --underlay-family 6 --mtu 9000 --underlay-mtu 1280
+```
+
+Use `ws`, `wss` or `quic` in the second command for the other manual transports.
+The fixture excludes NAT, punch-only and scoped IPv6 combinations; those have
+separate fault tests. Successful listener replacement reconnects peer sessions;
+the test verifies recovery, not uninterrupted delivery during the replacement.
+
 ## IPv4 and IPv6 verification matrix
 
 `--overlay-family 4|6` chooses the virtual subnet and inner ICMP/TCP traffic.

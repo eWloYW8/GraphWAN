@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -52,7 +53,10 @@ def main():
     parser.add_argument("--nat-nodes", type=int, choices=(1, 2, 3), default=3, help="with --nat, place the first N agents behind separate NATs; leave the rest public")
     parser.add_argument("--nat-remap", action="store_true", help="replace live NAT mappings and require automatic rediscovery/reconnection")
     parser.add_argument("--conntrack", default="/usr/sbin/conntrack", help="conntrack executable used only by --nat-remap")
+    parser.add_argument("--listen-port-change", action="store_true", help="verify failed-bind rollback and live listener replacement without Agent restart")
     args = parser.parse_args()
+    if args.listen_port_change and (args.nat or args.punch_only or args.peer_link_local_v6):
+        parser.error("--listen-port-change uses unscoped direct endpoints without NAT")
     if args.nat_remap and not args.nat:
         parser.error("--nat-remap requires --nat")
     if args.nat_remap and not Path(args.conntrack).is_file():
@@ -445,6 +449,114 @@ def main():
                 return result.returncode == 0
             eventually(exchange)
             print(f"PASS: three native TUN agents, {transports} links, IPv{args.overlay_family} overlay/IPv{peer_family} peer underlay, MTU {args.mtu}/{args.underlay_mtu}, multi-hop ICMP and TCP", flush=True)
+            if args.listen_port_change:
+                transit = by_name["node-1"]["id"]
+                prefix = ["nsenter", "-t", str(namespaces[1].pid), "-n"]
+                new_port = 25752
+                original_pids = [process.pid for process in agents]
+                def report():
+                    return next(item for item in api("GET", "/telemetry") if item["agent_id"] == transit)
+                def owned_tuns():
+                    return {(item["ifindex"], item["ifname"], item["mtu"]) for item in json.loads(command(*prefix, "ip", "-j", "link", "show").stdout) if item["ifname"].startswith("gw")}
+                original_tuns = owned_tuns()
+                assert len(original_tuns) == 1, "expected one transit TUN"
+                revision = api("GET", "/state")["revision"]
+                eventually(lambda: report()["applied_revision"] >= revision)
+                original = report()
+                original_links = {link["link_id"] for link in original["links"] or [] if link["healthy"]}
+                assert original_links, "missing original transit links"
+                ready = root / "port-blocker.ready"
+                blocker_code = "import socket,sys,time;from pathlib import Path;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(('0.0.0.0',int(sys.argv[1])));Path(sys.argv[2]).write_text('ready');time.sleep(300)"
+                blocker = spawn("port-blocker", [*prefix, "python3", "-c", blocker_code, str(new_port), str(ready)])
+                eventually(lambda: ready.exists() and blocker.poll() is None)
+                def patch_transit(body):
+                    def attempt():
+                        try:
+                            return api("PATCH", f"/agents/{transit}", body, api("GET", "/state")["revision"])
+                        except urllib.error.HTTPError as error:
+                            if error.code == 409:
+                                return None
+                            raise
+                    return eventually(attempt)
+                changed = patch_transit({"listen_port": new_port})
+                failed = eventually(lambda: current if (current := report()).get("config_error") else None)
+                assert "listen for peers" in failed["config_error"], failed["config_error"]
+                assert failed["applied_revision"] == original["applied_revision"], "failed bind advanced the applied revision"
+                # The controller omits Links from reports behind the desired
+                # revision. Adjacent Agents have applied that revision and can
+                # prove the original sessions remain healthy on the wire.
+                eventually(lambda: original_links <= {link["link_id"] for peer in api("GET", "/telemetry") if peer["agent_id"] != transit for link in peer["links"] or [] if link["healthy"]})
+                assert owned_tuns() == original_tuns, "failed bind replaced the TUN"
+                eventually(ping)
+                eventually(exchange)
+                # Listen on both families to prove a failed UDP bind released
+                # every partially prepared TCP listener. SO_REUSEADDR permits
+                # TIME_WAIT cleanup but does not share an existing listener.
+                probe_code = """import socket,sys
+sockets=[]
+for kind in sys.argv[2:]:
+ for family,host in ((socket.AF_INET6,'::'),(socket.AF_INET,'0.0.0.0')):
+  s=socket.socket(family,socket.SOCK_STREAM if kind=='tcp' else socket.SOCK_DGRAM)
+  if family==socket.AF_INET6: s.setsockopt(socket.IPPROTO_IPV6,socket.IPV6_V6ONLY,1)
+  if kind=='tcp': s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+  s.bind((host,int(sys.argv[1])))
+  if kind=='tcp': s.listen()
+  sockets.append(s)
+"""
+                def port_free(port, *kinds):
+                    return command(*prefix, "python3", "-c", probe_code, str(port), *kinds, check=False).returncode == 0
+                eventually(lambda: port_free(new_port, "tcp"))
+                print("PASS: occupied UDP port rejects reconfiguration, preserves applied revision/TUN/Links/traffic and releases partial TCP binds", flush=True)
+                stop(blocker)
+                eventually(lambda: not (current := report()).get("config_error") and current["applied_revision"] >= changed["revision"])
+                # Use the current state: manual endpoints were added after enrollment.
+                current_agent = next(item for item in api("GET", "/state")["agents"] if item["id"] == transit)
+                manual = [dict(endpoint) for endpoint in current_agent["endpoints"] if endpoint["source"] == "manual"]
+                for endpoint in manual:
+                    endpoint["url"] = endpoint["url"].replace(":24752", f":{new_port}")
+                if manual:
+                    patch_transit({"manual_endpoints": manual})
+                def endpoints_updated():
+                    current = api("GET", "/state")
+                    target = next(item for item in current["agents"] if item["id"] == transit)
+                    automatic = [item for item in target["endpoints"] if item["source"] == "interface"]
+                    return automatic and all(urllib.parse.urlsplit(item["url"]).port == new_port for item in target["endpoints"]) and report()["applied_revision"] >= current["revision"]
+                eventually(endpoints_updated)
+                current_agents = {item["id"]: item for item in api("GET", "/state")["agents"]}
+                by_node = {node["id"]: node for node in nodes}
+                expected_directions = {}
+                for edge in network["edges"]:
+                    expected = set()
+                    for source_id, target_id in ((edge["a"], edge["b"]), (edge["b"], edge["a"])):
+                        target_agent = current_agents[by_node[target_id]["agent_id"]]
+                        target_index = int(target_agent["name"].split("-")[1])
+                        target_port = new_port if target_agent["id"] == transit else 24752
+                        for kind in transports:
+                            endpoint = next(item for item in target_agent["endpoints"] if item["transport"] == kind and urllib.parse.urlsplit(item["url"]).hostname == peer_ips[target_index] and urllib.parse.urlsplit(item["url"]).port == target_port)
+                            raw = f"{edge['id']}/{source_id}/{endpoint['id']}/{peer_family}/direct"
+                            expected.add(hashlib.sha256(raw.encode()).hexdigest()[:32])
+                    expected_directions[edge["id"]] = expected
+                def directions_recovered():
+                    reports = api("GET", "/telemetry")
+                    if len(reports) != 3:
+                        return False
+                    for current in reports:
+                        for edge in network["edges"]:
+                            if current["agent_id"] not in (by_node[edge["a"]]["agent_id"], by_node[edge["b"]]["agent_id"]):
+                                continue
+                            healthy = {link["candidate_id"] for link in current["links"] or [] if link["healthy"] and link["edge_id"] == edge["id"]}
+                            if not expected_directions[edge["id"]] <= healthy:
+                                return False
+                    return True
+                eventually(directions_recovered)
+                eventually(connected)
+                eventually(ping)
+                eventually(exchange)
+                eventually(lambda: port_free(24752, "tcp", "udp"))
+                assert not original_links & {link["link_id"] for link in report()["links"] or [] if link["healthy"]}, "old listener sessions survived replacement"
+                assert owned_tuns() == original_tuns, "successful listener replacement recreated the TUN"
+                assert [process.pid for process in agents] == original_pids and all(process.poll() is None for process in agents), "Agent restarted during listener change"
+                print("PASS: automatic retry replaces listener, republishes endpoints, restores both dialing directions/full-MTU traffic and releases old TCP/UDP ports without TUN or Agent restart", flush=True)
             if args.nat_remap:
                 remapped_nodes = {node["id"] for node in nodes[:args.nat_nodes]}
                 affected_edges = {edge["id"] for edge in network["edges"] if edge["a"] in remapped_nodes or edge["b"] in remapped_nodes}
