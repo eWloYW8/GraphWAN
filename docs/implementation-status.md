@@ -386,3 +386,28 @@ Every feature below derives from the accepted proposal, including its suggestion
   five race-enabled repetitions pass with its topology/rekey assertions retained.
   Actual Windows socket options, source selection and truncation handling still
   require execution of the [native Windows UDP checks](windows-operation.md#udp-packet-information).
+
+- Interface discovery and live endpoint updates: Linux uses a single kernel link
+  dump; Windows uses native hardware/type/filter/endpoint metadata instead of
+  alias or MAC heuristics. Discovery deduplicates URLs, stabilizes enumeration
+  order and rejects partial address snapshots. An isolated Linux native test
+  verifies renamed veth/TUN/TAP, dummy/bridge exclusion, IPv6 address withdrawal
+  and interface down/up transitions. Real-socket tests across all six transports
+  retain exact unaffected Link IDs through endpoint addition/removal, same-ID URL
+  replacement, IPv6 enablement, IPv4 revocation and transport changes, followed
+  by packet delivery. Pending revoked TCP handshakes are canceled; completed
+  stale handshakes cannot introduce a revoked or replaced endpoint. Five
+  race-enabled policy/admission repetitions pass. Introductions now require an
+  exact endpoint fingerprint; both peers must be upgraded together.
+  Full Linux Go race tests and vet pass. Three-Agent process regressions pass
+  for automatic TCP/UDP with IPv6 overlay/underlay and restricted UDP NAT with
+  IPv6 overlay/IPv4 underlay, both at MTU 9000/1280, including outage continuity,
+  offline TUN repair, cached transit restart and owned-interface cleanup.
+  An ephemeral TCP/UDP port-allocation collision exposed during parallel tests
+  is fixed by bounded pair retries; ten race repetitions verify recovery, fixed
+  port failure, exhaustion, cancellation and release of failed TCP reservations.
+  Production, discovery and Mesh tests cross-compile for Windows amd64/arm64/386,
+  macOS arm64, FreeBSD amd64 and Linux arm64. Native Windows discovery, authoritative
+  BSD/macOS classification and IPv6 link-local scope mapping remain open, so the
+  overall interface-discovery acceptance item is still unchecked. See
+  [endpoint discovery and updates](endpoint-resolution.md).

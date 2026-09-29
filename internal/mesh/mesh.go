@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"reflect"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -165,13 +164,13 @@ func (m *Mesh) Apply(snapshot model.Snapshot) error {
 	old := m.groups
 	next := make(map[key]*group)
 	retired := []*group{}
+	var retiredLinks []*link.Link
 	for _, network := range snapshot.Networks {
 		for _, p := range network.Peers {
 			k := key{network.ID, p.Node.ID}
 			cfg := &policy{network: network.ID, self: network.Self.ID, cipher: network.Cipher, peer: p, endpoints: snapshot.Endpoints}
 			if existing := old[k]; existing != nil && compatible(existing.policy.Load(), cfg) {
-				existing.policy.Store(cfg)
-				existing.edge.SetPreferred(p.Edge.PreferredCandidate)
+				retiredLinks = append(retiredLinks, existing.updatePolicy(cfg)...)
 				next[k] = existing
 			} else {
 				next[k] = m.newGroup(cfg)
@@ -195,6 +194,9 @@ func (m *Mesh) Apply(snapshot model.Snapshot) error {
 		}
 	}
 	m.mu.Unlock()
+	for _, l := range retiredLinks {
+		l.Close()
+	}
 	for _, session := range stalePunches {
 		session.Close()
 	}
@@ -204,24 +206,9 @@ func (m *Mesh) Apply(snapshot model.Snapshot) error {
 	return nil
 }
 func compatible(a, b *policy) bool {
-	if a.network != b.network || a.self != b.self || a.cipher != b.cipher || a.peer.Node.ID != b.peer.Node.ID || a.peer.Edge.ID != b.peer.Edge.ID || !bytes.Equal(a.peer.PublicKey, b.peer.PublicKey) || a.peer.Edge.Methods != b.peer.Edge.Methods || !slices.Equal(a.peer.Edge.Transports, b.peer.Edge.Transports) {
-		return false
-	}
-	normalized := func(endpoints []model.Endpoint) []model.Endpoint {
-		copy := []model.Endpoint{}
-		for _, endpoint := range endpoints {
-			// Discovery expiry/remapping governs new dials, not the identity of
-			// already authenticated healthy sessions. STUN outages must not stop data.
-			if endpoint.Source == model.Observed {
-				continue
-			}
-			endpoint.ExpiresAt = time.Time{}
-			copy = append(copy, endpoint)
-		}
-		return copy
-	}
-	return reflect.DeepEqual(normalized(a.endpoints), normalized(b.endpoints)) && reflect.DeepEqual(normalized(a.peer.Endpoints), normalized(b.peer.Endpoints))
+	return a.network == b.network && a.self == b.self && a.cipher == b.cipher && a.peer.Node.ID == b.peer.Node.ID && a.peer.Edge.ID == b.peer.Edge.ID && bytes.Equal(a.peer.PublicKey, b.peer.PublicKey)
 }
+
 func (m *Mesh) Send(ctx context.Context, network, remote model.ID, frame []byte) error {
 	m.mu.Lock()
 	g := m.groups[key{network, remote}]
@@ -335,6 +322,9 @@ func (m *Mesh) accept(conn transport.Conn, kind model.Transport) {
 		// The remote dialing direction must target an endpoint actually advertised
 		// by this Agent and allowed by this Edge's connection policy.
 		for _, c := range selected.candidates(cfg, false) {
+			if endpointFingerprint(c.Endpoint) != introduction.Endpoint {
+				continue
+			}
 			if introduction.Target != "" {
 				address, err := netip.ParseAddr(introduction.Target)
 				if err != nil {
@@ -381,26 +371,29 @@ func addressFamily(address net.Addr) int {
 }
 
 type group struct {
-	mesh     *Mesh
-	policy   atomic.Pointer[policy]
-	edge     *link.Edge
-	ctx      context.Context
-	cancel   context.CancelFunc
-	mu       sync.Mutex
-	links    map[string]*link.Link
-	attempts map[string]*attempt
-	retained map[string]link.Candidate
-	wg       sync.WaitGroup
+	mesh           *Mesh
+	policy         atomic.Pointer[policy]
+	edge           *link.Edge
+	ctx            context.Context
+	cancel         context.CancelFunc
+	mu             sync.Mutex
+	links          map[string]*link.Link
+	linkCandidates map[string]link.Candidate
+	attempts       map[string]*attempt
+	retained       map[string]link.Candidate
+	wg             sync.WaitGroup
 }
 type attempt struct {
-	inflight bool
-	next     time.Time
-	delay    time.Duration
+	candidate link.Candidate
+	cancel    context.CancelFunc
+	inflight  bool
+	next      time.Time
+	delay     time.Duration
 }
 
 func (m *Mesh) newGroup(cfg *policy) *group {
 	ctx, cancel := context.WithCancel(m.ctx)
-	g := &group{mesh: m, edge: link.NewCoordinatedEdge(cfg.self, cfg.peer.Node.ID, cfg.peer.Edge.PreferredCandidate), ctx: ctx, cancel: cancel, links: map[string]*link.Link{}, attempts: map[string]*attempt{}, retained: map[string]link.Candidate{}}
+	g := &group{mesh: m, edge: link.NewCoordinatedEdge(cfg.self, cfg.peer.Node.ID, cfg.peer.Edge.PreferredCandidate), ctx: ctx, cancel: cancel, links: map[string]*link.Link{}, linkCandidates: map[string]link.Candidate{}, attempts: map[string]*attempt{}, retained: map[string]link.Candidate{}}
 	g.policy.Store(cfg)
 	g.wg.Add(1)
 	go g.schedule()
@@ -427,6 +420,11 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 		return
 	}
 	cfg := g.policy.Load()
+	if !g.allowsCandidateLocked(cfg, candidate) {
+		g.mu.Unlock()
+		channel.Close()
+		return
+	}
 	l, err := link.New(g.ctx, channel, link.Info{NetworkID: cfg.network, EdgeID: cfg.peer.Edge.ID, PeerID: cfg.peer.Node.ID, CandidateID: candidate.ID, Transport: candidate.Endpoint.Transport}, g.mesh.linkOptions)
 	if err != nil {
 		g.mu.Unlock()
@@ -434,6 +432,7 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 		return
 	}
 	g.links[l.ID()] = l
+	g.linkCandidates[l.ID()] = candidate
 	if candidate.Endpoint.Source == model.Observed || candidate.Target.IsValid() {
 		g.retained[candidate.ID] = candidate
 	}
@@ -456,7 +455,14 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 	}()
 	go func() {
 		defer g.wg.Done()
-		defer func() { l.Close(); g.edge.Remove(l.ID()); g.mu.Lock(); delete(g.links, l.ID()); g.mu.Unlock() }()
+		defer func() {
+			l.Close()
+			g.edge.Remove(l.ID())
+			g.mu.Lock()
+			delete(g.links, l.ID())
+			delete(g.linkCandidates, l.ID())
+			g.mu.Unlock()
+		}()
 		for {
 			select {
 			case raw, ok := <-l.Packets():

@@ -47,6 +47,19 @@ a responder finishes, its receive loop continues answering duplicate Finish
 messages with the original Ready, handling loss of the final confirmation.
 Data messages do not gain retransmission from this handshake mechanism.
 
+Before Link heartbeats/data, the initiator sends an encrypted introduction:
+one zero byte followed by JSON, at most 256 bytes including that prefix. Required
+`candidate` and `endpoint` fields contain 32-character identifiers. `candidate`
+is the stable Candidate ID; `endpoint` is lowercase hexadecimal encoding of the
+first 16 bytes of SHA-256 over `source + NUL + transport + NUL + URL` using the
+exact advertised endpoint strings. Optional `target` identifies a concrete DNS
+answer. The receiver checks the fingerprint, candidate family/method/transport,
+DNS target and actual ingress path against current policy. Registration rechecks
+that policy under its update lock, so revoked pending handshakes cannot restore
+Links. See [endpoint admission](endpoint-resolution.md#tls-and-peer-admission).
+This development protocol now requires the endpoint fingerprint for all Links;
+Agents predating that requirement must be upgraded together with their peers.
+
 ## Encrypted messages
 
 The wire ciphertext is an 8-byte big-endian sequence followed by ChaCha20-Poly1305

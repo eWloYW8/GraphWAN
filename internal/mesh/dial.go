@@ -20,6 +20,7 @@ import (
 type introduction struct {
 	Candidate string `json:"candidate"`
 	Target    string `json:"target,omitempty"`
+	Endpoint  string `json:"endpoint"`
 }
 
 func receiveIntroduction(ctx context.Context, channel *peer.Channel) (introduction, error) {
@@ -34,7 +35,7 @@ func receiveIntroduction(ctx context.Context, channel *peer.Channel) (introducti
 	if err := json.Unmarshal(raw[1:], &intro); err != nil {
 		return intro, err
 	}
-	if len(intro.Candidate) != 32 {
+	if len(intro.Candidate) != 32 || len(intro.Endpoint) != 32 {
 		return intro, errors.New("invalid candidate identity")
 	}
 	return intro, nil
@@ -79,7 +80,7 @@ func (g *group) schedule() {
 			}
 			state := g.attempts[candidate.ID]
 			if state == nil {
-				state = &attempt{}
+				state = &attempt{candidate: candidate}
 				g.attempts[candidate.ID] = state
 			}
 			if connected || state.inflight || time.Now().Before(state.next) {
@@ -92,16 +93,25 @@ func (g *group) schedule() {
 				g.mu.Unlock()
 				continue
 			}
-			state.inflight = true
+			// The candidate list was built outside the lock. A configuration
+			// update may have revoked it before this slot became available.
+			if !g.allowsCandidateLocked(g.policy.Load(), candidate) {
+				<-g.mesh.slots
+				g.mu.Unlock()
+				continue
+			}
+			dialCtx, cancel := context.WithTimeout(g.ctx, 12*time.Second)
+			state.inflight, state.candidate, state.cancel = true, candidate, cancel
 			g.wg.Add(1)
 			g.mu.Unlock()
 			go func() {
+				defer cancel()
 				defer g.wg.Done()
 				defer func() { <-g.mesh.slots }()
-				err := g.dial(candidate)
+				err := g.dial(dialCtx, candidate)
 				g.mu.Lock()
 				defer g.mu.Unlock()
-				state.inflight = false
+				state.inflight, state.cancel = false, nil
 				if err == nil {
 					state.delay = time.Second
 					state.next = time.Time{}
@@ -118,9 +128,7 @@ func (g *group) schedule() {
 		}
 	}
 }
-func (g *group) dial(candidate link.Candidate) error {
-	ctx, cancel := context.WithTimeout(g.ctx, 12*time.Second)
-	defer cancel()
+func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 	parsed, err := url.Parse(candidate.Endpoint.URL)
 	if err != nil {
 		return err
@@ -183,7 +191,7 @@ func (g *group) dial(candidate link.Candidate) error {
 	if err != nil {
 		return err
 	}
-	intro := introduction{Candidate: candidate.ID}
+	intro := introduction{Candidate: candidate.ID, Endpoint: endpointFingerprint(candidate.Endpoint)}
 	if candidate.Target.IsValid() {
 		intro.Target = candidate.Target.String()
 	}

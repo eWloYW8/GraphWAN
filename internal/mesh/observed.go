@@ -16,6 +16,9 @@ import (
 // DNS targets withdrawn by a successful refresh follow the same healthy-session
 // retention rule, provided their configured endpoint and method remain allowed.
 func (g *group) candidates(cfg *policy, outgoing bool) []link.Candidate {
+	if !cfg.peer.Edge.Enabled {
+		return nil
+	}
 	initiator, peer := cfg.self, cfg.peer
 	if !outgoing {
 		initiator, peer = cfg.peer.Node.ID, model.Peer{Edge: cfg.peer.Edge, Endpoints: cfg.endpoints}

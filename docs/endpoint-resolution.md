@@ -1,4 +1,4 @@
-# Manual endpoints and DNS
+# Endpoint discovery, updates and DNS
 
 An Agent advertises automatic TCP/UDP IP endpoints and administrator-provided
 manual URLs. All six transports accept manual hostnames with an explicit port:
@@ -20,6 +20,43 @@ the Agent's configured listen port (24752 by default) is shared by its transport
 An external hostname/port can instead route through an administrator-managed
 proxy or port forward. See [WebSocket](websocket-operation.md),
 [gRPC](grpc-operation.md), [QUIC](quic-operation.md) and [NAT](nat-operation.md).
+
+## Automatic interface discovery
+
+The Agent scans interfaces every five seconds and publishes TCP/UDP endpoints
+for global-unicast IPv4/IPv6 addresses, including private and ULA addresses.
+Down and loopback interfaces are excluded. Duplicate address URLs collapse to
+one endpoint; enumeration order does not change its identity. An address-read
+failure rejects the entire scan, leaving the last published snapshot in place
+until a complete scan succeeds. Removing an address or taking its interface down
+withdraws its endpoints on the next successful scan and controller update.
+
+Linux reads kernel link types in one netlink dump and accepts physical devices
+and container veth interfaces. TUN, TAP, dummy devices and bridges are excluded
+regardless of their names. Windows uses `GetIfTable2Ex` hardware, filter, endpoint
+and interface-type metadata instead of adapter aliases or MAC-address presence.
+The hardware flag permits Ethernet, Wi-Fi and cellular devices, including guest
+NICs reported as hardware; software loopback, virtual, tunnel and bridge types
+are excluded. Windows API calls are cross-compiled but still need native testing.
+BSD/macOS currently use name/MAC heuristics; authoritative classification there
+and IPv6 link-local scope mapping remain incomplete.
+
+## Live policy changes
+
+Adding an endpoint, enabling another transport or enabling another direct-address
+family retains existing permitted sessions. Removing an endpoint or disabling a
+transport/method closes only affected Links and cancels their pending outgoing
+handshakes. Changing a URL under the same endpoint ID replaces that endpoint's
+sessions while keeping its stable preference identity. Other healthy Links,
+including the reverse dialing direction, retain their session IDs. Network,
+Node, Edge, cipher or peer-identity changes still replace the affected group.
+
+Admission checks the current policy again when a handshake completes. Both peers
+bind the introduction to the configured endpoint as described below, preventing
+a late old handshake from claiming a replacement URL under the same endpoint ID.
+Healthy observed/STUN sessions can still renew after their lease disappears;
+disabling punching or their transport revokes them. Configuration changes require
+the controller; cached policy and healthy links continue during its outage.
 
 ## Multiple addresses
 
@@ -59,16 +96,21 @@ TLS hostname as well. A TLS frontend with an independent certificate must pass
 normal CA/hostname validation. The encrypted peer handshake still authenticates
 the configured Agent behind it.
 
-The authenticated Link introduction includes the concrete DNS target. The
+The authenticated Link introduction includes an endpoint fingerprint and, for
+DNS candidates, the concrete DNS target. The
 receiving Agent reconstructs its Candidate ID against an advertised manual
 hostname endpoint, permitted family/method and actual ingress transport/path.
 It rejects an inconsistent hash, disabled family or attempt to override a literal
 endpoint. The responder does not perform a second DNS lookup: split-horizon DNS
 and reverse proxies can make its answer set different from the initiator's.
 The target is a path identifier, not evidence of peer identity; identity comes
-from the authenticated handshake. Address-specific introductions require both
-Agents to support this implementation. Older Agents do not recognize the new
-hostname Candidate IDs; upgrade both ends together.
+from the authenticated handshake. The fingerprint is the first 16 bytes of
+SHA-256 over endpoint source, NUL, transport, NUL and exact URL, encoded as 32
+lowercase hexadecimal characters. Lease expiry is excluded so STUN refresh does
+not change admission identity. This field is required for every transport and
+literal or DNS endpoint. Agents predating this field cannot connect to the new
+implementation; upgrade both ends together. Older hostname/family-only Candidate
+IDs are also incompatible with address-specific introductions.
 
 ## UDP source addresses and verification
 
@@ -93,6 +135,12 @@ are real. Separate tests check bounded lookup concurrency/cancellation, cache
 pruning, transient failures versus name-not-found, and invalid introductions.
 Actual CA-trusted WSS/gRPC frontends verify SNI, authority, path and message echo.
 UDP tests check secondary IPv4 and IPv6 reply sources on standalone/shared sockets.
+Policy-edit tests retain exact Link IDs across endpoint addition/removal, URL
+replacement, IPv6 enablement, IPv4 revocation and transport changes on all six
+transports. They also verify canceled incomplete TCP handshakes and reject stale
+authenticated introductions. An isolated native Linux network namespace verifies
+renamed veth/TUN/TAP classification, dummy/bridge exclusion, IPv6 address removal
+and interface down/up discovery.
 
 The full Linux race suite and vet pass. Native three-Agent tests additionally
 pass for IPv6 UDP direct, IPv6 gRPC direct and IPv6 overlay over restricted IPv4

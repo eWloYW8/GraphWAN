@@ -1,0 +1,93 @@
+package mesh
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"slices"
+	"time"
+
+	"github.com/graphwan/graphwan/internal/link"
+	"github.com/graphwan/graphwan/internal/model"
+)
+
+// Candidate IDs describe a stable preference. Bind the introduction separately
+// to the exact current endpoint URL/source so an old completed handshake cannot
+// claim the replacement endpoint merely by reusing its unchanged ID.
+func endpointFingerprint(endpoint model.Endpoint) string {
+	sum := sha256.Sum256([]byte(string(endpoint.Source) + "\x00" + string(endpoint.Transport) + "\x00" + endpoint.URL))
+	return hex.EncodeToString(sum[:16])
+}
+
+// A configured endpoint authorizes its own live paths, including DNS answers
+// retained across refresh. A vanished STUN lease may renew only an already
+// healthy session; disabling its method/transport still revokes it.
+func candidateConfigured(cfg *policy, candidate link.Candidate, healthy bool) bool {
+	if !cfg.peer.Edge.Enabled || !slices.Contains(cfg.peer.Edge.Transports, candidate.Endpoint.Transport) {
+		return false
+	}
+	if candidate.Endpoint.Source == model.Observed && healthy && candidate.Method == link.Punch && cfg.peer.Edge.Methods.HolePunch {
+		for _, initiator := range []model.ID{cfg.self, cfg.peer.Node.ID} {
+			if link.CandidateID(cfg.peer.Edge.ID, initiator, candidate.Endpoint.ID, candidate.Family, candidate.Method) == candidate.ID {
+				return true
+			}
+		}
+	}
+	bases := link.Candidates(cfg.self, cfg.peer, time.Now())
+	bases = append(bases, link.Candidates(cfg.peer.Node.ID, model.Peer{Edge: cfg.peer.Edge, Endpoints: cfg.endpoints}, time.Now())...)
+	for _, base := range bases {
+		if base.Endpoint.URL != candidate.Endpoint.URL || base.Endpoint.Source != candidate.Endpoint.Source {
+			continue
+		}
+		if candidate.Target.IsValid() {
+			var err error
+			base, err = link.ResolveCandidate(base, candidate.Target)
+			if err != nil {
+				continue
+			}
+		}
+		if base.ID == candidate.ID {
+			return true
+		}
+	}
+	return false
+}
+
+// Called with g.mu held, including at handshake completion, to prevent a dial
+// started under old policy from reinstalling a revoked endpoint.
+func (g *group) allowsCandidateLocked(cfg *policy, candidate link.Candidate) bool {
+	healthy := false
+	for _, l := range g.links {
+		if l.Info().CandidateID == candidate.ID && l.Stats().Healthy {
+			healthy = true
+			break
+		}
+	}
+	return candidateConfigured(cfg, candidate, healthy)
+}
+
+func (g *group) updatePolicy(cfg *policy) []*link.Link {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.policy.Store(cfg)
+	g.edge.SetPreferred(cfg.peer.Edge.PreferredCandidate)
+	var retired []*link.Link
+	for id, l := range g.links {
+		if candidateConfigured(cfg, g.linkCandidates[id], l.Stats().Healthy) {
+			continue
+		}
+		retired = append(retired, l)
+		delete(g.links, id)
+		delete(g.linkCandidates, id)
+		g.edge.Remove(id)
+	}
+	for id, state := range g.attempts {
+		if g.allowsCandidateLocked(cfg, state.candidate) {
+			continue
+		}
+		if state.cancel != nil {
+			state.cancel()
+		}
+		delete(g.attempts, id)
+	}
+	return retired
+}

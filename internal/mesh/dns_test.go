@@ -229,7 +229,7 @@ func TestDNSTargetIntroductionCannotBypassCandidatePolicy(t *testing.T) {
 			endpoint := model.Endpoint{ID: testutil.ID(180), Source: model.Manual, Transport: model.TCP, URL: fmt.Sprintf("tcp://peer.example.test:%d", meshes[1].Port())}
 			base := link.Candidate{ID: link.CandidateID(state.Networks[0].Edges[0].ID, state.Networks[0].Nodes[0].ID, endpoint.ID, 4, link.Direct), Endpoint: endpoint, Family: 4, Method: link.Direct}
 			resolved, _ := link.ResolveCandidate(base, netip.MustParseAddr("127.0.0.1"))
-			intro := introduction{Candidate: resolved.ID, Target: resolved.Target.String()}
+			intro := introduction{Candidate: resolved.ID, Target: resolved.Target.String(), Endpoint: endpointFingerprint(endpoint)}
 			switch variant {
 			case "wrong-hash":
 				intro.Candidate = base.ID
@@ -237,10 +237,11 @@ func TestDNSTargetIntroductionCannotBypassCandidatePolicy(t *testing.T) {
 				base.Family = 6
 				base.ID = link.CandidateID(state.Networks[0].Edges[0].ID, state.Networks[0].Nodes[0].ID, endpoint.ID, 6, link.Direct)
 				resolved, _ = link.ResolveCandidate(base, netip.IPv6Loopback())
-				intro = introduction{Candidate: resolved.ID, Target: resolved.Target.String()}
+				intro = introduction{Candidate: resolved.ID, Target: resolved.Target.String(), Endpoint: endpointFingerprint(endpoint)}
 			case "literal-override":
 				endpoint.URL = fmt.Sprintf("tcp://127.0.0.1:%d", meshes[1].Port())
 			}
+			intro.Endpoint = endpointFingerprint(endpoint)
 			state.Agents[0].Endpoints = nil
 			state.Agents[1].Endpoints = []model.Endpoint{endpoint}
 			responder, err := routing.Compile(*state, state.Agents[1].ID)

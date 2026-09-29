@@ -114,7 +114,7 @@ func TestManualTransportIntroductionMustMatchIngressPath(t *testing.T) {
 			}
 			defer channel.Close()
 			candidate := link.CandidateID(network.Peers[0].Edge.ID, network.Self.ID, other.ID, 4, link.Direct)
-			intro, _ := json.Marshal(introduction{Candidate: candidate})
+			intro, _ := json.Marshal(introduction{Candidate: candidate, Endpoint: endpointFingerprint(other)})
 			if err := channel.Send(ctx, append([]byte{0}, intro...)); err != nil {
 				t.Fatal(err)
 			}
