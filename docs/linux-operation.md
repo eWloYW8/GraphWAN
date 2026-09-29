@@ -85,6 +85,7 @@ to disposable namespaces.
 ```sh
 go test -race ./...
 go vet ./...
+python3 scripts/check.py native --logs /tmp/graphwan-native
 go test -c -tags integration -o /tmp/graphwan-tunnel-test ./internal/tunnel
 sudo unshare --net env GRAPHWAN_TEST_NETNS=1 /tmp/graphwan-tunnel-test -test.v
 
@@ -107,6 +108,18 @@ native TUNs. It then stops the controller, restarts the transit Agent offline,
 deletes an endpoint TUN while offline and verifies automatic interface/route/MTU
 recovery and traffic, then checks that TUNs disappear on shutdown. All child
 processes and namespaces are cleaned up on success or failure.
+
+The `native` check runs race-enabled TUN, discovery and Agent test binaries in
+separate namespaces and rejects skipped/missing results. The Agent fixture owns
+two real TUNs, verifies actual kernel addresses, MTUs and route selection, and
+changes their prefixes, host addresses and IPv4/IPv6 families. It exercises MTUs
+1280 and 9000, preserves the Mesh, and reuses unchanged devices. Injecting only
+the second Network's allocation failure verifies that the first newly prepared
+TUN is cleaned up while both previous TUNs and routes remain valid. Removing all
+memberships, adding them again and closing the Agent leave no owned interfaces;
+an unrelated interface remains untouched. Linux currently replaces a TUN when
+its address/MTU changes; preserving the same interface identity is not required
+for that adapter's configuration transaction.
 
 ## Live listener reconfiguration
 

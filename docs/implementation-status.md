@@ -28,12 +28,13 @@ checks are listed separately from outstanding implementation work.
 - [x] TCP/UDP observed endpoint exchange and rendezvous through peer snapshots, never relay.
 - [x] Batched live telemetry, stale/offline state and bounded event streaming.
 - [x] Agent process CPU/Go memory/runtime telemetry with table and Node-detail display.
+- [ ] Administrative CLI examples from the proposal: `network create`, `node list`, `edge add`.
 
 ## Agent and forwarding
 
 - [x] Runnable agent CLI, durable private identity and cached configuration.
 - [x] Validate → persist → reconcile → ACK; old runtime retained on failed updates.
-- [ ] Per-network TUN, address/route setup and safe resource cleanup on all platforms.
+- [x] Per-network TUN, address/route setup and safe resource cleanup on all platforms.
 - [x] FreeBSD native IPv4/IPv6 TUN, full-MTU kernel I/O and live MTU reconciliation.
 - [x] FreeBSD live address/prefix/MTU edits, multi-Network rollback and applied-state recovery.
 - [x] OpenBSD native IPv4/IPv6 TUN, live configuration, route rollback and ownership checks.
@@ -84,8 +85,8 @@ checks are listed separately from outstanding implementation work.
 
 ## Delivery
 
-- [ ] Windows, Linux, macOS and BSD adapters and documented support matrix.
-- [ ] Common architecture build matrix and Linux integration evidence.
+- [x] Windows, Linux, macOS and BSD adapters and documented support matrix.
+- [x] Common architecture build matrix and Linux integration evidence.
 - [ ] Unit/race/integration/E2E tests, formatting, vet and frontend checks in CI.
 - [x] Pinned-toolchain CI definitions, native-result gates and local Linux/FreeBSD execution.
 - [x] All 33 Go-advertised targets for seven selected operating systems cross-build with hash manifests.
@@ -966,3 +967,26 @@ These checks are not required for completion under the agreed Linux validation s
   Chromium tests pass. Linux native TUN/discovery gates execute without skips,
   deployment-unit verification passes without installation, and the Python
   verifier/packager tests pass. These are local results, not hosted CI execution.
+
+- Linux native Agent acceptance now runs under the required native CI gate. It
+  creates two real TUNs, verifies their actual addresses/MTUs and kernel-selected
+  routes, switches prefixes/addresses/families with MTUs 1280/9000, and preserves
+  the Mesh. Failure of the second Network's allocation cleans the first prepared
+  TUN and preserves both old devices and the applied state. Unchanged settings
+  reuse their devices; removing/re-adding memberships and Agent shutdown release
+  owned TUNs without deleting an unrelated interface. The race-enabled fixture
+  and the existing TUN/discovery gates all execute successfully, without skips.
+- Source review and the referenced platform-specific evidence now close the
+  per-Network TUN item under Linux-only runtime acceptance. FreeBSD and persistent
+  BSD creation windows, NetBSD's native MTU limit, Windows DLL requirements and
+  optional non-Linux native checks remain documented operational boundaries.
+  All 33 selected production targets cross-build at production revision `3eedd7c`;
+  every output size and SHA-256 matches its manifest. No native non-Linux run is
+  added. The current audit is in [proposal acceptance](acceptance-audit.md).
+- The local packaging pass generated all 33 archives and independently verified
+  archive checksums, extracted binary hashes, build manifests and every packaged
+  document. Pinned actionlint accepts the workflow definitions. No release was
+  published, service installed or hosted CI result claimed. The new audit records
+  the remaining administrative CLI examples and fixed UDP/QUIC/gRPC admission
+  limits explicitly rather than treating the presence of existing modules as
+  proof of full feature completion.

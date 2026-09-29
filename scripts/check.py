@@ -18,6 +18,7 @@ NATIVE = {
     "linux": {
         "tunnel": ["TestNativeLinuxTunnel"],
         "discovery": ["TestNativeInterfaceDiscovery"],
+        "agent": ["TestNativeLinuxConfigurationReconcile"],
     },
     "darwin": {
         "tunnel": ["TestNativeDarwinTunnel", "TestNativeDarwinConfiguration", "TestNativeDarwinRouteConflict"],

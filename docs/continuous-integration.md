@@ -76,6 +76,11 @@ test binary runs inside a new network namespace:
 python3 scripts/check.py native --logs /tmp/graphwan-native
 ```
 
+The Linux gate includes `TestNativeLinuxConfigurationReconcile`: two actual TUNs,
+kernel route selection, address/prefix/family/MTU changes, failed multi-Network
+preparation, membership removal/re-addition and owned-resource cleanup. It also
+requires the native TUN packet-I/O and discovery fixtures to execute successfully.
+
 On disposable macOS hosts, configure the two loopback aliases documented in
 [macOS operation](macos-operation.md#socket-test-fixtures), then set `GRAPHWAN_TEST_MACOS=1` before
 running the same command. Windows requires an elevated terminal and
