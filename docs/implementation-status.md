@@ -39,11 +39,11 @@ checks are listed separately from outstanding implementation work.
 - [x] OpenBSD native IPv4/IPv6 TUN, live configuration, route rollback and ownership checks.
 - [x] Coordinated IPv4/IPv6 listeners with native OpenBSD transport/Mesh evidence.
 - [x] OpenBSD marked-TUN SIGKILL recovery, including startup with no Networks.
-- [ ] OpenBSD pre-marker creation-window cleanup review.
+- [x] OpenBSD pre-marker creation-window cleanup review and fail-closed lookup errors.
 - [x] NetBSD native dual-stack TUN, MTU validation, live edits and route rollback.
 - [x] NetBSD marked-TUN SIGKILL recovery and multi-Network Agent configuration/shutdown.
 - [x] NetBSD native transport/Mesh execution and reproducible cross-compiled test bundle.
-- [ ] NetBSD pre-marker interruption cleanup review.
+- [x] NetBSD pre-marker interruption cleanup review and fail-closed lookup errors.
 - [x] macOS utun adapter code and Intel/Apple Silicon cross-builds.
 - [x] Windows Wintun adapter code, pinned DLL retrieval and amd64/arm64/386 cross-builds.
 - [x] DragonFly autoclone TUN, dual-stack framing and live route/address/MTU reconciliation; source review and cross-build.
@@ -873,3 +873,27 @@ These checks are not required for completion under the agreed Linux validation s
   code changed for this audit. The [packet contract](peer-protocol.md#packet-bounds-and-backpressure)
   now states configured MTU, base-header validation, queue limits, host checksum
   responsibilities and the lack of automatic path-MTU adaptation explicitly.
+
+
+- OpenBSD/NetBSD creation-window review found and removed a name-only destruction
+  path when interface lookup failed after successful `SIOCIFCREATE`. Shared
+  ownership publication now refuses any cleanup without a verified name/index;
+  marker-write failure uses index-checked destruction, and later setup failures
+  use the token/index marker registry. NetBSD treats `ENOMSG` as an absent
+  description only for reads, not as a successful ownership-marker write.
+- Linux fault-injection tests cover successful publication, lookup failures,
+  missing/wrong names and invalid indices without mutation, failed marking with
+  bounded ownership cleanup, and preservation of both marking and cleanup errors.
+  Tunnel/Agent race tests and vet pass. All ten Go-advertised OpenBSD/NetBSD
+  production targets cross-build with verified hashes; amd64/386 native TUN
+  integration test binaries and target vet pass for both systems. No new native
+  BSD execution is claimed.
+- Driver/API review confirms that exclusive cloning and description assignment
+  remain separate operations. A SIGKILL between them can leave an unmarked,
+  unconfigured interface with no GraphWAN address/route. Automatically deleting
+  it by name would lose the ownership guarantee; opening a guessed device unit
+  can instead adopt an existing idle interface. The adapter deliberately preserves
+  unknown ownership and reports ordinary lookup failures. The review items are
+  complete with this explicit boundary, not a claim that the interruption window
+  disappeared. [OpenBSD](openbsd-operation.md#creation-window-review-and-platform-limits)
+  and [NetBSD](netbsd-operation.md) document the source evidence and limits.

@@ -210,10 +210,6 @@ func (l *tunLease) close() error {
 	return errors.Join(err, l.file.Close(), l.directory.Close())
 }
 
-func tunOwnershipMarker(token string, index int) string {
-	return fmt.Sprintf("graphwan:%s:%d", token, index)
-}
-
 func cleanTunLease(name, token string) error {
 	interfaces, err := net.Interfaces()
 	if err != nil {

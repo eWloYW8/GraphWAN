@@ -129,9 +129,9 @@ func Open(config Config) (_ Device, resultError error) {
 	if err != nil {
 		return nil, fmt.Errorf("allocate unused TUN: %w", err)
 	}
-	iface, err := net.InterfaceByName(name)
+	index, err := publishTunOwnership(name, lease.token, net.InterfaceByName, nativeInterfaceDescription, destroyOpenBSDInterface)
 	if err != nil {
-		return nil, errors.Join(err, openBSDInterfaceIOCTL(control, unix.SIOCIFDESTROY, name), lease.close())
+		return nil, errors.Join(err, lease.close())
 	}
 	var device *openBSDDevice
 	success := false
@@ -140,13 +140,10 @@ func Open(config Config) (_ Device, resultError error) {
 			if device != nil {
 				resultError = errors.Join(resultError, device.Close())
 			} else {
-				resultError = errors.Join(resultError, destroyOpenBSDInterface(name, iface.Index), lease.close())
+				resultError = errors.Join(resultError, lease.close())
 			}
 		}
 	}()
-	if _, err := nativeInterfaceDescription(name, tunOwnershipMarker(lease.token, iface.Index)); err != nil {
-		return nil, err
-	}
 	// Only a few /dev/tunN nodes exist by default. Create a private device node
 	// for the atomically allocated unit; /tmp can be mounted nodev. Remove the
 	// node and private directory after opening, without touching /dev/tunN.
@@ -173,7 +170,7 @@ func Open(config Config) (_ Device, resultError error) {
 	device = &openBSDDevice{framedDevice: &framedDevice{
 		file: os.NewFile(uintptr(fd), path), config: config, ipv6Family: unix.AF_INET6,
 		cleanup: lease.close,
-	}, index: iface.Index, lease: lease}
+	}, index: index, lease: lease}
 	if err := device.setMTU(config.MTU); err != nil {
 		return nil, err
 	}

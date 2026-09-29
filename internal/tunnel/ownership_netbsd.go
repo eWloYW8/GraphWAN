@@ -47,7 +47,7 @@ func nativeInterfaceDescription(name, set string) (string, error) {
 	}
 	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), operation, uintptr(unsafe.Pointer(&request)))
 	runtime.KeepAlive(buffer)
-	if errno == unix.ENOMSG {
+	if errno == unix.ENOMSG && set == "" {
 		return "", nil
 	} // An interface with no description.
 	if errno != 0 {

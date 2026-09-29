@@ -69,8 +69,22 @@ There are two NetBSD-specific ownership boundaries:
 
 As on OpenBSD, interruption between atomic creation and publishing the ownership
 marker can leave an unmarked, unconfigured TUN. Automatic recovery cannot prove
-ownership of that interface. Privileged concurrent interface/route edits are not
-serialized with GraphWAN's transactions.
+ownership of that interface. The creation-window review keeps this fail-closed
+boundary: a failed index lookup reports the interface name without attempting a
+name-only destroy. A marker-write failure cleans up only with the observed index;
+after marking, cleanup requires the matching token/index description as well.
+The shared publication routine is covered by Linux fault-injection tests, including
+failed cleanup. NetBSD's empty-description `ENOMSG` result is accepted only when
+reading, never as a successful marker write.
+
+The [NetBSD 11 driver source](https://github.com/NetBSD/src/blob/netbsd-11/sys/net/if_tun.c)
+(revision 1.177) confirms that device opening can adopt an existing idle unit;
+closing a descriptor does not destroy a normally cloned interface. Switching to
+a name-existence check followed by `open` would remove the exclusive-create
+protection without solving ownership recovery. The adapter retains `SIOCIFCREATE`
+and the marker registry. Privileged concurrent interface/route edits are not
+serialized with GraphWAN's transactions. This review and cross-compilation do not
+claim new native execution or automatic recovery of unmarked interfaces.
 
 ## Native reproduction
 

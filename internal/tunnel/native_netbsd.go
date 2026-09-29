@@ -106,9 +106,9 @@ func Open(config Config) (_ Device, resultError error) {
 	if err != nil {
 		return nil, fmt.Errorf("allocate unused TUN: %w", err)
 	}
-	iface, err := net.InterfaceByName(name)
+	index, err := publishTunOwnership(name, lease.token, net.InterfaceByName, nativeInterfaceDescription, destroyNetBSDInterface)
 	if err != nil {
-		return nil, errors.Join(err, netBSDInterfaceIOCTL(control, unix.SIOCIFDESTROY, name), lease.close())
+		return nil, errors.Join(err, lease.close())
 	}
 	var device *netBSDDevice
 	success := false
@@ -117,13 +117,10 @@ func Open(config Config) (_ Device, resultError error) {
 			if device != nil {
 				resultError = errors.Join(resultError, device.Close())
 			} else {
-				resultError = errors.Join(resultError, destroyNetBSDInterface(name, iface.Index), lease.close())
+				resultError = errors.Join(resultError, lease.close())
 			}
 		}
 	}()
-	if _, err := nativeInterfaceDescription(name, tunOwnershipMarker(lease.token, iface.Index)); err != nil {
-		return nil, err
-	}
 	directory := filepath.Join("/dev", "graphwan-"+lease.token)
 	if err := os.Mkdir(directory, 0700); err != nil {
 		return nil, err
@@ -143,7 +140,7 @@ func Open(config Config) (_ Device, resultError error) {
 		return nil, fmt.Errorf("open owned TUN: %w", err)
 	}
 	config.Name = name
-	device = &netBSDDevice{framedDevice: &framedDevice{file: os.NewFile(uintptr(fd), path), config: config, ipv6Family: unix.AF_INET6, cleanup: lease.close}, index: iface.Index, lease: lease}
+	device = &netBSDDevice{framedDevice: &framedDevice{file: os.NewFile(uintptr(fd), path), config: config, ipv6Family: unix.AF_INET6, cleanup: lease.close}, index: index, lease: lease}
 	// tunread consults the driver's TUN_NBIO flag, not the descriptor's
 	// O_NONBLOCK bit. Set FIONBIO explicitly before any concurrent reader.
 	if err := unix.IoctlSetPointerInt(fd, netBSDSetNonblock, 1); err != nil {

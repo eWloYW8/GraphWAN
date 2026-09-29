@@ -2,10 +2,11 @@
 
 The OpenBSD TUN adapter has native kernel and Agent configuration evidence on
 OpenBSD 7.9/amd64. It supports IPv4/IPv6 packet I/O, live address/prefix/MTU changes,
-route-conflict rollback and owned-interface cleanup. **Complete OpenBSD networking
-is not accepted yet:** multi-host/NAT and interruption before an interface is
-marked remain open. Configured TUN crash recovery and native transport/Mesh tests
-pass for both IP families. See the [acceptance tracker](implementation-status.md).
+route-conflict rollback and owned-interface cleanup. Configured TUN crash recovery
+and historical native transport/Mesh tests pass for both IP families. Current
+acceptance requires Linux execution plus implementation review and cross-builds
+for OpenBSD; further native multi-host/NAT checks are optional. The creation-window
+ownership boundary is documented below. See the [acceptance tracker](implementation-status.md).
 
 ## Build and run
 
@@ -177,24 +178,43 @@ cleanup and reuse of the same address/subnet with bidirectional full-MTU kernel
 traffic. They also verify a surviving concurrent owner, same-name replacements,
 changed descriptions, interrupted record publication, and Agent startup without
 opening any new TUN. Thirty concurrent close/recovery iterations and rejection
-of symlinked, hard-linked, public or non-root records also pass. These tests join
-the required native-result gate.
+of symlinked, hard-linked, public or non-root records also pass. These historical
+native checks remain available as optional supplemental verification.
 
-## Known incomplete behavior
+## Creation-window review and platform limits
 
-- **Interruption before ownership marking:** OpenBSD clones survive descriptor
-  close ([tun(4)](https://man.openbsd.org/tun.4)). GraphWAN now recovers marked
+- **Interruption before ownership marking:** interfaces created through
+  `SIOCIFCREATE` survive descriptor close ([tun(4)](https://man.openbsd.org/tun.4)).
+  GraphWAN recovers marked
   interfaces after SIGKILL, but interface creation and description assignment
   are separate kernel operations. A kill between those operations can leave an
   unmarked, unconfigured TUN. It has no GraphWAN address or subnet route, so it
   does not block cached-network restart, but its ownership cannot be proven.
-  It is deliberately left untouched. Older GraphWAN versions also created
+  It is deliberately left untouched. An ordinary index-lookup failure now also
+  leaves the interface untouched and reports its name; it never falls back to
+  an unchecked name-only destroy. A marker-write failure can clean up using the
+  known name/index, and all later failure paths require the matching marker too.
+  Older GraphWAN versions also created
   unmarked TUNs. After independently confirming ownership and stopping the Agent,
   use `ifconfig tunN destroy` for the specific residual interface. Never delete
   other applications' TUNs.
-- Native Wi-Fi/MBIM hardware coverage, scoped link-local endpoints,
-  multi-host forwarding/NAT, nonzero routing domains, other OpenBSD releases and
-  other CPU architectures still need implementation or acceptance evidence.
+- Direct device opening is not a substitute for exclusive creation. Although
+  OpenBSD destroys interfaces that a device open created, opening an existing
+  idle unit can adopt that interface. The driver's `tun_dev_open` path does not
+  provide an exclusive-create flag for this distinction. GraphWAN retains
+  `SIOCIFCREATE` to refuse existing interfaces, followed by ownership marking.
+  Source review used [OpenBSD if_tun.c](https://github.com/openbsd/src/blob/master/sys/net/if_tun.c)
+  revision 1.258, including `tun_create`, `tun_dev_open` and `tun_dev_close`.
+- Linux fault-injection tests exercise publication success, failed/invalid index
+  lookup without mutation, marker failure with index-bound cleanup, and cleanup
+  error propagation. Both BSD adapters call this shared ownership-publication
+  routine before creating addresses or routes. Cross-compiled native tests remain
+  available; this review does not claim a new OpenBSD execution or atomic cleanup
+  after every possible SIGKILL timing.
+- Native Wi-Fi/MBIM hardware, multi-host forwarding/NAT, other OpenBSD releases
+  and CPU architectures remain optional supplemental checks. Scoped IPv6 paths
+  are implemented and verified on Linux. Nonzero OpenBSD routing domains remain
+  an explicitly rejected runtime configuration.
 
 ## Native transport checks
 
