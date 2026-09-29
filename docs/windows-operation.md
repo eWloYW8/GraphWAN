@@ -132,3 +132,46 @@ The downloader has been checked against all four official DLL architectures,
 including PE machine identifiers, unchanged DLL/license bytes and rejection of a
 corrupted archive. Native Windows tests above, process-crash cleanup, multi-host
 forwarding, endpoint discovery, NAT behavior and service deployment remain pending.
+
+
+## UDP packet information
+
+Windows UDP listeners enable native `IP_PKTINFO` and `IPV6_PKTINFO` as appropriate
+for their socket family. Dual-stack sockets enable both. Setup errors fail
+listener creation and close its socket; the documented IPv4-disabled exception is
+accepted only after a socket probe confirms that IPv4 is unavailable. Standalone
+UDP and the shared UDP/QUIC listener use the same setup.
+
+The first received datagram's packet-info object supplies the local source
+address and interface index for replies. The implementation selects only the
+matching IPv4 or IPv6 object from `WSACMSGHDR` data, validates lengths and alignment,
+and copies it out of the reusable receive buffer. IPv4-mapped peers use IPv4
+packet information. Truncated payload/control data and `WSAEMSGSIZE` discard one
+packet while keeping the listener alive.
+
+The implementation follows Microsoft's [dual-stack socket requirements](https://learn.microsoft.com/en-us/windows/win32/winsock/dual-stack-sockets),
+[control-header layout](https://learn.microsoft.com/en-us/windows/win32/api/ws2def/ns-ws2def-wsacmsghdr)
+and [send-message source-address rules](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsasendmsg).
+It uses Go's overlapped `ReadMsgUDPAddrPort`/`WriteMsgUDPAddrPort` operations and
+`x/sys/windows` socket options; it does not create a second data socket for STUN
+or reply traffic.
+
+Portable Linux tests verify independent 32/64-bit ABI byte fixtures, control
+chains/padding, interface-index preservation, mapped peers, owned output storage,
+invalid/truncated lengths, duplicate packet-info objects and invalid source
+addresses. A bounded fuzz run completed 81,043 executions without failure.
+Linux real sockets verify oversized-packet rejection followed by successful
+IPv4/IPv6 replies, with and without a shared QUIC listener. These checks do not
+prove Windows kernel behavior.
+
+On a Windows host with IPv4 and IPv6 enabled, the following native checks do not
+need Wintun or administrator rights:
+
+```powershell
+go test ./internal/transport -run 'TestWinsock|TestUDPWildcardReplySource' -count=10
+```
+
+The tests compare the Go Windows ABI structures, exercise the socket options,
+send to a secondary IPv4 loopback address and IPv6 loopback, inject oversized UDP
+packets and require replies from the intended address. Native execution remains
+pending, along with multi-interface/NAT acceptance.

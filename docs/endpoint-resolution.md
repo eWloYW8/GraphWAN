@@ -77,10 +77,12 @@ datagram and uses it as the reply source. This prevents a request to a secondary
 local address from receiving its response from the host's default address. The
 same behavior applies with or without a shared QUIC listener; socket sharing,
 STUN data-port reuse and IP fragmentation are preserved. The implementation uses
-`x/net` packet control messages. Windows ancillary-data support is not provided
-by that dependency; Windows currently retains kernel-selected reply sources.
-Native Windows wildcard/multiple-address acceptance remains open. BSD/macOS
-ancillary behavior also requires native verification.
+`x/net` packet control messages on Unix and native Winsock packet information on
+Windows. Truncated datagrams/control data are discarded without stopping the
+listener, including Windows `WSAEMSGSIZE`. Native Windows wildcard/multiple-address
+acceptance remains open; its ABI codec is tested on Linux and cross-compiled.
+BSD/macOS ancillary behavior also requires native verification. See the
+[Windows UDP verification procedure](windows-operation.md#udp-packet-information).
 
 Real-socket Linux tests cover all six transports with two live DNS answers,
 address-specific preference, a third answer added on refresh, withdrawn healthy

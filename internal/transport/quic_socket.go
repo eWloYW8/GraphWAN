@@ -25,7 +25,10 @@ func (s *quicSocket) ReadFrom(raw []byte) (int, net.Addr, error) {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
 	for {
-		n, control, _, remote, err := s.hub.socket.ReadMsgUDPAddrPort(s.buffer[:], s.control[:])
+		n, control, flags, remote, err := s.hub.socket.ReadMsgUDPAddrPort(s.buffer[:], s.control[:])
+		if udpReadTruncated(flags, err) {
+			continue
+		}
 		if err != nil {
 			s.hub.stop()
 			return 0, nil, err

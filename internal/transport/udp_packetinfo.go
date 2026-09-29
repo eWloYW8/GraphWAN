@@ -1,8 +1,12 @@
+//go:build !windows
+
 package transport
 
 import (
+	"errors"
 	"net"
 	"net/netip"
+	"syscall"
 
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
@@ -10,12 +14,12 @@ import (
 
 // Packet information preserves the destination of an incoming datagram as the
 // reply source on a wildcard listener. Enable both families on dual-stack sockets.
-// x/net lacks ancillary-data support on some systems (notably Windows); there
-// the existing kernel-selected source behavior remains until native support is
-// supplied. A socket bound to a particular address already pins its source.
-func enableUDPPacketInfo(socket *net.UDPConn) {
+// Windows has a separate implementation using the native Winsock structures.
+// A socket bound to a particular address already pins its source.
+func enableUDPPacketInfo(socket *net.UDPConn) error {
 	_ = ipv4.NewPacketConn(socket).SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true)
 	_ = ipv6.NewPacketConn(socket).SetControlMessage(ipv6.FlagDst|ipv6.FlagInterface, true)
+	return nil
 }
 
 func udpReplyControl(oob []byte, remote netip.AddrPort) []byte {
@@ -38,4 +42,8 @@ func udpReplyControl(oob []byte, remote netip.AddrPort) []byte {
 		return (&ipv6.ControlMessage{Src: v6.Dst, IfIndex: v6.IfIndex}).Marshal()
 	}
 	return nil
+}
+
+func udpReadTruncated(flags int, err error) bool {
+	return flags&(syscall.MSG_TRUNC|syscall.MSG_CTRUNC) != 0 || errors.Is(err, syscall.EMSGSIZE)
 }

@@ -41,6 +41,14 @@ func TestUDPWildcardReplySource(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer outgoing.Close()
+				// An oversized packet must not close the shared listener. Windows
+				// reports WSAEMSGSIZE; Unix commonly reports MSG_TRUNC instead.
+				oversized := make([]byte, MaxMessage+udpHeaderSize+512)
+				copy(oversized, udpMagic[:])
+				copy(oversized[4:], outgoing.key.token[:])
+				if err := client.writeDatagram(ctx, oversized, address); err != nil {
+					t.Fatal(err)
+				}
 				if err := outgoing.Send(ctx, []byte("request")); err != nil {
 					t.Fatal(err)
 				}

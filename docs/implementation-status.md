@@ -45,6 +45,7 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
 - [ ] Manual hostname/path endpoints and configurable listeners (default 24752), full platform acceptance.
 - [x] Per-address DNS Candidates across all six transports, refresh, preference and healthy rekey on Linux.
+- [x] Windows UDP packet-info implementation and portable 32/64-bit ABI validation.
 - [ ] Native Windows UDP reply-source selection for wildcard/multiple-address listeners.
 - [x] STUN from the data socket and UDP punching through verified restricted NATs.
 - [x] Linux TCP hole punching, independent STUN mappings and pooled authenticated sessions.
@@ -363,6 +364,25 @@ Every feature below derives from the accepted proposal, including its suggestion
   MTU 9000/1280, including outage continuity, offline recovery/restart and cleanup.
   UDP wildcard replies now preserve the received destination via packet control
   messages; standalone/shared-listener secondary IPv4 and IPv6 tests pass on
-  Linux. Windows ancillary support and native BSD/macOS behavior remain pending.
+  Linux. Native Windows/BSD/macOS ancillary behavior remains pending; Windows
+  implementation evidence follows below.
   Native process regressions use literal IPs; DNS answer sets are controlled
   component fixtures. See [endpoint resolution and evidence](endpoint-resolution.md).
+
+- Windows UDP packet information: native Winsock socket options and a bounded
+  WSACMSGHDR codec now preserve the received destination and interface for replies.
+  IPv4, IPv6, dual-stack sockets and IPv4-mapped peers use their required control
+  types; unexpected setup errors close the owned socket. Oversized/truncated
+  datagrams and WSAEMSGSIZE no longer stop the listener. Independent 32/64-bit
+  byte fixtures, malformed controls and output ownership pass ten Linux race
+  repetitions; a five-second requested fuzz budget completed 81,043 executions.
+  Native Linux standalone/shared UDP tests reject an oversized packet and then
+  deliver IPv4/IPv6 replies. The full Go race suite and vet pass, as do production
+  and transport-test cross-builds for Windows amd64/arm64/386, macOS arm64,
+  FreeBSD amd64 and Linux arm64. The native Linux three-Agent restricted UDP NAT
+  case passes with IPv6 overlay and MTU 9000/1280, including STUN/controller
+  outages, offline TUN recovery/restart and cleanup. A DNS test's single-packet
+  reliability assumption during rekey was corrected to bounded repeated probes;
+  five race-enabled repetitions pass with its topology/rekey assertions retained.
+  Actual Windows socket options, source selection and truncation handling still
+  require execution of the [native Windows UDP checks](windows-operation.md#udp-packet-information).

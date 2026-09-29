@@ -44,7 +44,10 @@ func ListenUDPQUIC(address string, identity ed25519.PrivateKey) (*UDP, *QUICHub,
 	if err != nil {
 		return nil, nil, err
 	}
-	udp := newUDP(socket, false)
+	udp, err := newUDP(socket, false)
+	if err != nil {
+		return nil, nil, err
+	}
 	h := &QUICHub{udp: udp, slots: make(chan struct{}, 512)}
 	reset, err := hkdf.Key(sha256.New, identity.Seed(), nil, "GraphWAN QUIC stateless reset v1", 32)
 	if err != nil {

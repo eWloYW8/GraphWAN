@@ -61,12 +61,17 @@ func ListenUDP(address string) (*UDP, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewUDP(conn), nil
+	return NewUDP(conn)
 }
-func NewUDP(socket *net.UDPConn) *UDP { return newUDP(socket, true) }
 
-func newUDP(socket *net.UDPConn, read bool) *UDP {
-	enableUDPPacketInfo(socket)
+// NewUDP takes ownership of socket, including cleanup if setup fails.
+func NewUDP(socket *net.UDPConn) (*UDP, error) { return newUDP(socket, true) }
+
+func newUDP(socket *net.UDPConn, read bool) (*UDP, error) {
+	if err := enableUDPPacketInfo(socket); err != nil {
+		socket.Close()
+		return nil, err
+	}
 	hub := &UDP{socket: socket, peers: map[udpKey]*Datagram{}, accept: make(chan *Datagram, 64), done: make(chan struct{})}
 	hub.wg.Add(1)
 	if read {
@@ -74,7 +79,7 @@ func newUDP(socket *net.UDPConn, read bool) *UDP {
 		go hub.readLoop()
 	}
 	go hub.expireLoop()
-	return hub
+	return hub, nil
 }
 func (h *UDP) LocalAddr() net.Addr { return h.socket.LocalAddr() }
 func (h *UDP) Close() error {
@@ -145,7 +150,10 @@ func (h *UDP) readLoop() {
 	buffer := make([]byte, MaxMessage+udpHeaderSize+1)
 	oob := make([]byte, 256)
 	for {
-		n, control, _, remote, err := h.socket.ReadMsgUDPAddrPort(buffer, oob)
+		n, control, flags, remote, err := h.socket.ReadMsgUDPAddrPort(buffer, oob)
+		if udpReadTruncated(flags, err) {
+			continue
+		}
 		if err != nil {
 			return
 		}
