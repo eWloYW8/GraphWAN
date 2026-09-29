@@ -509,7 +509,9 @@ export default function App() {
             <>
               <div className="page-heading">
                 <div>
+                  <div className="eyebrow">YOUR WORKSPACE</div>
                   <h1>Networks</h1>
+                  <p>Build the connections your infrastructure needs.</p>
                 </div>
                 <button className="primary" onClick={beginNetwork}>
                   <Plus size={17} />
@@ -557,7 +559,8 @@ export default function App() {
               ) : (
                 <div className="empty-page">
                   <NetworkIcon size={35} />
-                  <h2>No networks</h2>
+                  <h2>Design your first network</h2>
+                  <p>Choose a subnet, add your agents, and draw the connections.</p>
 
                   <button className="primary" onClick={beginNetwork}>
                     Create a network
@@ -577,6 +580,9 @@ export default function App() {
               Licenses
             </a>
           </span>
+          {view === 'networks' && !network && (
+            <span>Explicit topology. Autonomous connectivity.</span>
+          )}
         </footer>
       </div>
       {modal === 'enroll' && <Enrollment csrf={csrf} close={() => setModal(null)} />}
