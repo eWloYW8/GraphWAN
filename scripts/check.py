@@ -55,7 +55,9 @@ SOCKET_GATES = {
     # loopback fixtures that would otherwise turn the important cases into skips.
     "mesh": ["TestDNSAllAddressesRetainedAcrossTransports", "TestPolicyEditsPreserveUnaffectedLinks", "TestRealUDPFailureFallsBackToExistingTCP"],
 }
-FREEBSD_CI = {**NATIVE["freebsd"], **SOCKET_GATES}
+# FreeBSD prints a separate netmask; NetBSD includes /prefix in the address.
+IPV4_ADDRESS_PRESENT = '$1 == "inet" {split($2, parts, "/"); if (parts[1] == address) found=1} END {exit !found}'
+BSD_CI = {system: {**NATIVE[system], **SOCKET_GATES} for system in ("freebsd", "netbsd")}
 
 
 def executable(name):
@@ -122,7 +124,7 @@ def check_frontend(logs):
             run(["git", "diff", "--exit-code", "--", "internal/webui/dist"], log=logs / "web-assets.log")
 
 
-def require_native_pass(output, expected):
+def require_native_pass(output, expected, *, complete=False):
     """A successful test binary exit must not turn absent/skipped gates green."""
     results = {}
     skipped = []
@@ -137,35 +139,38 @@ def require_native_pass(output, expected):
             failed.append(test or "package")
         if test and action in ("pass", "fail", "skip"):
             results[test] = action
-            if action == "skip" and any(test == name or test.startswith(name + "/") for name in expected):
+            if action == "skip" and (complete or any(test == name or test.startswith(name + "/") for name in expected)):
                 skipped.append(test)
     missing = [name for name in expected if results.get(name) != "pass"]
     if missing or skipped or failed or package_result != "pass":
         raise RuntimeError(f"native gates did not execute successfully: missing/not passed={missing}, skipped={skipped}, failed={failed}, package={package_result}")
 
 
-def prepare_freebsd(directory, logs):
-    """Build on the host; the disposable FreeBSD guest needs only its base shell."""
+def prepare_bsd(system, directory, logs):
+    """Build on the host; disposable BSD guests need only their base shell."""
+    system_name = {"freebsd": "FreeBSD", "netbsd": "NetBSD"}[system]
+    gates = BSD_CI[system]
     directory.mkdir(parents=True, exist_ok=True)
     script = directory / "run.sh"
     script.unlink(missing_ok=True)
     env = os.environ.copy()
-    env.update(GOOS="freebsd", GOARCH="amd64", GOAMD64="v1", CGO_ENABLED="0", GOFLAGS="", GOEXPERIMENT="", GOWORK="off")
+    env.update(GOOS=system, GOARCH="amd64", GOAMD64="v1", CGO_ENABLED="0", GOFLAGS="", GOEXPERIMENT="", GOWORK="off")
     go = executable("go")
     run([go, "build", "-trimpath", "-o", directory / "test2json", "cmd/test2json"], env=env, log=logs / "test2json-build.log")
-    for package in FREEBSD_CI:
+    for package in gates:
         run([go, "test", "-c", "-trimpath", "-tags", "integration", "-o", directory / (package + ".test"), "./internal/" + package], env=env, log=logs / f"native-{package}-build.log")
     # Refuse pre-existing fixture addresses rather than adopting or removing
     # somebody else's aliases. Cleanup tracks successful additions individually.
     lines = ["""#!/bin/sh
 set -eu
 cd "$(dirname "$0")"
-test "$(uname -s)" = FreeBSD
+test "$(uname -s)" = __GRAPHWAN_BSD__
 test "$(id -u)" = 0
 test "${GRAPHWAN_TEST_VM:-}" = 1
+__GRAPHWAN_FIXTURE__
 interfaces=$(/sbin/ifconfig -a)
 for address in 127.0.0.2 127.0.0.3; do
-    if printf '%s\\n' "$interfaces" | awk -v address="$address" '$1 == "inet" && $2 == address {found=1} END {exit !found}'; then
+    if printf '%s\\n' "$interfaces" | awk -v address="$address" __GRAPHWAN_ADDRESS_PROBE__; then
         echo "Fixture address already assigned: $address" >&2
         exit 1
     fi
@@ -188,19 +193,20 @@ alias2=1
 alias3=1
 mkdir -p logs
 status=0
-"""]
-    for package, expected in FREEBSD_CI.items():
-        tests = "." if package == "mesh" else "^(" + "|".join(expected) + ")$"
+""".replace("__GRAPHWAN_BSD__", system_name).replace("__GRAPHWAN_ADDRESS_PROBE__", shlex.quote(IPV4_ADDRESS_PRESENT)).replace("__GRAPHWAN_FIXTURE__",
+    ': "${GRAPHWAN_TEST_INTERFACE:?set a spare guest interface for discovery}"' if system == "netbsd" else "")]
+    for package, expected in gates.items():
+        tests = "." if package in SOCKET_GATES else "^(" + "|".join(expected) + ")$"
         command = shlex.join(["./test2json", "-t", "-p", package, f"./{package}.test", "-test.v", "-test.run", tests, "-test.timeout=300s"])
         lines.append(f"{command} > logs/native-{package}.jsonl 2>&1 || status=1\ncat logs/native-{package}.jsonl\n")
     lines.append('exit "$status"\n')
     script.write_text("".join(lines), encoding="utf-8")
 
 
-def verify_freebsd(logs):
-    for package, expected in FREEBSD_CI.items():
-        require_native_pass((logs / f"native-{package}.jsonl").read_text(encoding="utf-8"), expected)
-    print("FreeBSD native kernel, Agent, discovery and transport gates passed", flush=True)
+def verify_bsd(system, logs):
+    for package, expected in BSD_CI[system].items():
+        require_native_pass((logs / f"native-{package}.jsonl").read_text(encoding="utf-8"), expected, complete=package in SOCKET_GATES)
+    print(f"{system} native kernel, Agent, discovery and transport gates passed", flush=True)
 
 
 def check_native(logs):
@@ -235,17 +241,19 @@ def check_native(logs):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("check", choices=("go", "frontend", "native", "prepare-freebsd", "verify-freebsd"))
+    parser.add_argument("check", choices=("go", "frontend", "native", "prepare-freebsd", "verify-freebsd", "prepare-netbsd", "verify-netbsd"))
     parser.add_argument("--logs", type=Path, required=True, help="directory to retain check output")
-    parser.add_argument("--binaries", type=Path, help="output bundle for prepare-freebsd; copy this directory to the disposable guest")
+    parser.add_argument("--binaries", type=Path, help="output bundle for prepare-freebsd/prepare-netbsd; copy this directory to the disposable guest")
     args = parser.parse_args()
     try:
-        if args.check == "prepare-freebsd":
+        if args.check.startswith("prepare-"):
             if args.binaries is None:
-                parser.error("prepare-freebsd requires --binaries")
-            prepare_freebsd(args.binaries.resolve(), args.logs.resolve())
+                parser.error(f"{args.check} requires --binaries")
+            prepare_bsd(args.check.removeprefix("prepare-"), args.binaries.resolve(), args.logs.resolve())
+        elif args.check.startswith("verify-"):
+            verify_bsd(args.check.removeprefix("verify-"), args.logs.resolve())
         else:
-            {"go": check_go, "frontend": check_frontend, "native": check_native, "verify-freebsd": verify_freebsd}[args.check](args.logs.resolve())
+            {"go": check_go, "frontend": check_frontend, "native": check_native}[args.check](args.logs.resolve())
     except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError) as error:
         parser.exit(1, f"GraphWAN check failed: {error}\n")
 

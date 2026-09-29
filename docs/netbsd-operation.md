@@ -112,6 +112,43 @@ and a virtio random source. The guest entropy requirement was zero before SSH
 host keys were regenerated. No host-network interfaces or routes were modified.
 
 
+## Complete native test bundle
+
+The cross-compiled amd64 bundle runs required TUN, Agent and discovery tests plus
+the **complete** transport and Mesh packages. The guest needs neither Go nor
+Python. Prepare the spare discovery NIC described below, then:
+
+```sh
+python3 scripts/check.py prepare-netbsd \
+  --binaries /tmp/graphwan-netbsd --logs /tmp/graphwan-netbsd/build-logs
+# Copy the entire directory into the disposable NetBSD guest, then run as root:
+env GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vioif1 \
+  sh /root/graphwan-netbsd/run.sh
+# Copy the guest's logs directory back to the host, then:
+python3 scripts/check.py verify-netbsd --logs /tmp/graphwan-netbsd/logs
+```
+
+The runner rejects pre-existing `127.0.0.2`/`127.0.0.3` loopback fixtures, creates
+them for the socket tests and removes only its own aliases on exit. It requires
+the expected guest OS, root, explicit VM opt-in and an explicit discovery NIC.
+Verification rejects failed packages, absent required roots and skipped required
+tests/subtests; the complete transport and Mesh suites may not skip any test.
+Run only in a disposable guest; the flag itself is not isolation.
+
+NetBSD 11.0/amd64 passes three consecutive full transport runs (270 tests/subtests,
+zero skips) and the complete Mesh suite (66 tests/subtests, zero skips). This
+covers IPv4/IPv6 wildcard TCP/UDP/QUIC and STUN, secondary-address UDP replies,
+maximum-size datagrams after truncation, bind-failure cleanup, shared connection
+limits, DNS refresh across all six transports, policy changes retaining permitted
+Links, preferred-link fallback, authenticated rekey and manual WS/WSS/gRPC proxy
+paths. These tests use actual sockets inside one guest; they do not establish
+multi-host/NAT acceptance or performance on physical networks. A later complete
+bundle run failed intermittently in `TestGRPCSharesListenerAndFallsBackToEstablishedLinks`
+with `edge has no healthy link`; the earlier passing runs do not establish a clean
+final bundle result. Linux subsequently passed 100 race-enabled repetitions of
+that test, without establishing the cause of the NetBSD failure. Native NetBSD
+execution is supplemental under the Linux-only runtime acceptance scope.
+
 ## Physical-interface discovery
 
 Automatic endpoints use the routing interface snapshot's kernel type/name and
