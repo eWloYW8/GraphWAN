@@ -321,7 +321,7 @@ export default function App() {
     </>
   )
   return (
-    <div className="app">
+    <div className={`app${networkDetail ? ' network-page' : ''}`}>
       <aside className="sidebar">
         <a
           className="brand"

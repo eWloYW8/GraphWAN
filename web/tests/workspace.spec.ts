@@ -57,6 +57,29 @@ async function enroll(request: APIRequestContext, name: string) {
 async function currentState(request: APIRequestContext): Promise<State> {
   return (await request.get('/api/v1/state')).json()
 }
+async function expectViewportWorkspace(page: Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const bounds = (selector: string) =>
+          document.querySelector(selector)!.getBoundingClientRect()
+        const graph = bounds('.canvas-card'),
+          inspector = bounds('.inspector'),
+          workspace = bounds('.workspace')
+        const root = document.documentElement
+        return (
+          root.scrollHeight <= innerHeight + 1 &&
+          root.scrollWidth <= innerWidth + 1 &&
+          Math.abs(graph.height - inspector.height) < 2 &&
+          Math.abs(inspector.bottom - workspace.bottom) < 2 &&
+          graph.height > 100 &&
+          inspector.bottom <= innerHeight &&
+          (innerWidth <= 980 || Math.abs(graph.top - inspector.top) < 2)
+        )
+      }),
+    )
+    .toBe(true)
+}
 test('real controller: enrollment, graph edits, conflict protection, agent settings and responsive view', async ({
   page,
 }) => {
@@ -164,6 +187,23 @@ test('real controller: enrollment, graph edits, conflict protection, agent setti
   await page.evaluate(() => scrollTo(0, 0))
   const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
   expect(audit.violations).toEqual([])
+  await expectViewportWorkspace(page)
+  const tallGraph = (await page.locator('.canvas-card').boundingBox())!.height
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await expectViewportWorkspace(page)
+  expect((await page.locator('.canvas-card').boundingBox())!.height).toBeLessThan(tallGraph)
+  const inspector = page.locator('.inspector')
+  expect(await inspector.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  await inspector.evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+  })
+  await expect(inspector.getByRole('button', { name: 'Paris ↔ Tokyo Weight 7' })).toBeInViewport()
+  expect(await page.evaluate(() => scrollY)).toBe(0)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await expectViewportWorkspace(page)
+  await inspector.evaluate((el) => {
+    el.scrollTop = 0
+  })
   await page.screenshot({ path: 'test-results/topology-desktop.png', fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('heading', { name: 'External edit', level: 1 })).toBeVisible()
@@ -181,10 +221,12 @@ test('real controller: enrollment, graph edits, conflict protection, agent setti
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
     .analyze()
   expect(mobileAudit.violations).toEqual([])
+  await expectViewportWorkspace(page)
   await page.screenshot({ path: 'test-results/topology-mobile.png', fullPage: true })
   await page.getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Connect nodes' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await expectViewportWorkspace(page)
   await page.screenshot({ path: 'test-results/topology-mobile-edit.png', fullPage: true })
   await page.getByRole('button', { name: 'Observe', exact: true }).click()
   await page.setViewportSize({ width: 1440, height: 1000 })
