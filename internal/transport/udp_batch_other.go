@@ -12,7 +12,8 @@ import (
 type udpBatchSocket struct{}
 type udpBatchSend struct{}
 
-func newUDPBatchSocket(*net.UDPConn) *udpBatchSocket { return nil }
+func newUDPBatchSocket(*net.UDPConn) *udpBatchSocket       { return nil }
+func setUDPReadBuffer(socket *net.UDPConn, size int) error { return socket.SetReadBuffer(size) }
 func (d *Datagram) SendBatch(ctx context.Context, payloads [][]byte) error {
 	if len(payloads) == 0 || len(payloads) > 128 {
 		return errors.New("invalid UDP batch size")

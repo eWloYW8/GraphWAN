@@ -143,6 +143,30 @@ an MTU-1280 underlay, and IPv6 UDP with MTU 9000 through three restricted IPv4
 NATs over MTU 1280. The latter explicitly exercises offload rejection and legacy
 fragmentation, plus STUN/controller outages and restart recovery.
 
+The first release of this pass (`915348225c0e`) repeated the UDP test three
+times at 785.7, 781.8 and 783.2 Mbps, with local process CPU between 37.1% and
+37.4%. The receiver's socket remained capped at 425,984 bytes and recorded
+517 kernel drops across these runs. A subsequent socket-buffer experiment
+preserved quic-go's existing 7 MiB receive-buffer request through the shared
+wrapper: it uses `SO_RCVBUFFORCE` when the Agent's existing TUN capability permits
+it, with ordinary capped socket buffers as an unprivileged fallback. Standalone
+UDP requests 4 MiB. This changes only the Agent's sockets, not host sysctls.
+Linux reports double the requested amount for buffer accounting, and allocates
+receive storage as traffic arrives. The first follow-up run measured 787.5 Mbps,
+35.6% local CPU and zero kernel socket drops; it reduced retransmissions but did
+not establish a significant additional throughput gain over the preceding runs.
+
+For perspective, the measured inner TCP MSS is 1,228 bytes. With a full
+1,280-byte inner packet, the UDP/IPv4 path sends 1,472 bytes on the wire after
+including the 80-byte overlay header, two kind bytes, 24-byte encrypted-session
+overhead, 20-byte datagram token header, outer IP/UDP headers and 38 bytes of
+untagged Ethernet framing/preamble/inter-frame gap. At 1 Gbit/s this gives an
+estimated ideal application-payload ceiling of `1000 * 1228 / 1472 = 834.2`
+Mbps, before retransmissions and control traffic. Thus 783 Mbps is about 94%
+of this configuration's estimated wire-efficiency ceiling, rather than 94%
+of the bare-LAN iperf result. Reaching the bare 940 Mbps would require changing
+the MTU or encapsulation assumptions as well as reducing processing overhead.
+
 ## Reproduce and validate
 
 Record the active transport/address from both Agents' telemetry before and after

@@ -26,6 +26,7 @@ type udpBatchSocket struct {
 }
 
 func newUDPBatchSocket(socket *net.UDPConn) *udpBatchSocket {
+	_ = setUDPReadBuffer(socket, 4<<20)
 	b := &udpBatchSocket{conn: ipv6.NewPacketConn(socket)}
 	if raw, err := socket.SyscallConn(); err == nil {
 		_ = raw.Control(func(fd uintptr) {
@@ -34,6 +35,26 @@ func newUDPBatchSocket(socket *net.UDPConn) *udpBatchSocket {
 		})
 	}
 	return b
+}
+
+// The shared QUIC wrapper deliberately hides SyscallConn. Preserve the receive
+// buffer tuning quic-go normally performs on a raw UDP socket, without exposing
+// a read path that could bypass native/STUN dispatch. CAP_NET_ADMIN is already
+// used by native TUN agents; unprivileged sockets keep the ordinary capped size.
+func setUDPReadBuffer(socket *net.UDPConn, size int) error {
+	if err := socket.SetReadBuffer(size); err != nil {
+		return err
+	}
+	if raw, err := socket.SyscallConn(); err == nil {
+		_ = raw.Control(func(fd uintptr) {
+			actual, err := unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_RCVBUF)
+			// Linux reports twice the requested size for accounting overhead.
+			if err == nil && actual/2 < size {
+				_ = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_RCVBUFFORCE, size)
+			}
+		})
+	}
+	return nil
 }
 
 type udpBatchSend struct {

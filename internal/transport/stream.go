@@ -169,8 +169,16 @@ func deadline(ctx context.Context, set func(time.Time) error) (func(), error) {
 	}, nil
 }
 func ctxError(ctx context.Context, err error) error {
-	if err != nil && ctx.Err() != nil {
-		return ctx.Err()
+	if err != nil {
+		if cause := ctx.Err(); cause != nil {
+			return cause
+		}
+		// The socket deadline can fire before the context's timer goroutine
+		// runs. Preserve the context error contract in that scheduling window.
+		var timeout net.Error
+		if limit, ok := ctx.Deadline(); ok && !time.Now().Before(limit) && errors.As(err, &timeout) && timeout.Timeout() {
+			return context.DeadlineExceeded
+		}
 	}
 	return err
 }

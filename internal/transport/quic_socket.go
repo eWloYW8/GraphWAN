@@ -79,7 +79,7 @@ func (s *quicSocket) WriteTo(raw []byte, remote net.Addr) (int, error) {
 	defer s.PacketConn.SetWriteDeadline(time.Time{})
 	return s.PacketConn.WriteTo(raw, remote)
 }
-func (s *quicSocket) SetReadBuffer(size int) error  { return s.socket.SetReadBuffer(size) }
+func (s *quicSocket) SetReadBuffer(size int) error  { return setUDPReadBuffer(s.socket, size) }
 func (s *quicSocket) SetWriteBuffer(size int) error { return s.socket.SetWriteBuffer(size) }
 
 // Every local CID starts with Q, so normal incoming short headers cannot start GWD\x01.
