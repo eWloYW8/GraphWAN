@@ -39,6 +39,7 @@ func healthyPolicyLinks(m *Mesh) map[string]string {
 }
 
 func TestPolicyEditsPreserveUnaffectedLinks(t *testing.T) {
+	testutil.RequireLoopbackAliases(t, "127.0.0.2")
 	for _, kind := range []model.Transport{model.TCP, model.UDP, model.QUIC, model.WS, model.WSS, model.GRPC} {
 		t.Run(string(kind), func(t *testing.T) {
 			ctx, meshes, state, delivered := webMeshesOn(t, "")

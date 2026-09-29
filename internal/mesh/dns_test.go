@@ -92,6 +92,7 @@ func TestDNSConcurrencyCancellationAndLateResults(t *testing.T) {
 }
 
 func TestDNSAllAddressesRetainedAcrossTransports(t *testing.T) {
+	testutil.RequireLoopbackAliases(t, "127.0.0.2", "127.0.0.3")
 	for _, kind := range []model.Transport{model.UDP, model.TCP, model.QUIC, model.WS, model.WSS, model.GRPC} {
 		t.Run(string(kind), func(t *testing.T) {
 			ctx, meshes, state, delivered := webMeshesOn(t, "")

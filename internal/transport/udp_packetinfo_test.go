@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -8,12 +9,15 @@ import (
 	"net/netip"
 	"testing"
 	"time"
+
+	"github.com/graphwan/graphwan/internal/testutil"
 )
 
 func TestUDPWildcardReplySource(t *testing.T) {
 	for _, shared := range []bool{false, true} {
 		for _, target := range []string{"127.0.0.2", "::1"} {
 			t.Run(fmt.Sprintf("shared=%t/%s", shared, target), func(t *testing.T) {
+				testutil.RequireLoopbackAliases(t, target)
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 				defer cancel()
 				var server *UDP
@@ -49,7 +53,9 @@ func TestUDPWildcardReplySource(t *testing.T) {
 				if err := client.writeDatagram(ctx, oversized, address); err != nil {
 					t.Fatal(err)
 				}
-				if err := outgoing.Send(ctx, []byte("request")); err != nil {
+				request := bytes.Repeat([]byte{37}, MaxMessage)
+				reply := bytes.Repeat([]byte{42}, MaxMessage)
+				if err := outgoing.Send(ctx, request); err != nil {
 					t.Fatal(err)
 				}
 				incoming, err := server.Accept(ctx)
@@ -57,14 +63,14 @@ func TestUDPWildcardReplySource(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer incoming.Close()
-				if got, err := incoming.Receive(ctx); err != nil || string(got) != "request" {
-					t.Fatalf("request: %q %v", got, err)
+				if got, err := incoming.Receive(ctx); err != nil || !bytes.Equal(got, request) {
+					t.Fatalf("maximum-size request: %d bytes, %v", len(got), err)
 				}
-				if err := incoming.Send(ctx, []byte("reply")); err != nil {
+				if err := incoming.Send(ctx, reply); err != nil {
 					t.Fatal(err)
 				}
-				if got, err := outgoing.Receive(ctx); err != nil || string(got) != "reply" {
-					t.Fatalf("reply source did not match dial target %s: %q %v", target, got, err)
+				if got, err := outgoing.Receive(ctx); err != nil || !bytes.Equal(got, reply) {
+					t.Fatalf("maximum-size reply from target %s: %d bytes, %v", target, len(got), err)
 				}
 			})
 		}

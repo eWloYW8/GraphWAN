@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,6 +69,16 @@ func ListenUDP(address string) (*UDP, error) {
 func NewUDP(socket *net.UDPConn) (*UDP, error) { return newUDP(socket, true) }
 
 func newUDP(socket *net.UDPConn, read bool) (*UDP, error) {
+	// BSD send-buffer defaults can be smaller than one permitted GraphWAN
+	// message (FreeBSD commonly defaults to 9216 bytes). Reserve enough space
+	// per owned socket; do not require changing the host's global UDP sysctls.
+	switch runtime.GOOS {
+	case "darwin", "dragonfly", "freebsd", "netbsd", "openbsd":
+		if err := socket.SetWriteBuffer(64 << 10); err != nil {
+			socket.Close()
+			return nil, err
+		}
+	}
 	if err := enableUDPPacketInfo(socket); err != nil {
 		socket.Close()
 		return nil, err
