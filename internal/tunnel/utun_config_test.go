@@ -112,6 +112,19 @@ func TestSubnetRouteOwnership(t *testing.T) {
 	}
 }
 
+func TestSubnetRouteRejectsForeignMultipath(t *testing.T) {
+	prefix := netip.MustParsePrefix("10.42.0.0/24")
+	for _, indexes := range [][]int{{7, 8}, {8, 7}} {
+		k := routeKernel{configKernel: configKernel{faults: map[string]string{}}}
+		for _, index := range indexes {
+			k.entries = append(k.entries, routeEntry{prefix: prefix, index: index, usable: true})
+		}
+		if err := k.routes().ensure(prefix); err == nil || len(k.mutations) != 0 {
+			t.Fatalf("foreign equal-prefix route hidden by enumeration order %v: %v", indexes, err)
+		}
+	}
+}
+
 func TestRoutedConfigurationRollback(t *testing.T) {
 	before := Config{Address: netip.MustParsePrefix("fd42:6777::1/64"), MTU: 1280}
 	after := Config{Address: netip.MustParsePrefix("fd42:6777::1/80"), MTU: 9000}

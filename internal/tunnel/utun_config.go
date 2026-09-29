@@ -82,21 +82,23 @@ func (r subnetRoutes) owned(prefix netip.Prefix, requireUsable bool) (bool, erro
 	if err != nil {
 		return false, err
 	}
+	present := false
 	for _, entry := range entries {
 		if entry.prefix != prefix || entry.scoped {
 			continue
 		}
 		if entry.index == r.index && (!requireUsable || entry.usable) {
-			return true, nil
+			present = true
+			continue
 		}
 		if requireUsable {
 			return false, fmt.Errorf("subnet route %s conflicts with an existing route on interface %d", prefix, entry.index)
 		}
 	}
-	return false, nil
+	return present, nil
 }
 
-// A point-to-point utun needs an explicit subnet route. Treat address changes and
+// A point-to-point TUN may need an explicit subnet route. Treat address changes and
 // their route changes as one transaction; recovery must restore both or retire
 // the device. Route deletion always rechecks the current interface ownership.
 func changeRoutedConfig(before, after Config, ops configOperations, routes subnetRoutes) error {
