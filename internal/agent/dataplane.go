@@ -13,11 +13,11 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/graphwan/graphwan/internal/forwarding"
-	"github.com/graphwan/graphwan/internal/mesh"
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/packet"
-	"github.com/graphwan/graphwan/internal/tunnel"
+	"github.com/eWloYW8/GraphWAN/internal/forwarding"
+	"github.com/eWloYW8/GraphWAN/internal/mesh"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/packet"
+	"github.com/eWloYW8/GraphWAN/internal/tunnel"
 )
 
 type DataPlaneOptions struct {

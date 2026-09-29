@@ -13,10 +13,10 @@ import (
 	"sync"
 
 	"github.com/coder/websocket"
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/pki"
-	"github.com/graphwan/graphwan/internal/store"
-	"github.com/graphwan/graphwan/internal/webui"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/pki"
+	"github.com/eWloYW8/GraphWAN/internal/store"
+	"github.com/eWloYW8/GraphWAN/internal/webui"
 )
 
 const maxBody = 8 << 20

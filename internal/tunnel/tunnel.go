@@ -9,7 +9,7 @@ import (
 	"net/netip"
 	"regexp"
 
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 )
 
 type Config struct {

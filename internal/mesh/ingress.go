@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/transport"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/transport"
 )
 
 // connIngress receives already-classified connections from the main

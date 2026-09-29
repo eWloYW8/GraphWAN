@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/testutil"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/testutil"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/graphwan/graphwan/internal/tunnel"
+	"github.com/eWloYW8/GraphWAN/internal/tunnel"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 )

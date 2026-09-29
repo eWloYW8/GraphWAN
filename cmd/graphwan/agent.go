@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/graphwan/graphwan/internal/agent"
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/agent"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 )
 
 func runAgent(args []string) error {

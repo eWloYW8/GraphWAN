@@ -5,8 +5,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/link"
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/link"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 )
 
 // Fresh observations authorize new direct or punch attempts. A healthy

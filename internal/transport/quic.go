@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 	quic "github.com/quic-go/quic-go"
 )
 

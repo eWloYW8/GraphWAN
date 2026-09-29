@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/link"
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/testutil"
-	"github.com/graphwan/graphwan/internal/transport"
+	"github.com/eWloYW8/GraphWAN/internal/link"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/testutil"
+	"github.com/eWloYW8/GraphWAN/internal/transport"
 	"golang.org/x/net/http2"
 )
 

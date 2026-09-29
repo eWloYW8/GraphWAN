@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/packetbuf"
-	"github.com/graphwan/graphwan/internal/secure"
-	"github.com/graphwan/graphwan/internal/transport"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/packetbuf"
+	"github.com/eWloYW8/GraphWAN/internal/secure"
+	"github.com/eWloYW8/GraphWAN/internal/transport"
 )
 
 const (

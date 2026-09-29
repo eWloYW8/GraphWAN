@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 )
 
 type addressText string

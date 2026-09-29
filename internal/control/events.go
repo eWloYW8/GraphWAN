@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 )
 
 // browserEvent is a replaceable snapshot, not an unbounded event log. Reconnects

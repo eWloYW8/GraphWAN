@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/tunnel"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/tunnel"
 )
 
 // A device keeps its failure separate from the immutable configuration snapshot.

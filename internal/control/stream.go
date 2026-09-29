@@ -13,9 +13,9 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/routing"
-	"github.com/graphwan/graphwan/internal/store"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/routing"
+	"github.com/eWloYW8/GraphWAN/internal/store"
 )
 
 func (s *Server) notify() {

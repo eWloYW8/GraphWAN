@@ -9,7 +9,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/graphwan/graphwan/internal/tunnel"
+	"github.com/eWloYW8/GraphWAN/internal/tunnel"
 )
 
 func requireTestMac(t *testing.T) {

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/store"
+	"github.com/eWloYW8/GraphWAN/internal/store"
 	"golang.org/x/crypto/scrypt"
 )
 

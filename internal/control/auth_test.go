@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/store"
+	"github.com/eWloYW8/GraphWAN/internal/store"
 )
 
 func TestSessionExpirationAndOrigin(t *testing.T) {

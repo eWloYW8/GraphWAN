@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/store"
-	"github.com/graphwan/graphwan/internal/testutil"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/store"
+	"github.com/eWloYW8/GraphWAN/internal/testutil"
 )
 
 func TestDurabilityAndRollback(t *testing.T) {

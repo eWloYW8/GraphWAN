@@ -4,9 +4,9 @@ import (
 	"cmp"
 	"context"
 	"crypto/ed25519"
-	"github.com/graphwan/graphwan/internal/discovery"
-	"github.com/graphwan/graphwan/internal/mesh"
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/discovery"
+	"github.com/eWloYW8/GraphWAN/internal/mesh"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 	"slices"
 	"time"
 )

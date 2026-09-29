@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"github.com/graphwan/graphwan/internal/packetbuf"
+	"github.com/eWloYW8/GraphWAN/internal/packetbuf"
 	"net"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/transport"
+	"github.com/eWloYW8/GraphWAN/internal/transport"
 )
 
 func TestStreamConcurrentFrames(t *testing.T) {

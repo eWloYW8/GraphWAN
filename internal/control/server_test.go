@@ -23,9 +23,9 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-	"github.com/graphwan/graphwan/internal/control"
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/store"
+	"github.com/eWloYW8/GraphWAN/internal/control"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/store"
 )
 
 const password = "correct horse battery staple"

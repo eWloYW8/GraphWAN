@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/eWloYW8/GraphWAN/internal/packet"
 	"github.com/flynn/noise"
-	"github.com/graphwan/graphwan/internal/packet"
 )
 
 const (

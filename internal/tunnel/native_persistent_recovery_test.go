@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/agent"
-	"github.com/graphwan/graphwan/internal/tunnel"
+	"github.com/eWloYW8/GraphWAN/internal/agent"
+	"github.com/eWloYW8/GraphWAN/internal/tunnel"
 )
 
 const recoveryRegistry = "/var/run/graphwan-tun"

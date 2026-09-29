@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/secure"
-	"github.com/graphwan/graphwan/internal/testutil"
-	"github.com/graphwan/graphwan/internal/transport"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/secure"
+	"github.com/eWloYW8/GraphWAN/internal/testutil"
+	"github.com/eWloYW8/GraphWAN/internal/transport"
 )
 
 func peerConfigs(t *testing.T, kind model.Transport) (secure.Config, secure.Config) {

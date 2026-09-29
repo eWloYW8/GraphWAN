@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"github.com/graphwan/graphwan/internal/packetbuf"
+	"github.com/eWloYW8/GraphWAN/internal/packetbuf"
 	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/packet"
-	"github.com/graphwan/graphwan/internal/testutil"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/packet"
+	"github.com/eWloYW8/GraphWAN/internal/testutil"
 )
 
 type testChannel struct {

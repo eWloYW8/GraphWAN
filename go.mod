@@ -1,4 +1,4 @@
-module github.com/graphwan/graphwan
+module github.com/eWloYW8/GraphWAN
 
 go 1.26.0
 

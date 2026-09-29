@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/control"
-	"github.com/graphwan/graphwan/internal/store"
+	"github.com/eWloYW8/GraphWAN/internal/control"
+	"github.com/eWloYW8/GraphWAN/internal/store"
 )
 
 var version = "dev"

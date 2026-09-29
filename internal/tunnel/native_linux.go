@@ -10,7 +10,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 	wgtun "golang.zx2c4.com/wireguard/tun"

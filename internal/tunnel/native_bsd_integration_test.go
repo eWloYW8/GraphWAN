@@ -7,7 +7,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/graphwan/graphwan/internal/tunnel"
+	"github.com/eWloYW8/GraphWAN/internal/tunnel"
 	"golang.org/x/net/route"
 	"golang.org/x/sys/unix"
 )

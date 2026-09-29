@@ -10,9 +10,9 @@ import (
 	"net/netip"
 	"sync/atomic"
 
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/packet"
-	"github.com/graphwan/graphwan/internal/packetbuf"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/packet"
+	"github.com/eWloYW8/GraphWAN/internal/packetbuf"
 )
 
 var (

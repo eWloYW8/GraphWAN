@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 )
 
 func ID(n int) model.ID { return model.ID(fmt.Sprintf("%032x", n)) }

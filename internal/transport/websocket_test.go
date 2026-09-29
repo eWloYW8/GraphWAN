@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/testutil"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/testutil"
 )
 
 func websocketServer(t *testing.T, kind model.Transport, tlsConfig *tls.Config) (*httptest.Server, <-chan *WebSocket) {

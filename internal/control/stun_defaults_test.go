@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/routing"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/routing"
 )
 
 func TestEnrollmentDefaultSTUNCanBeCustomizedAndDisabled(t *testing.T) {

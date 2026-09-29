@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/transport"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/transport"
 )
 
 func (m *Mesh) acceptWebSocket(w http.ResponseWriter, r *http.Request) {

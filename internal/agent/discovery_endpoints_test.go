@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 )
 
 func TestDiscoveryRetainsPublicMappingsUnderEndpointPressure(t *testing.T) {

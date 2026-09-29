@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	grpcpeer "google.golang.org/grpc/peer"

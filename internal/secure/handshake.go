@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/eWloYW8/GraphWAN/internal/model"
 	"github.com/flynn/noise"
-	"github.com/graphwan/graphwan/internal/model"
 )
 
 const MaxHandshake = 1024

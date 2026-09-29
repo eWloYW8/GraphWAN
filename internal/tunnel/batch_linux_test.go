@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/tunnel"
+	"github.com/eWloYW8/GraphWAN/internal/tunnel"
 )
 
 // Reflect a TCP connection through the real TUN: exchanging source/destination

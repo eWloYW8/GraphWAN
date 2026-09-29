@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/testutil"
+	"github.com/eWloYW8/GraphWAN/internal/testutil"
 )
 
 func TestUDPWildcardReplySource(t *testing.T) {

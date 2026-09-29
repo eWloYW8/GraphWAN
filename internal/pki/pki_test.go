@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/pki"
-	"github.com/graphwan/graphwan/internal/store"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/pki"
+	"github.com/eWloYW8/GraphWAN/internal/store"
 )
 
 func TestBrowserCertificateAndExistingAgentIdentity(t *testing.T) {

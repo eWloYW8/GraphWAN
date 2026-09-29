@@ -6,7 +6,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/graphwan/graphwan/internal/tunnel"
+	"github.com/eWloYW8/GraphWAN/internal/tunnel"
 )
 
 func checkNativeMTU(t *testing.T, iface *net.Interface, config tunnel.Config) {

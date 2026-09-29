@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/agent"
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/routing"
-	"github.com/graphwan/graphwan/internal/testutil"
-	"github.com/graphwan/graphwan/internal/tunnel"
+	"github.com/eWloYW8/GraphWAN/internal/agent"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/routing"
+	"github.com/eWloYW8/GraphWAN/internal/testutil"
+	"github.com/eWloYW8/GraphWAN/internal/tunnel"
 )
 
 type memoryTunnel struct {

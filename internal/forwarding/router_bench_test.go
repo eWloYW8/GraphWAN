@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/graphwan/graphwan/internal/forwarding"
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/packet"
-	"github.com/graphwan/graphwan/internal/routing"
-	"github.com/graphwan/graphwan/internal/testutil"
+	"github.com/eWloYW8/GraphWAN/internal/forwarding"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/packet"
+	"github.com/eWloYW8/GraphWAN/internal/routing"
+	"github.com/eWloYW8/GraphWAN/internal/testutil"
 )
 
 func BenchmarkForwarding(b *testing.B) {

@@ -8,12 +8,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/graphwan/graphwan/internal/agent"
-	"github.com/graphwan/graphwan/internal/model"
-	"github.com/graphwan/graphwan/internal/pki"
-	"github.com/graphwan/graphwan/internal/routing"
-	"github.com/graphwan/graphwan/internal/store"
-	"github.com/graphwan/graphwan/internal/testutil"
+	"github.com/eWloYW8/GraphWAN/internal/agent"
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/pki"
+	"github.com/eWloYW8/GraphWAN/internal/routing"
+	"github.com/eWloYW8/GraphWAN/internal/store"
+	"github.com/eWloYW8/GraphWAN/internal/testutil"
 )
 
 type testRuntime struct {

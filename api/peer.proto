@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package graphwan.v1;
 
-option go_package = "github.com/graphwan/graphwan/api/peerv1";
+option go_package = "github.com/eWloYW8/GraphWAN/api/peerv1";
 
 import "google/protobuf/wrappers.proto";
 

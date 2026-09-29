@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/transport"
+	"github.com/eWloYW8/GraphWAN/internal/transport"
 )
 
 func TestUDPMultiplexesIndependentDatagrams(t *testing.T) {

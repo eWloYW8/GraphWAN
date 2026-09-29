@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/link"
+	"github.com/eWloYW8/GraphWAN/internal/link"
 )
 
 type dnsEntry struct {

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/tunnel"
+	"github.com/eWloYW8/GraphWAN/internal/tunnel"
 )
 
 func checkNativeTunnel(t *testing.T, config tunnel.Config, remote netip.Addr) {

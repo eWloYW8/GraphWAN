@@ -7,7 +7,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/graphwan/graphwan/internal/transport"
+	"github.com/eWloYW8/GraphWAN/internal/transport"
 )
 
 func TestListenTransportsPortCollision(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphwan/graphwan/internal/tunnel"
+	"github.com/eWloYW8/GraphWAN/internal/tunnel"
 )
 
 type configurableDevice struct {

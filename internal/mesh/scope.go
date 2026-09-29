@@ -4,8 +4,8 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/graphwan/graphwan/internal/link"
-	"github.com/graphwan/graphwan/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/link"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 )
 
 func scopedCandidates(bases []link.Candidate, endpoints []model.Endpoint) []link.Candidate {
