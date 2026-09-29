@@ -619,11 +619,44 @@ fieldset:disabled select {
   padding: 14px 16px;
   box-shadow: 0 0 0 4px #23756115;
 }
-.react-flow__handle {
-  width: 8px;
-  height: 8px;
-  background: #77a28a;
-  border: 2px solid white;
+.node-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+}
+.react-flow__handle.node-connect-surface {
+  position: absolute;
+  left: -8px;
+  top: -8px;
+  width: calc(100% + 16px);
+  height: calc(100% + 16px);
+  transform: none;
+  border: 0;
+  border-radius: 15px;
+  background: transparent;
+  z-index: 1;
+  cursor: crosshair;
+}
+.react-flow__handle.node-connect-surface:hover,
+.react-flow__handle.node-connect-surface.connectingto {
+  box-shadow: inset 0 0 0 2px #278f7955;
+}
+.connect-mode .react-flow__handle.node-connect-surface {
+  z-index: 3;
+}
+.react-flow__handle.node-hidden-target {
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+}
+.canvas-toolbar button[aria-pressed='true'] {
+  background: #e7f4ee;
+  border-color: #278f79;
+  color: #185b4c;
 }
 .react-flow__attribution {
   font-size: 8px !important;

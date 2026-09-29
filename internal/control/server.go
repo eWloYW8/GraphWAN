@@ -240,11 +240,12 @@ func (s *Server) deleteNetwork(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) patchAgent(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name            *string           `json:"name"`
-		ListenPort      *uint16           `json:"listen_port"`
-		Revoked         *bool             `json:"revoked"`
-		ManualEndpoints *[]model.Endpoint `json:"manual_endpoints"`
-		STUNServers     *[]string         `json:"stun_servers"`
+		Name                *string           `json:"name"`
+		ListenPort          *uint16           `json:"listen_port"`
+		Revoked             *bool             `json:"revoked"`
+		ManualEndpoints     *[]model.Endpoint `json:"manual_endpoints"`
+		STUNServers         *[]string         `json:"stun_servers"`
+		ExcludeContainerIPs *bool             `json:"exclude_container_ips"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -260,6 +261,9 @@ func (s *Server) patchAgent(w http.ResponseWriter, r *http.Request) {
 			}
 			if in.ListenPort != nil {
 				a.ListenPort = *in.ListenPort
+			}
+			if in.ExcludeContainerIPs != nil {
+				a.ExcludeContainerIPs = *in.ExcludeContainerIPs
 			}
 			if in.STUNServers != nil {
 				a.STUNServers = append([]string(nil), (*in.STUNServers)...)

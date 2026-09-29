@@ -5,13 +5,14 @@ import "net/netip"
 // Snapshot is the durable, least-privilege configuration sent to one Agent.
 // An empty Networks list actively removes all previous memberships.
 type Snapshot struct {
-	Schema      int             `json:"schema"`
-	Revision    uint64          `json:"revision"`
-	AgentID     ID              `json:"agent_id"`
-	ListenPort  uint16          `json:"listen_port"`
-	Endpoints   []Endpoint      `json:"endpoints"`
-	STUNServers []string        `json:"stun_servers,omitempty"`
-	Networks    []NetworkConfig `json:"networks"`
+	Schema              int             `json:"schema"`
+	Revision            uint64          `json:"revision"`
+	AgentID             ID              `json:"agent_id"`
+	ListenPort          uint16          `json:"listen_port"`
+	Endpoints           []Endpoint      `json:"endpoints"`
+	STUNServers         []string        `json:"stun_servers,omitempty"`
+	ExcludeContainerIPs bool            `json:"exclude_container_ips,omitempty"`
+	Networks            []NetworkConfig `json:"networks"`
 }
 
 type NetworkConfig struct {

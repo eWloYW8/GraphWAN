@@ -16,8 +16,12 @@ no CDN, external font or separate frontend service is required.
 4. Open the network and choose **Edit**. **Add node** selects an enrolled Agent,
    a Node name and a fixed host IP inside that CIDR. Revoked Agents and existing
    members are excluded from the add list.
-5. Add Edges with **Add edge** or drag a Node's right connection handle to another
-   Node's left handle. Connections are bidirectional. Drag Nodes to arrange them.
+5. Add Edges with **Add edge**, or drag from anywhere along a Node's border onto
+   another Node. **Connect** mode lets you drag from anywhere on the whole card;
+   **Move** mode lets you drag its center to arrange it. Connections are
+   bidirectional. Edges attach automatically around each card's perimeter and
+   adjust as Nodes move; neighboring attachments spread apart. There are no fixed
+   visible ports.
    The inspector's Node/Edge lists provide an alternative to graph selection.
 6. Select an Edge to change weight, enablement, allowed transports, IPv4/IPv6
    direct methods, punching policy, or preferred candidate. Automatic preference
@@ -28,7 +32,8 @@ no CDN, external font or separate frontend service is required.
 Network settings include name, subnet, MTU and cipher. Node settings include
 name, Agent membership and virtual IP. Agent **Manage** changes the machine name,
 listen port, revocation and manual endpoints, including protocol-specific URL
-paths. Discovered endpoints are read-only. Deleting an Agent removes its network
+paths. **Exclude container IPs** controls the optional [Linux container interface
+filter](endpoint-resolution.md#automatic-interface-discovery). Discovered endpoints are read-only. Deleting an Agent removes its network
 memberships; deleting a Network removes all its memberships and Edges.
 
 TCP, UDP, QUIC, WS, WSS and gRPC data transports run in the Agent. WS/WSS require

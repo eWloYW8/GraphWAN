@@ -16,7 +16,15 @@ import (
 	"github.com/graphwan/graphwan/internal/model"
 )
 
+type InterfaceOptions struct {
+	ExcludeContainerIPs bool
+}
+
 func Interfaces(identity []byte, port uint16) ([]model.Endpoint, error) {
+	return InterfacesWithOptions(identity, port, InterfaceOptions{})
+}
+
+func InterfacesWithOptions(identity []byte, port uint16, options InterfaceOptions) ([]model.Endpoint, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return nil, err
@@ -24,6 +32,11 @@ func Interfaces(identity []byte, port uint16) ([]model.Endpoint, error) {
 	physical, err := physicalInterfaces(interfaces)
 	if err != nil {
 		return nil, err
+	}
+	if options.ExcludeContainerIPs {
+		if err := excludeContainerInterfaces(interfaces, physical); err != nil {
+			return nil, err
+		}
 	}
 	return interfaceEndpoints(identity, port, interfaces, physical, func(iface net.Interface) ([]net.Addr, error) { return iface.Addrs() })
 }

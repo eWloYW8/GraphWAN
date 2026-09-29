@@ -85,8 +85,8 @@ func validHostname(host string) bool {
 	return true
 }
 
-// STUN servers are UDP host:port pairs or explicit udp:// / tcp:// addresses. No public
-// service is contacted unless the administrator configures it explicitly.
+// STUN servers are UDP host:port pairs or explicit udp:// / tcp:// addresses.
+// New enrollments receive public defaults; an explicit empty list disables discovery.
 func ValidateSTUNServers(servers []string) error {
 	if len(servers) > 4 {
 		return fmt.Errorf("at most four STUN servers are allowed")

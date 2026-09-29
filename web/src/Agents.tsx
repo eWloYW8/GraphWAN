@@ -121,6 +121,7 @@ function AgentEditor({
   const [name, setName] = useState(agent.name)
   const [port, setPort] = useState(agent.listen_port)
   const [stunServers, setSTUNServers] = useState((agent.stun_servers ?? []).join('\n'))
+  const [excludeContainers, setExcludeContainers] = useState(agent.exclude_container_ips ?? false)
   const [revoked, setRevoked] = useState(agent.revoked)
   const [endpoints, setEndpoints] = useState<Endpoint[]>(
     agent.endpoints?.filter((e) => e.source === 'manual') ?? [],
@@ -133,6 +134,7 @@ function AgentEditor({
       listen_port: a.listen_port,
       revoked: a.revoked,
       stun_servers: a.stun_servers ?? [],
+      exclude_container_ips: a.exclude_container_ips ?? false,
       endpoints: a.endpoints?.filter((e) => e.source === 'manual') ?? [],
     }
   const originalChanged =
@@ -175,6 +177,7 @@ function AgentEditor({
             listen_port: port,
             revoked,
             manual_endpoints: endpoints,
+            exclude_container_ips: excludeContainers,
             stun_servers: stunServers
               .split('\n')
               .map((s) => s.trim())
@@ -201,9 +204,21 @@ function AgentEditor({
               onChange={(e) => setPort(Number(e.target.value))}
             />
           </Field>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={excludeContainers}
+              onChange={(event) => setExcludeContainers(event.target.checked)}
+            />
+            Exclude container IPs
+          </label>
+          <p className="muted">
+            Skip Linux container veth addresses while keeping the Agent’s default-route uplink.
+            Manual endpoints are preserved.
+          </p>
           <Field
             label="STUN servers"
-            hint="One service per line, up to four: host:port for UDP, tcp://host:port for TCP. Each discovers its own mapping for hole punching. Leave empty to disable discovery."
+            hint="One service per line, up to four: host:port for UDP, tcp://host:port for TCP. New agents start with public STUN services. Each discovers its own mapping for hole punching. Leave empty to disable discovery."
           >
             <textarea
               value={stunServers}

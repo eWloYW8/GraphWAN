@@ -15,6 +15,7 @@ export type Agent = {
   revoked: boolean
   endpoints: Endpoint[] | null
   stun_servers?: string[]
+  exclude_container_ips?: boolean
 }
 export type Node = {
   id: string

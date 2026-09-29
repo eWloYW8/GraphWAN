@@ -62,6 +62,7 @@ advertises TCP/UDP endpoints from underlay interfaces; manual endpoints are also
 supported. QUIC, WS/WSS and gRPC use explicit manual URLs; see
 [QUIC setup](docs/quic-operation.md), [WebSocket setup](docs/websocket-operation.md)
 and [gRPC setup](docs/grpc-operation.md).
+New Agents automatically discover public mappings using configurable STUN services.
 For STUN discovery and TCP/UDP hole punching, see [NAT setup](docs/nat-operation.md).
 Manual hostname behavior, multiple DNS addresses and TLS identity are documented
 in [endpoint resolution](docs/endpoint-resolution.md).

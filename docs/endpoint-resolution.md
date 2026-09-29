@@ -35,14 +35,25 @@ withdraws its endpoints on the next successful scan and controller update.
 
 An Agent has a total allowance of 64 endpoints, shared by manual and discovered
 entries. Manual entries reserve their slots first. If discovery exceeds the
-remaining allowance, the Agent logs a warning and publishes the first entries
-in stable ID order. On hosts with large address inventories, reserve needed
+remaining allowance, the Agent logs a warning and prioritizes STUN observations,
+public interface addresses, private addresses and then link-local addresses.
+Stable IDs break ties and determine publication order. On hosts with large address inventories, reserve needed
 addresses as manual endpoints within that allowance. Duplicate URLs do not use
 extra slots, and expired STUN observations are removed.
 
 Linux reads kernel link types in one netlink dump and accepts physical devices
 and container veth interfaces. TUN, TAP, dummy devices and bridges are excluded
-regardless of their names. Windows uses `GetIfTable2Ex` hardware, filter, endpoint
+regardless of their names. **Agents → Manage → Exclude container IPs** additionally
+excludes veth interfaces attached to a bridge or without a unicast default route.
+A containerized Agent's unbridged default-route veth remains eligible, preserving
+its own uplink. This opt-in setting (`exclude_container_ips`) defaults to false
+and is delivered in the cached Agent snapshot. Filtering uses kernel link and
+route metadata, not interface-name prefixes or blanket private-IP exclusions;
+manual endpoints and STUN observations are preserved. A veth used only with
+specific routes is excluded when the option is enabled. Other platforms retain
+their existing interface classifiers; this additional filter is Linux-specific.
+
+Windows uses `GetIfTable2Ex` hardware, filter, endpoint
 and interface-type metadata instead of adapter aliases or MAC-address presence.
 The hardware flag permits Ethernet, Wi-Fi and cellular devices, including guest
 NICs reported as hardware; software loopback, virtual, tunnel and bridge types

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ReactFlow,
   useReactFlow,
@@ -10,10 +10,13 @@ import {
   MiniMap,
   Handle,
   Position,
+  ConnectionMode,
   type NodeProps,
   type Node as FlowNode,
 } from '@xyflow/react'
-import { Server, Plus, Settings2, Cable, CircleDot } from 'lucide-react'
+import { Server, Plus, Settings2, Cable, CircleDot, MousePointer2 } from 'lucide-react'
+import { FloatingEdge, FloatingConnection } from './FloatingEdge'
+import { planAnchors } from './edgeGeometry'
 import { ResourceDetails } from './Resources'
 import { Badge, Field } from './components'
 import {
@@ -49,24 +52,45 @@ function FitLayout({ count }: { count: number }) {
   return null
 }
 
-type GraphNode = FlowNode<{ name: string; address: string; state: string }, 'agent'>
+type GraphNode = FlowNode<
+  { name: string; address: string; state: string; connecting: boolean },
+  'agent'
+>
 function AgentNode({ data, isConnectable }: NodeProps<GraphNode>) {
   return (
-    <div className={`graph-node ${data.state.toLowerCase()}`}>
-      <Handle type="target" position={Position.Left} isConnectable={isConnectable} />
-      <div className="node-icon">
-        <Server size={18} />
+    <div
+      className={`graph-node ${data.state.toLowerCase()} ${data.connecting ? 'connect-mode' : ''}`}
+    >
+      <Handle
+        id="surface"
+        type="source"
+        position={Position.Top}
+        className="node-connect-surface"
+        isConnectable={isConnectable}
+        title="Drag from anywhere on the node border to connect"
+      />
+      <Handle
+        id="target"
+        type="target"
+        position={Position.Top}
+        className="node-hidden-target"
+        isConnectable={isConnectable}
+      />
+      <div className="node-content">
+        <div className="node-icon">
+          <Server size={18} />
+        </div>
+        <div>
+          <strong>{data.name}</strong>
+          <span>{data.address}</span>
+        </div>
+        <i className="node-dot" title={data.state} />
       </div>
-      <div>
-        <strong>{data.name}</strong>
-        <span>{data.address}</span>
-      </div>
-      <i className="node-dot" title={data.state} />
-      <Handle type="source" position={Position.Right} isConnectable={isConnectable} />
     </div>
   )
 }
 const nodeTypes = { agent: AgentNode }
+const edgeTypes = { floating: FloatingEdge }
 export default function Topology({
   state,
   network,
@@ -92,6 +116,27 @@ export default function Topology({
   addNode: () => void
   addEdge: () => void
 }) {
+  const [connecting, setConnecting] = useState(false)
+  const connected = useRef(false)
+  useEffect(() => {
+    setConnecting(false)
+  }, [editing, network.id])
+  const connect = (source: string, target: string) => {
+    if (!editing) return
+    const edge = createEdge(network, source, target)
+    if (edge) {
+      change({ ...network, edges: [...network.edges, edge] })
+      select({ type: 'edge', id: edge.id })
+    }
+  }
+  const validConnection = ({ source, target }: { source: string | null; target: string | null }) =>
+    !!source &&
+    !!target &&
+    source !== target &&
+    !network.edges.some(
+      (edge) =>
+        (edge.a === source && edge.b === target) || (edge.a === target && edge.b === source),
+    )
   const status = useMemo(() => new Map(statuses.map((s) => [s.agent_id, s])), [statuses])
   const desiredNodes = useMemo<GraphNode[]>(
     () =>
@@ -101,6 +146,7 @@ export default function Topology({
         position: n.position,
         selected: selection?.type === 'node' && selection.id === n.id,
         data: {
+          connecting,
           name: n.name,
           address: n.address,
           state: nodeState(
@@ -111,7 +157,7 @@ export default function Topology({
         },
         ariaLabel: `${n.name}, ${n.address}`,
       })),
-    [network.nodes, selection, state.agents, status, live],
+    [network.nodes, selection, state.agents, status, live, connecting],
   )
   const [nodes, setNodes, applyNodeChanges] = useNodesState<GraphNode>([])
   useEffect(() => {
@@ -122,6 +168,19 @@ export default function Topology({
       return desiredNodes.map((node) => ({ ...byID.get(node.id), ...node }))
     })
   }, [desiredNodes, setNodes])
+  const anchors = planAnchors(
+    new Map(
+      nodes.map((node) => [
+        node.id,
+        {
+          ...node.position,
+          width: node.measured?.width ?? 198,
+          height: node.measured?.height ?? 64,
+        },
+      ]),
+    ),
+    network.edges,
+  )
   const edges = network.edges.map((e) => {
     const view = edgeView(network, e, statuses, rates, live)
     return {
@@ -129,7 +188,10 @@ export default function Topology({
       source: e.a,
       target: e.b,
       selected: selection?.type === 'edge' && selection.id === e.id,
-      type: 'smoothstep',
+      type: 'floating',
+      sourceHandle: 'surface',
+      targetHandle: 'target',
+      data: { anchors: anchors.get(e.id)! },
       label: editing
         ? `Weight ${e.weight}`
         : view.state === 'Connected'
@@ -165,10 +227,32 @@ export default function Topology({
         <div className="canvas-toolbar">
           <span>
             <CircleDot size={15} />
-            {editing ? 'Drag nodes · Connect handles' : 'Select a node or edge to inspect'}
+            {editing
+              ? connecting
+                ? 'Drag between any two nodes to connect'
+                : 'Drag center to move · Drag border to connect'
+              : 'Select a node or edge to inspect'}
           </span>
           {editing && (
             <div className="actions">
+              <button
+                aria-label="Move nodes"
+                aria-pressed={!connecting}
+                onClick={() => setConnecting(false)}
+                title="Drag node centers to move"
+              >
+                <MousePointer2 size={14} />
+                Move
+              </button>
+              <button
+                aria-label="Connect nodes"
+                aria-pressed={connecting}
+                onClick={() => setConnecting(true)}
+                title="Drag anywhere on a node to connect"
+              >
+                <Cable size={14} />
+                Connect
+              </button>
               <button onClick={addNode}>
                 <Plus size={14} />
                 Add node
@@ -185,7 +269,12 @@ export default function Topology({
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
-            nodesDraggable={editing}
+            edgeTypes={edgeTypes}
+            connectionLineComponent={FloatingConnection}
+            connectionMode={ConnectionMode.Loose}
+            connectOnClick={false}
+            isValidConnection={validConnection}
+            nodesDraggable={editing && !connecting}
             nodesConnectable={editing}
             edgesReconnectable={false}
             deleteKeyCode={null}
@@ -208,18 +297,28 @@ export default function Topology({
                   ),
                 })
             }}
+            onConnectStart={() => {
+              connected.current = false
+            }}
             onConnect={(connection) => {
-              const e = createEdge(network, connection.source, connection.target)
-              if (e) {
-                change({ ...network, edges: [...network.edges, e] })
-                select({ type: 'edge', id: e.id })
-              }
+              connected.current = true
+              connect(connection.source, connection.target)
+            }}
+            onConnectEnd={(event, connection) => {
+              if (connected.current || !connection.fromNode) return
+              const pointer = 'changedTouches' in event ? event.changedTouches[0] : event
+              if (!pointer) return
+              const target = document
+                .elementFromPoint(pointer.clientX, pointer.clientY)
+                ?.closest('.react-flow__node')
+                ?.getAttribute('data-id')
+              if (target) connect(connection.fromNode.id, target)
             }}
             fitView
             fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
             minZoom={0.15}
             maxZoom={2}
-            connectionRadius={30}
+            connectionRadius={48}
           >
             <FitLayout count={nodes.length} />
             <Background color="#c9d9d4" gap={22} size={1} />

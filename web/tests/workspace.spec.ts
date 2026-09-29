@@ -97,8 +97,32 @@ test('real controller: enrollment, graph edits, conflict protection, agent setti
     await dialog.getByLabel('Virtual IP').fill(ip)
     await dialog.getByRole('button', { name: 'Add to draft' }).click()
   }
-  await page.getByRole('button', { name: 'Add edge', exact: true }).click()
-  await dialog.getByRole('button', { name: 'Add to draft' }).click()
+  await page.getByRole('button', { name: 'Fit View', exact: true }).click()
+  const from = page.locator('.react-flow__node').filter({ hasText: 'Paris' })
+  const to = page.locator('.react-flow__node').filter({ hasText: 'Tokyo' })
+  const dragConnection = async (border: boolean) => {
+    const a = (await from.boundingBox())!
+    const b = (await to.boundingBox())!
+    await page.mouse.move(a.x + a.width / 2, a.y + (border ? 2 : a.height / 2))
+    await page.mouse.down()
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 15 })
+    await page.mouse.up()
+  }
+  // The entire border starts a connection; dropping on the card body works.
+  await dragConnection(true)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(1)
+  await dragConnection(true)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(1)
+  await page.locator('.react-flow__edge').click()
+  await page.getByRole('button', { name: 'Remove edge', exact: true }).click()
+  await expect(page.locator('.react-flow__edge')).toHaveCount(0)
+  // Connect mode turns the whole card into a drag surface without moving nodes.
+  const beforeConnect = await from.boundingBox()
+  await page.getByRole('button', { name: 'Connect nodes', exact: true }).click()
+  await dragConnection(false)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(1)
+  expect(await from.boundingBox()).toEqual(beforeConnect)
+  await page.getByRole('button', { name: 'Move nodes', exact: true }).click()
   await page.getByLabel('Routing weight').fill('7')
   await page.getByLabel('NAT hole punching').check()
   await page.getByRole('button', { name: 'Save changes' }).click()
@@ -158,10 +182,16 @@ test('real controller: enrollment, graph edits, conflict protection, agent setti
     .analyze()
   expect(mobileAudit.violations).toEqual([])
   await page.screenshot({ path: 'test-results/topology-mobile.png', fullPage: true })
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Connect nodes' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/topology-mobile-edit.png', fullPage: true })
+  await page.getByRole('button', { name: 'Observe', exact: true }).click()
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.getByRole('button', { name: 'Agents', exact: false }).first().click()
   await page.getByRole('button', { name: 'Manage Paris' }).click()
   await dialog.getByLabel('Listen port').fill('25000')
+  await dialog.getByLabel('Exclude container IPs').check()
   await dialog
     .getByLabel('STUN servers')
     .fill('stun.example.test:3478\n[2001:db8::1]:3478\ntcp://stun.example.test:3478')
@@ -171,6 +201,7 @@ test('real controller: enrollment, graph edits, conflict protection, agent setti
   await dialog.getByRole('button', { name: 'Save agent' }).click()
   await expect(dialog).not.toBeVisible()
   state = await currentState(page.request)
+  expect(state.agents.find((a) => a.name === 'Paris')?.exclude_container_ips).toBe(true)
   expect(state.agents.find((a) => a.name === 'Paris')?.stun_servers).toEqual([
     'stun.example.test:3478',
     '[2001:db8::1]:3478',

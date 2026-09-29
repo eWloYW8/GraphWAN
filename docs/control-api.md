@@ -32,7 +32,7 @@ Successful mutations return the committed state and new ETag.
 | POST | `/networks` | Network; omitted ID, MTU and cipher receive defaults |
 | PUT | `/networks/{id}` | Complete Network, including Nodes and Edges |
 | DELETE | `/networks/{id}` | Removes network and all memberships/edges |
-| PATCH | `/agents/{id}` | Optional `name`, `listen_port`, `revoked`, `manual_endpoints`, `stun_servers` |
+| PATCH | `/agents/{id}` | Optional `name`, `listen_port`, `revoked`, `manual_endpoints`, `stun_servers`, `exclude_container_ips` |
 | DELETE | `/agents/{id}` | Removes agent, memberships and incident edges |
 
 Network fields are `id`, `name`, `cidr`, `mtu`, `cipher`, `nodes`, `edges`.
@@ -101,6 +101,10 @@ An Agent may acknowledge an older revision while applying an update. Its old Lin
 statistics are omitted until it catches up. Endpoint updates may only contain
 `interface` and `observed` TCP/UDP entries; manual entries remain authoritative
 on the controller. Observed endpoints include expiration and mapped port.
+`exclude_container_ips` is an optional boolean, default false. On Linux it filters
+container veth endpoints while retaining an unbridged default-route uplink.
+Omission preserves the saved setting. Manual endpoints are unaffected.
+
 `stun_servers` is an array of at most four service addresses: bare `host:port` or
 `udp://host:port` for UDP, and `tcp://host:port` for TCP. Hostnames and bracketed IPv6
 literals are supported. Duplicate normalized addresses within a transport are

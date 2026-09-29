@@ -5,7 +5,17 @@ four). Bare `host:port` and `udp://host:port` select UDP; `tcp://host:port` sele
 TCP. Examples are `stun.example.com:3478`, `[2001:db8::1]:3478` and
 `tcp://stun.example.com:3478`. For TCP punching, configure a TCP-capable service.
 Use a reachable RFC 8489 Binding service; the controller does not currently host
-one. An empty list disables STUN discovery. There are no implicit public servers.
+one. New enrollments start with these public services:
+
+- `stun.miwifi.com:3478` (UDP)
+- `stun.cloudflare.com:3478` (UDP)
+- `stun.nextcloud.com:443` (UDP)
+- `tcp://stun.nextcloud.com:443` (TCP)
+
+The defaults are saved as ordinary Agent settings, visible and editable in the
+panel. Existing Agents retain their saved list, including an empty list. Clearing
+the list explicitly disables discovery; restarts and unrelated edits do not
+restore the defaults. Public service availability and reachability vary by network.
 These settings are persisted by the controller, delivered in that Agent's
 snapshot and cached locally for offline restart. They are not Agent CLI settings.
 
@@ -41,7 +51,9 @@ over duplicate observed URLs.
 Failed probes retain previous observations until expiry; a changed listener or
 STUN configuration discards the discovery cache. Automatic and manual endpoints
 share the existing 64-entry Agent limit; overflow is logged and automatic entries
-are bounded deterministically.
+are bounded deterministically: observed mappings first, then public interface
+addresses, private interface addresses and finally link-local addresses. Stable
+IDs break ties; publication order remains stable.
 
 Expired observations cannot authorize new dialing. A currently healthy,
 authenticated Link remains usable after discovery expiry and can renew the same

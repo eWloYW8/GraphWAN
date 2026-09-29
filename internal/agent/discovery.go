@@ -8,7 +8,6 @@ import (
 	"github.com/graphwan/graphwan/internal/mesh"
 	"github.com/graphwan/graphwan/internal/model"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -31,7 +30,7 @@ func (r *DataPlane) discover() {
 		if state == nil {
 			continue
 		}
-		endpoints, err := discovery.Interfaces(r.identity.Public().(ed25519.PublicKey), state.snapshot.ListenPort)
+		endpoints, err := discovery.InterfacesWithOptions(r.identity.Public().(ed25519.PublicKey), state.snapshot.ListenPort, discovery.InterfaceOptions{ExcludeContainerIPs: state.snapshot.ExcludeContainerIPs})
 		if err != nil {
 			r.options.Logger.Warn("interface discovery failed", "error", err)
 			continue
@@ -71,31 +70,13 @@ func (r *DataPlane) discover() {
 				observed = observed[len(observed)-model.MaxEndpoints:]
 			}
 		}
-		// An interface/manual URL takes precedence when STUN finds no translation.
-		seen := map[string]bool{}
-		manualCount := 0
-		for _, endpoint := range state.snapshot.Endpoints {
-			if endpoint.Source == model.Manual {
-				seen[endpoint.URL] = true
-				manualCount++
-			}
-		}
-		combined := make([]model.Endpoint, 0, len(endpoints)+len(observed))
-		for _, endpoint := range append(endpoints, observed...) {
-			if seen[endpoint.URL] || endpoint.Source == model.Observed && !time.Now().Before(endpoint.ExpiresAt) {
-				continue
-			}
-			seen[endpoint.URL] = true
-			combined = append(combined, endpoint)
-		}
-		slices.SortFunc(combined, func(a, b model.Endpoint) int { return strings.Compare(string(a.ID), string(b.ID)) })
-		if limit := model.MaxEndpoints - manualCount; len(combined) > limit {
-			r.options.Logger.Warn("discovered endpoint limit reached", "found", len(combined), "available", limit)
-			combined = combined[:limit]
+		combined, found := selectDiscoveredEndpoints(state.snapshot.Endpoints, endpoints, observed, time.Now())
+		if found > len(combined) {
+			r.options.Logger.Warn("discovered endpoint limit reached", "found", found, "available", len(combined))
 		}
 		// Discard a probe completed for a replaced listener or STUN configuration.
 		current := r.state.Load()
-		if current == nil || current.mesh != state.mesh || !slices.Equal(current.snapshot.STUNServers, servers) {
+		if current == nil || current.mesh != state.mesh || current.snapshot.ExcludeContainerIPs != state.snapshot.ExcludeContainerIPs || !slices.Equal(current.snapshot.STUNServers, servers) {
 			continue
 		}
 		if r.ctx.Err() != nil {

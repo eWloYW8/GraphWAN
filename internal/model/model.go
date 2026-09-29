@@ -54,13 +54,14 @@ type Endpoint struct {
 }
 
 type Agent struct {
-	ID          ID         `json:"id"`
-	Name        string     `json:"name"`
-	PublicKey   []byte     `json:"public_key"`
-	Endpoints   []Endpoint `json:"endpoints"`
-	ListenPort  uint16     `json:"listen_port"`
-	Revoked     bool       `json:"revoked"`
-	STUNServers []string   `json:"stun_servers,omitempty"`
+	ID                  ID         `json:"id"`
+	Name                string     `json:"name"`
+	PublicKey           []byte     `json:"public_key"`
+	Endpoints           []Endpoint `json:"endpoints"`
+	ListenPort          uint16     `json:"listen_port"`
+	Revoked             bool       `json:"revoked"`
+	STUNServers         []string   `json:"stun_servers,omitempty"`
+	ExcludeContainerIPs bool       `json:"exclude_container_ips,omitempty"`
 }
 
 type Position struct {

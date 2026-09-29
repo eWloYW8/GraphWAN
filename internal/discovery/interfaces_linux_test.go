@@ -93,6 +93,24 @@ func TestNativeInterfaceDiscovery(t *testing.T) {
 		}
 	}
 	check([]string{"198.18.33.1", "fd42:6766::1", "169.254.33.1", "fe80::33:1%25tun-real-nic"})
+	// With filtering enabled, an unbridged container veth is excluded unless it
+	// carries the namespace's default route. Names do not determine eligibility.
+	filtered, err := InterfacesWithOptions([]byte("native"), 24752, InterfaceOptions{ExcludeContainerIPs: true})
+	if err != nil || len(filtered) != 0 {
+		t.Fatalf("container endpoints leaked: %v %v", filtered, err)
+	}
+	route := &netlink.Route{LinkIndex: links[0].Attrs().Index, Gw: net.ParseIP("198.18.33.254")}
+	if err := netlink.RouteAdd(route); err != nil {
+		t.Fatal(err)
+	}
+	filtered, err = InterfacesWithOptions([]byte("native"), 24752, InterfaceOptions{ExcludeContainerIPs: true})
+	if err != nil || len(filtered) != 8 {
+		t.Fatalf("containerized Agent lost its uplink: %v %v", filtered, err)
+	}
+	if err := netlink.RouteDel(route); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := netlink.AddrDel(links[0], v6); err != nil {
 		t.Fatal(err)
 	}
