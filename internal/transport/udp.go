@@ -14,7 +14,7 @@ import (
 
 const (
 	udpHeaderSize = 20
-	maxUDPPeers   = 512
+	maxPendingUDP = 512
 	udpQueueSize  = 64
 )
 
@@ -33,6 +33,7 @@ type UDP struct {
 	mu          sync.Mutex
 	writeMu     sync.Mutex
 	peers       map[udpKey]*Datagram
+	pending     int // Only peers that have not passed the configured Noise handshake.
 	accept      chan *Datagram
 	done        chan struct{}
 	closeOnce   sync.Once
@@ -114,12 +115,14 @@ func (h *UDP) stop() {
 			peer.closeOnce.Do(func() { close(peer.done) })
 		}
 		clear(h.peers)
+		h.pending = 0
 	})
 }
 func (h *UDP) newPeer(key udpKey, reply []byte) *Datagram {
 	peer := &Datagram{replyControl: reply, hub: h, key: key, incoming: make(chan []byte, udpQueueSize), done: make(chan struct{})}
 	peer.lastSeen.Store(time.Now().UnixNano())
 	h.peers[key] = peer
+	h.pending++
 	return peer
 }
 func (h *UDP) Dial(remote netip.AddrPort) (*Datagram, error) {
@@ -136,8 +139,8 @@ func (h *UDP) Dial(remote netip.AddrPort) (*Datagram, error) {
 		return nil, net.ErrClosed
 	default:
 	}
-	if len(h.peers) >= maxUDPPeers {
-		return nil, errors.New("UDP peer limit reached")
+	if h.pending >= maxPendingUDP {
+		return nil, errors.New("UDP pending peer limit reached")
 	}
 	return h.newPeer(key, nil), nil
 }
@@ -196,7 +199,7 @@ func (h *UDP) receivePacket(raw []byte, remote netip.AddrPort, reply []byte) {
 	}
 	peer := h.peers[key]
 	if peer == nil {
-		if len(h.peers) >= maxUDPPeers {
+		if h.pending >= maxPendingUDP {
 			h.mu.Unlock()
 			return
 		}
@@ -205,6 +208,7 @@ func (h *UDP) receivePacket(raw []byte, remote netip.AddrPort, reply []byte) {
 		case h.accept <- peer:
 		default:
 			delete(h.peers, key)
+			h.pending--
 			peer.closeOnce.Do(func() { close(peer.done) })
 			h.mu.Unlock()
 			return
@@ -251,8 +255,16 @@ func (d *Datagram) RemoteAddr() net.Addr { return net.UDPAddrFromAddrPort(d.key.
 
 // Authenticated is called only after validating a peer handshake. Validated
 // application packets call Alive; unauthenticated traffic cannot extend lifetime.
-func (d *Datagram) Authenticated() { d.authenticated.Store(true); d.Alive() }
-func (d *Datagram) Alive()         { d.lastSeen.Store(time.Now().UnixNano()) }
+// Established configured Links must not exhaust pending handshake admission.
+func (d *Datagram) Authenticated() {
+	d.hub.mu.Lock()
+	if d.hub.peers[d.key] == d && !d.authenticated.Swap(true) {
+		d.hub.pending--
+	}
+	d.hub.mu.Unlock()
+	d.Alive()
+}
+func (d *Datagram) Alive() { d.lastSeen.Store(time.Now().UnixNano()) }
 func (d *Datagram) Close() error {
 	d.hub.mu.Lock()
 	defer d.hub.mu.Unlock()
@@ -260,6 +272,9 @@ func (d *Datagram) Close() error {
 		close(d.done)
 		if d.hub.peers[d.key] == d {
 			delete(d.hub.peers, d.key)
+			if !d.authenticated.Load() {
+				d.hub.pending--
+			}
 		}
 	})
 	return nil

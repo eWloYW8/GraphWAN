@@ -128,8 +128,12 @@ UDP datagrams use four magic/version bytes (`GWD`, `1`), a random 16-byte
 connection token and one complete message. A data socket multiplexes independent
 connections by remote address and token. This token is a demultiplexing hint,
 not authentication. Handshakes still verify graph policy and peer identities.
-The socket allows at most 512 peers, 64 pending accepts, and 64 queued messages
-per peer. Unauthenticated peers expire after 10 seconds; authenticated peers
+The socket allows at most 512 pending unauthenticated peers, 64 pending accepts,
+and 64 queued messages per peer. Both address families share these limits.
+A successfully verified configured Noise handshake releases its pending slot;
+existing authenticated Links do not consume new-handshake capacity. Authentication,
+failure and close release each reservation only once. Unauthenticated peers
+expire after 10 seconds; authenticated peers
 expire after two minutes without a validated keepalive/data message. Invalid
 packets cannot keep a peer alive. A slow reader drops UDP messages rather than
 allowing an unbounded queue. RFC 8489 Binding replies are dispatched separately

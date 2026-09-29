@@ -102,6 +102,8 @@ def check_go(logs):
     events = [json.loads(line) for line in output.splitlines()]
     for package, expected in SOCKET_GATES.items():
         selected = [json.dumps(event) for event in events if event.get("Package") == f"{module}/internal/{package}"]
+        if platform.system() == "Linux" and package == "mesh":
+            expected = [*expected, "TestAuthenticatedCapacityAcrossNetworks"]
         require_native_pass("\n".join(selected), expected)
 
 

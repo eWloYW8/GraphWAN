@@ -20,9 +20,14 @@ certificate. A CA-issued certificate must validate against the system trust
 store and endpoint hostname. Noise independently verifies both Agent identities
 and the configured Edge/Network/transport. No 0-RTT data is enabled.
 
-QUIC Retry verifies a source address before accepting its connection. A total
-of 512 incoming/outgoing QUIC connections is allowed per Agent socket, including
-handshakes; failed and closed connections release their slots. TLS handshakes
+QUIC Retry verifies a source address before accepting its connection. At most
+512 incoming/outgoing connections may await Noise authentication across both
+address families. A successful configured Noise handshake releases its pending
+slot without closing the connection. TLS alone does not release admission;
+failed and closed connections release their slots exactly once, including when
+authentication races with cancellation. Established Links do not consume this
+pending-handshake allowance, so it does not truncate the configured topology.
+TLS handshakes
 have a five-second idle limit and a ten-second overall limit. Idle established
 connections expire after fifteen seconds; normal authenticated Link heartbeats
 run every second. Peer Noise admission shares the existing eight-slot limit.

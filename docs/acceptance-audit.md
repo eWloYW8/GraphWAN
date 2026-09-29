@@ -12,7 +12,7 @@ remaining acceptance items and detailed earlier evidence.
 | --- | --- | --- |
 | 1. Central server, managed Agents, powerful embedded Web UI | [Controller](../internal/control), [Agent control client](../internal/agent/client.go), [React application](../web/src/App.tsx); real TLS enrollment/control/revocation tests and real-controller Chromium tests | Implemented and tested |
 | 2. Multiple Networks, fixed Node IPs, per-Network TUN, uniform cipher policy | [Models](../internal/model), [runtime reconciliation](../internal/agent/dataplane.go), [TUN adapters](../internal/tunnel); Linux native two-Network configuration/rollback test, cipher-bound authenticated sessions | Implemented and tested within documented platform limits |
-| 3. Explicit Edge graph, weights, transports, direct/punch methods, all successful Links, preferred/lowest-RTT active Link | [Candidate policy](../internal/link/candidate.go), [Mesh](../internal/mesh), [selection](../internal/link); all six transports, method combinations, common selection/failover and TCP multi-address/rekey tests | Retention capacity audit remains open; see below |
+| 3. Explicit Edge graph, weights, transports, direct/punch methods, all successful Links, preferred/lowest-RTT active Link | [Candidate policy](../internal/link/candidate.go), [Mesh](../internal/mesh), [selection](../internal/link); all six transports, method combinations, common selection/failover, TCP multi-address/rekey and 540-candidate UDP/QUIC/gRPC tests | Implemented and tested |
 | 4. Automatic physical/public endpoints, port 24752, manual protocol/host/path entries | [Discovery](../internal/discovery), [STUN and listener integration](../internal/mesh), [endpoint contract](endpoint-resolution.md); Linux native discovery, all-address DNS tests, listener failure/retry and NAT remapping E2E | Implemented and tested; non-Linux APIs reviewed/cross-built |
 | 5. Weighted shortest-path multi-hop virtual IP forwarding | [Routing](../internal/routing), [forwarding](../internal/forwarding); deterministic equal-cost handling, actual encrypted three-node forwarding, native Linux ICMP/TCP and hop-limit loop containment | Implemented and tested; disconnected graph components remain unreachable |
 | 6. Password authentication, multiple graphs, observe/edit, Node/Edge configuration and live status | [Management UI](management-ui.md), [browser tests](../web/tests/workspace.spec.ts), [telemetry tests](../internal/control/events_test.go); enrollment, graph CRUD/positions, conflict handling, responsive views, active paths, rates, preferences and connection loss | Implemented and tested |
@@ -106,14 +106,23 @@ cross-built again and their target inventory, sizes and hashes verified. The
 frontend/native/packaging results above remain evidence for their earlier
 revisions; they were not rerun for the CLI-only change.
 
+The subsequent admission fix removes the fixed established-Link ceiling for
+native UDP, QUIC and gRPC while keeping 512 pending unauthenticated reservations
+per transport. TLS alone never promotes a connection. The
+[Linux capacity fixture](../internal/mesh/admission_linux_test.go) passes with
+540 candidates per transport, preserved original sessions, overlapping replacement
+keys, preferred-Link agreement, traffic and membership removal. The Linux Go gate
+requires this test and rejects skipped subtests. Full uncached race/vet/format and
+module checks, all nine Python tests and all 33 cross-builds pass. Every cross-build
+target, size and hash was verified. Real Linux TUN E2E also passes for UDP through
+three restricted NATs with live remapping, plus QUIC/gRPC IPv6 listener conflict
+and recovery, all with restricted capabilities and overlay/underlay MTUs 9000/1280.
+Those runs include controller outage, offline repair/restart and resource cleanup.
+
 ## Work still required before completion
 
-1. Finish the all-viable-Link capacity audit. TCP punch allowances now grow with
-   authorized topology and DNS answers, but native UDP and QUIC admission retain
-   fixed 512-entry limits, and gRPC has a fixed 512-connection Mesh allowance
-   (its HTTP/2 stream allowance is separately 64 per connection). Those
-   bounds must not silently exclude candidates of accepted configurations.
-   Preserve bounded unauthenticated admission while fixing/retesting this case.
-2. After those implementation changes, complete the relevant Linux regression
-   and delivery gates, reconcile user/API/protocol documentation, and repeat the
-   requirement audit. Until then, the final project checkbox remains open.
+1. Complete the final Linux regression and delivery review, distinguishing checks
+   rerun at the final revision from earlier unchanged-component evidence.
+2. Reconcile user/API/protocol documentation and repeat the requirement-by-requirement
+   completion audit against the current tree and actual artifacts. Until that
+   audit passes, the final project checkbox remains open.

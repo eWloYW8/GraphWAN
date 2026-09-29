@@ -34,32 +34,33 @@ type policy struct {
 	endpoints []model.Endpoint
 }
 type Mesh struct {
-	dns          *endpointDNS
-	identity     ed25519.PrivateKey
-	ctx          context.Context
-	cancel       context.CancelFunc
-	listener     net.Listener
-	tcp          *transport.TCP
-	punches      map[punchKey]*transport.PunchMux
-	punchDials   map[punchKey]*punchDial
-	webListener  *connIngress
-	webServer    *http.Server
-	grpcListener *connIngress
-	grpcServer   *grpc.Server
-	grpcSlots    chan struct{}
-	tls          *tls.Config
-	sniffSlots   chan struct{}
-	pending      map[net.Conn]bool
-	udp          *transport.UDP
-	quic         *transport.QUICHub
-	receive      Receive
-	mu           sync.Mutex
-	groups       map[key]*group
-	slots        chan struct{}
-	acceptSlots  chan struct{}
-	wg           sync.WaitGroup
-	closed       bool
-	linkOptions  link.Options
+	dns            *endpointDNS
+	identity       ed25519.PrivateKey
+	ctx            context.Context
+	cancel         context.CancelFunc
+	listener       net.Listener
+	tcp            *transport.TCP
+	punches        map[punchKey]*transport.PunchMux
+	punchDials     map[punchKey]*punchDial
+	webListener    *connIngress
+	webServer      *http.Server
+	grpcListener   *connIngress
+	grpcServer     *grpc.Server
+	grpcSlots      chan struct{}
+	grpcAdmissions map[grpcConnectionKey]*grpcAdmission
+	tls            *tls.Config
+	sniffSlots     chan struct{}
+	pending        map[net.Conn]bool
+	udp            *transport.UDP
+	quic           *transport.QUICHub
+	receive        Receive
+	mu             sync.Mutex
+	groups         map[key]*group
+	slots          chan struct{}
+	acceptSlots    chan struct{}
+	wg             sync.WaitGroup
+	closed         bool
+	linkOptions    link.Options
 }
 
 func New(parent context.Context, identity ed25519.PrivateKey, host string, port uint16, receive Receive) (*Mesh, error) {
@@ -77,6 +78,7 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 	ctx, cancel := context.WithCancel(parent)
 	m := &Mesh{grpcSlots: make(chan struct{}, 512), sniffSlots: make(chan struct{}, 8), pending: map[net.Conn]bool{}, identity: bytes.Clone(identity), ctx: ctx, cancel: cancel, listener: listener, udp: udp, receive: receive, groups: map[key]*group{}, slots: make(chan struct{}, 8), acceptSlots: make(chan struct{}, 8)}
 	m.dns = newEndpointDNS()
+	m.grpcAdmissions = map[grpcConnectionKey]*grpcAdmission{}
 	m.quic = quicHub
 	m.tcp = listener
 	m.punches = map[punchKey]*transport.PunchMux{}

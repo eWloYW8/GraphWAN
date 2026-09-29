@@ -41,7 +41,7 @@ type bufferedConn struct {
 }
 
 // Release an admission slot exactly once. HTTP/1 holds a classifier slot until
-// request headers finish; HTTP/2 holds a separate connection slot until close.
+// request headers finish; HTTP/2 holds a separate slot until authentication or close.
 type ingressConn struct {
 	net.Conn
 	release func()

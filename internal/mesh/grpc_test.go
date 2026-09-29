@@ -76,6 +76,67 @@ func TestGRPCShutdownClosesIncompleteHTTP2Prefaces(t *testing.T) {
 	if len(m.grpcSlots) != 0 {
 		t.Fatal("gRPC connection slots leaked")
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.grpcAdmissions) != 0 {
+		t.Fatal("gRPC connection admission records leaked")
+	}
+}
+
+func TestGRPCPendingAdmissionRequiresNoise(t *testing.T) {
+	ctx, meshes, state, _ := webMeshes(t)
+	addGRPCEndpoints(meshes, state, "/admission")
+	for i := range state.Agents {
+		state.Agents[i].Endpoints = state.Agents[i].Endpoints[3:]
+	}
+	state.Networks[0].Edges[0].Transports = []model.Transport{model.GRPC}
+	applyWebState(t, state, meshes)
+	m := meshes[1]
+	waitWeb(t, ctx, func() bool {
+		return commonWeb(meshes, "") && len(m.grpcSlots) == 0
+	})
+	// The TLS handshake and HTTP/2 headers succeed, but this new RPC has not
+	// authenticated a configured GraphWAN peer and must retain its reservation.
+	conn, err := transport.DialGRPC(ctx, state.Agents[1].Endpoints[0], 4, state.Agents[1].PublicKey, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if len(m.grpcSlots) != 1 {
+		t.Fatal("TLS/RPC headers bypassed Noise admission")
+	}
+	reserved := cap(m.grpcSlots) - 1
+	for range reserved {
+		m.grpcSlots <- struct{}{}
+	}
+	defer func() {
+		for range reserved {
+			select {
+			case <-m.grpcSlots:
+			default:
+				t.Error("pending gRPC reservation was released more than once")
+				return
+			}
+		}
+	}()
+	extra, remote := net.Pipe()
+	defer extra.Close()
+	defer remote.Close()
+	if m.handoffGRPC(ctx, extra) {
+		t.Fatal("full pending gRPC admission accepted another connection")
+	}
+	if err := conn.Send(ctx, []byte("invalid Noise hello")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Receive(ctx); err == nil {
+		t.Fatal("invalid Noise hello was accepted")
+	}
+	// Receive errors close the client transport as well as the rejected RPC.
+	conn.Close()
+	waitWeb(t, ctx, func() bool { return len(m.grpcSlots) == reserved })
+	if !commonWeb(meshes, "") {
+		t.Fatal("failed authentication disrupted established Links")
+	}
 }
 
 func TestGRPCSharesListenerAndFallsBackToEstablishedLinks(t *testing.T) {

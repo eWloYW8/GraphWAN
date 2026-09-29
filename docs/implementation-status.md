@@ -68,7 +68,7 @@ checks are listed separately from outstanding implementation work.
 - [x] Linux TCP hole punching, independent STUN mappings and pooled authenticated sessions.
 - [x] Linux restricted/mixed NAT and live mapping recovery; cross-platform TCP punching implementation review.
 - [x] IPv4/IPv6 direct and punch allowlists, bounded scheduling/backoff.
-- [ ] All viable Links retained; one active Link, preferred/lowest RTT selection.
+- [x] All viable Links retained; one active Link, preferred/lowest RTT selection; Linux capacity, rekey and admission checks.
 - [x] Heartbeat, RTT/loss/traffic metrics, hysteresis and standby failover.
 - [x] Common active-Link agreement for implemented transports, including rekey.
 - [x] Controller outage continuity and autonomous peer reconnection.
@@ -1008,3 +1008,32 @@ These checks are not required for completion under the agreed Linux validation s
   complete target set, byte sizes and SHA-256 digests were verified. No non-Linux
   binary was executed. The all-viable-Link admission audit and final project
   acceptance remain open; the administrative CLI item is complete.
+
+- The remaining fixed Link-retention ceilings are removed. Native UDP and QUIC
+  now reserve their shared 512 slots only while awaiting a configured Noise
+  handshake; gRPC does the same for inbound HTTP/2 connections. TLS and RPC
+  headers cannot promote a connection. Authentication, failure and close release
+  each pending reservation once. Established Links keep their existing lifetime,
+  queue and health rules, and cannot consume the admission needed by new
+  candidates or replacement keys. gRPC still tracks authenticated sockets for
+  shutdown and retains its 64-stream bound per HTTP/2 connection.
+- A real Linux two-Mesh fixture first reproduced UDP retaining exactly 512 of
+  540 configured candidates. After the fix, UDP, QUIC and gRPC each retain all
+  540 across nine Networks and sixty endpoints, preserve original Link IDs during
+  expansion and an overlapping key generation, agree on preferred candidates,
+  deliver payloads and remove memberships. This root and its subtests are now
+  mandatory in the Linux Go gate. Separate tests fill pending allowances and
+  exercise repeated/concurrent authentication and close, untrusted TLS-only
+  sessions, invalid Noise and incomplete HTTP/2 shutdown.
+- The uncached full Linux race gate passes across sixteen test-bearing packages,
+  including the strengthened capacity cases, formatting/module checks and vet.
+  All nine Python verifier/packaging tests pass. All 33 selected production targets
+  cross-build, with their complete inventory, byte sizes and SHA-256 verified.
+  No non-Linux binary was executed.
+- Three real-TUN Linux E2E runs pass with restricted Agent capabilities and MTUs
+  9000/1280: three-NAT UDP with live remapping (23.9 seconds recovery in this run),
+  IPv6-underlay QUIC listener replacement, and IPv6-underlay gRPC listener
+  replacement. They also verify controller outage, offline TUN recovery, cached
+  transit restart and shutdown cleanup. Prior TCP pooling, DNS/scope and selection
+  evidence plus this admission review close the all-viable-Links item. Final
+  documentation/delivery review and the complete requirement audit remain open.

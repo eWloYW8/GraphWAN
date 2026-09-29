@@ -74,8 +74,17 @@ The implementation uses grpc-go's stream APIs with the existing generated
 GraphWAN. The schema is provided for interoperability; a generic gRPC client
 still needs to implement the [peer authentication and Link protocol](peer-protocol.md).
 
-Each Agent caps inbound HTTP/2 connections at 512, concurrent streams per
-connection at 64, and header lists at 8 KiB. Incomplete HTTP/2 setup times out
+Each Agent caps inbound HTTP/2 connections awaiting a configured Noise handshake
+at 512, concurrent streams per connection at 64, and header lists at 8 KiB.
+The first successfully authenticated Noise stream releases its connection's
+pending slot; additional streams cannot release it again. TLS, HTTP/2 setup and
+RPC response headers alone do not count as authentication. Close/failure also
+releases an unpromoted connection's slot. The connection record remains tracked
+until socket close, including after authentication, so Agent shutdown still
+closes incomplete and established transports. GraphWAN's dialer opens a separate
+HTTP/2 connection for each candidate session; the per-connection stream limit
+therefore does not cap the total configured Link set.
+Incomplete HTTP/2 setup times out
 after five seconds; connections without RPCs expire after ten seconds. Streams
 share the existing eight incoming peer-handshake slots. Receive and Send support
 context cancellation, including when flow control blocks a writer. Canceling an

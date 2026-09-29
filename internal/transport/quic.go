@@ -21,6 +21,8 @@ import (
 
 const quicProtocol = "graphwan.quic.v1"
 
+type quicAdmissionKey struct{}
+
 type quicEndpoint struct {
 	socket   *net.UDPConn
 	engine   *quic.Transport
@@ -75,11 +77,12 @@ func ListenUDPQUIC(address string, identity ed25519.PrivateKey) (*UDP, *QUICHub,
 			DisableVersionNegotiationPackets: true,
 			VerifySourceAddress:              func(net.Addr) bool { return true },
 			ConnContext: func(ctx context.Context, _ *quic.ClientInfo) (context.Context, error) {
-				if err := h.reserve(); err != nil {
+				release, err := h.reserve()
+				if err != nil {
 					return nil, err
 				}
-				context.AfterFunc(ctx, func() { <-h.slots })
-				return ctx, nil
+				context.AfterFunc(ctx, release)
+				return context.WithValue(ctx, quicAdmissionKey{}, release), nil
 			},
 		}
 		h.endpoints = append(h.endpoints, quicEndpoint{socket: socket, engine: engine})
@@ -125,17 +128,20 @@ func quicConfig() *quic.Config {
 		InitialConnectionReceiveWindow: 32 * 1024, MaxConnectionReceiveWindow: 32 * 1024,
 	}
 }
-func (h *QUICHub) reserve() error {
+
+// Admission bounds TLS/Noise handshakes, not the configured live Link set.
+// Authentication and connection cancellation may race; each releases once.
+func (h *QUICHub) reserve() (func(), error) {
 	select {
 	case <-h.udp.done:
-		return net.ErrClosed
+		return nil, net.ErrClosed
 	default:
 	}
 	select {
 	case h.slots <- struct{}{}:
-		return nil
+		return sync.OnceFunc(func() { <-h.slots }), nil
 	default:
-		return errors.New("QUIC connection limit reached")
+		return nil, errors.New("QUIC pending connection limit reached")
 	}
 }
 func (h *QUICHub) Close() error { return h.udp.Close() }
@@ -192,13 +198,14 @@ func (h *QUICHub) DialAt(ctx context.Context, endpoint model.Endpoint, family in
 	if len(addresses) == 0 {
 		return nil, errors.New("endpoint has no address for permitted family")
 	}
-	if err := h.reserve(); err != nil {
+	release, err := h.reserve()
+	if err != nil {
 		return nil, err
 	}
 	retained := false
 	defer func() {
 		if !retained {
-			<-h.slots
+			release()
 		}
 	}()
 	port, _ := strconv.ParseUint(u.Port(), 10, 16)
@@ -224,8 +231,10 @@ func (h *QUICHub) DialAt(ctx context.Context, endpoint model.Endpoint, family in
 			return nil, errors.New("peer did not negotiate QUIC datagrams")
 		}
 		retained = true
-		context.AfterFunc(conn.Context(), func() { <-h.slots })
-		return newQUIC(conn), nil
+		context.AfterFunc(conn.Context(), release)
+		q := newQUIC(conn)
+		q.releaseAdmission = release
+		return q, nil
 	}
 	return nil, err
 }
@@ -234,15 +243,25 @@ func (h *QUICHub) DialAt(ctx context.Context, endpoint model.Endpoint, family in
 // disabled. A frame larger than the conservative path budget is fragmented;
 // incomplete messages expire instead of acquiring retransmission semantics.
 type QUIC struct {
-	conn          *quic.Conn
-	sequence      atomic.Uint64
-	send, receive chan struct{}
-	reassembly    quicReassembler
-	once          sync.Once
+	conn             *quic.Conn
+	sequence         atomic.Uint64
+	send, receive    chan struct{}
+	reassembly       quicReassembler
+	once             sync.Once
+	releaseAdmission func()
 }
 
 func newQUIC(conn *quic.Conn) *QUIC {
-	return &QUIC{conn: conn, send: make(chan struct{}, 1), receive: make(chan struct{}, 1)}
+	release, _ := conn.Context().Value(quicAdmissionKey{}).(func())
+	return &QUIC{conn: conn, send: make(chan struct{}, 1), receive: make(chan struct{}, 1), releaseAdmission: release}
+}
+
+// Authenticated is invoked by the configured Noise handshake, never by QUIC's
+// server-only TLS authentication or by unverified datagram traffic.
+func (q *QUIC) Authenticated() {
+	if q.releaseAdmission != nil {
+		q.releaseAdmission()
+	}
 }
 func (q *QUIC) LocalAddr() net.Addr  { return q.conn.LocalAddr() }
 func (q *QUIC) RemoteAddr() net.Addr { return q.conn.RemoteAddr() }

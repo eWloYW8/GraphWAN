@@ -43,6 +43,11 @@ See [deployment](deployment.md) for service installation and reproducible packag
 
 The socket gate requires both address families for TCP, native UDP, QUIC and
 TCP/UDP STUN, plus failed-bind cleanup and shared UDP admission limits.
+On Linux it also requires `TestAuthenticatedCapacityAcrossNetworks`, including
+all of its UDP/QUIC/gRPC subtests. Each establishes 540 authenticated candidates
+across nine Networks, preserves existing Links during expansion and overlapping
+key generations, agrees on preferences, transfers data and removes memberships.
+Missing loopback aliases or skipped subtests fail this required gate.
 
 Native checks parse `test2json` output and require named tests to finish with
 `pass`, including a successful package result. Missing tests, failed tests,

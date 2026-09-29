@@ -16,7 +16,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// gRPC owns an HTTP/2 connection after classification; cap even idle transports.
+type grpcConnectionKey struct{ local, remote string }
+type grpcAdmission struct{ authenticate func() }
+
+// Embed the transport so path checks and shutdown still see the original RPC.
+// Only a completed configured Noise handshake releases connection admission.
+type admittedGRPC struct {
+	*transport.GRPC
+	admission *grpcAdmission
+}
+
+func (g *admittedGRPC) Authenticated() { g.admission.authenticate() }
+
+// gRPC owns an HTTP/2 connection after classification; cap unauthenticated transports.
 // Its five-second connection timeout handles an incomplete preface/settings.
 func (m *Mesh) handoffGRPC(ctx context.Context, conn net.Conn) bool {
 	select {
@@ -28,7 +40,20 @@ func (m *Mesh) handoffGRPC(ctx context.Context, conn net.Conn) bool {
 	// transports. Cancel these sockets ourselves, including ones not registered
 	// yet, so an incomplete HTTP/2 preface cannot delay Agent shutdown.
 	stop := context.AfterFunc(m.ctx, func() { conn.Close() })
-	release := sync.OnceFunc(func() { stop(); <-m.grpcSlots })
+	admission := &grpcAdmission{authenticate: sync.OnceFunc(func() { <-m.grpcSlots })}
+	k := grpcConnectionKey{conn.LocalAddr().String(), conn.RemoteAddr().String()}
+	m.mu.Lock()
+	m.grpcAdmissions[k] = admission
+	m.mu.Unlock()
+	release := sync.OnceFunc(func() {
+		stop()
+		admission.authenticate()
+		m.mu.Lock()
+		if m.grpcAdmissions[k] == admission {
+			delete(m.grpcAdmissions, k)
+		}
+		m.mu.Unlock()
+	})
 	conn.SetReadDeadline(time.Time{})
 	select {
 	case m.grpcListener.pending <- &ingressConn{Conn: conn, release: release}:
@@ -65,12 +90,18 @@ func (m *Mesh) acceptGRPC(_ any, stream grpc.ServerStream) error {
 	if !ok || p.Addr == nil || p.LocalAddr == nil {
 		return status.Error(codes.Internal, "peer address unavailable")
 	}
+	m.mu.Lock()
+	admission := m.grpcAdmissions[grpcConnectionKey{p.LocalAddr.String(), p.Addr.String()}]
+	m.mu.Unlock()
+	if admission == nil {
+		return status.Error(codes.Internal, "connection admission unavailable")
+	}
 	conn := transport.NewGRPC(stream, p.LocalAddr, p.Addr, method, nil)
 	defer conn.Close()
 	if err := stream.SendHeader(metadata.Pairs("graphwan-protocol", transport.GRPCProtocol)); err != nil {
 		return err
 	}
-	m.accept(conn, model.GRPC)
+	m.accept(&admittedGRPC{GRPC: conn, admission: admission}, model.GRPC)
 	// Returning tears down this RPC and interrupts any blocked SendMsg/RecvMsg.
 	// The Link's receive loop lives independently of the gRPC handler goroutine.
 	select {
