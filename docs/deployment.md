@@ -79,6 +79,12 @@ the stored password. Copy `/var/lib/graphwan-server/ca.pem` using a trusted chan
 to administrative clients and to `/etc/graphwan/ca.pem` on each Agent host. This is
 the **public** certificate; keep the controller database and CA private key private.
 
+HTTPS uses an ECDSA P-256 server key for browser TLS 1.3 compatibility. The
+persisted controller CA and Agent identities remain Ed25519. Upgrading a controller
+that previously served an Ed25519 HTTPS key preserves its CA, password and enrolled
+Agents. Browsers still need to trust the private CA; a certificate-trust warning
+is distinct from a TLS signature-algorithm negotiation failure.
+
 In the UI, create a one-time enrollment token. Edit `agent.env` with the exact
 HTTPS controller origin, CA file, initial display name and token. Then:
 

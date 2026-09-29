@@ -137,6 +137,13 @@ and [CI workflow](../.github/workflows/ci.yml).
 
 ## Operational boundaries
 
+Subsequent deployment found a gap in the original browser evidence: those tests
+used HTTP and missed Chromium rejecting the Ed25519 HTTPS server key. The
+controller now serves an ECDSA P-256 key while retaining its existing CA and Agent
+identities. Both browser scenarios now run over HTTPS and pass; PKI, controller,
+Agent and CLI race suites pass, including a new persisted-CA/existing-Agent
+regression. This corrects the earlier browser-compatibility assumption.
+
 - The Edge graph must connect the intended Nodes. Disconnected components have
   no route; the controller does not manufacture Edges or relay payloads.
 - NAT traversal depends on router mapping/filtering behavior. The tests establish

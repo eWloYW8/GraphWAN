@@ -7,7 +7,7 @@ const binary = join(temp, 'graphwan')
 execFileSync('go', ['build', '-o', binary, '../cmd/graphwan'], { stdio: 'inherit' })
 const server = spawn(
   binary,
-  ['server', '--http', '--listen', '127.0.0.1:18543', '--data-dir', join(temp, 'data')],
+  ['server', '--listen', '127.0.0.1:18543', '--data-dir', join(temp, 'data')],
   {
     env: { ...process.env, GRAPHWAN_ADMIN_PASSWORD: 'graphwan-browser-test-password' },
     stdio: 'inherit',

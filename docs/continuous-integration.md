@@ -74,6 +74,11 @@ Frontend sources and their rebuilt embedded assets must be committed together.
 The check compares both the file set and contents, so newly generated hashed
 assets cannot silently escape verification through `.gitignore`.
 
+The browser fixture serves real HTTPS with a temporary private CA. Playwright
+ignores certificate trust errors for that fixture while still exercising Chromium's
+TLS negotiation, login, secure cookies and live streams. Go integration tests
+separately verify CA trust and mutual Agent authentication.
+
 On Linux, native tests require `sudo -n`, `unshare`, `ip` and the TUN driver. Each
 test binary runs inside a new network namespace:
 

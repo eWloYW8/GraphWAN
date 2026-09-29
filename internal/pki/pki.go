@@ -3,7 +3,9 @@
 package pki
 
 import (
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -105,7 +107,9 @@ func (a *Authority) IssueAgent(id model.ID, csrDER []byte) ([]byte, ed25519.Publ
 }
 
 func (a *Authority) ServerTLS(hosts []string) (*tls.Config, error) {
-	pub, key, err := ed25519.GenerateKey(rand.Reader)
+	// Browsers do not universally offer Ed25519 for TLS CertificateVerify.
+	// Keep the durable CA and Agent identities, but use P-256 for HTTPS.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +129,7 @@ func (a *Authority) ServerTLS(hosts []string) (*tls.Config, error) {
 	if len(template.IPAddresses)+len(template.DNSNames) == 0 {
 		return nil, errors.New("TLS server requires at least one hostname")
 	}
-	der, err := x509.CreateCertificate(rand.Reader, template, a.cert, pub, a.key)
+	der, err := x509.CreateCertificate(rand.Reader, template, a.cert, &key.PublicKey, a.key)
 	if err != nil {
 		return nil, err
 	}
