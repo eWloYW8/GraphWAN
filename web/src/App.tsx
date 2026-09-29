@@ -9,7 +9,6 @@ import {
   Check,
   ArrowUpRight,
   Activity,
-  Cable,
   X,
   Trash2,
   RefreshCw,
@@ -28,7 +27,6 @@ import {
   rebase,
   ratesBetween,
   createEdge,
-  edgeView,
   nodeState,
 } from './model'
 import Topology, { type Selection } from './Topology'
@@ -285,6 +283,27 @@ export default function App() {
           live,
         ) === 'Online',
     ).length ?? 0
+  const networkDetail = view === 'networks' && !!network
+  const sessionControls = (
+    <>
+      <Badge tone={live ? 'online' : 'offline'}>{live ? 'Live updates' : 'Reconnecting'}</Badge>
+      <button
+        className="icon"
+        aria-label="Sign out"
+        onClick={async () => {
+          if (dirty && !confirm('Discard unsaved changes and sign out?')) return
+          try {
+            await request('/logout', { method: 'POST', csrf })
+            clearSession()
+          } catch (e) {
+            setError(errorText(e))
+          }
+        }}
+      >
+        <LogOut size={18} />
+      </button>
+    </>
+  )
   return (
     <div className="app">
       <aside className="sidebar">
@@ -343,33 +362,16 @@ export default function App() {
         </div>
       </aside>
       <div className="app-content">
-        <header className="topbar">
-          <span>
-            Workspace <span className="muted">/</span>{' '}
-            <strong>{view === 'agents' ? 'Agents' : network?.name || 'Networks'}</strong>
-          </span>
-          <div>
-            <Badge tone={live ? 'online' : 'offline'}>
-              {live ? 'Live updates' : 'Reconnecting'}
-            </Badge>
-            <button
-              className="icon"
-              aria-label="Sign out"
-              onClick={async () => {
-                if (dirty && !confirm('Discard unsaved changes and sign out?')) return
-                try {
-                  await request('/logout', { method: 'POST', csrf })
-                  clearSession()
-                } catch (e) {
-                  setError(errorText(e))
-                }
-              }}
-            >
-              <LogOut size={18} />
-            </button>
-          </div>
-        </header>
-        <main className="main">
+        {!networkDetail && (
+          <header className="topbar">
+            <span>
+              Workspace <span className="muted">/</span>{' '}
+              <strong>{view === 'agents' ? 'Agents' : network?.name || 'Networks'}</strong>
+            </span>
+            <div>{sessionControls}</div>
+          </header>
+        )}
+        <main className={`main${networkDetail ? ' network-main' : ''}`}>
           {error && (
             <ErrorBox>
               {error}
@@ -405,9 +407,29 @@ export default function App() {
             />
           ) : network ? (
             <>
-              <div className="page-heading">
-                <div>
-                  <h1>{network.name}</h1>
+              <h1 className="sr-only">{network.name}</h1>
+              {conflict && (
+                <ErrorBox>
+                  The network changed on the server. Your draft is preserved. Discard it to load the
+                  latest configuration before editing again.
+                </ErrorBox>
+              )}
+              <div className="network-toolbar">
+                <div className="segmented" role="group" aria-label="Topology mode">
+                  <button
+                    className={!draft ? 'active' : ''}
+                    onClick={() => {
+                      if (!dirty || confirm('Discard your unsaved topology changes?'))
+                        setDraft(undefined)
+                    }}
+                  >
+                    <Eye size={15} />
+                    Observe
+                  </button>
+                  <button className={draft ? 'active' : ''} onClick={() => !draft && edit()}>
+                    <Pencil size={15} />
+                    Edit
+                  </button>
                 </div>
                 <div className="actions">
                   {draft ? (
@@ -465,79 +487,7 @@ export default function App() {
                       <Trash2 size={17} />
                     </button>
                   )}
-                </div>
-              </div>
-              {conflict && (
-                <ErrorBox>
-                  The network changed on the server. Your draft is preserved. Discard it to load the
-                  latest configuration before editing again.
-                </ErrorBox>
-              )}
-              <div className="metrics">
-                <div>
-                  <Server size={18} />
-                  <span>
-                    Nodes
-                    <strong>
-                      {network.nodes.length}
-                      <small>
-                        {live
-                          ? `${
-                              network.nodes.filter(
-                                (n) =>
-                                  nodeState(
-                                    state.agents.find((a) => a.id === n.agent_id),
-                                    statuses.find((s) => s.agent_id === n.agent_id),
-                                    live,
-                                  ) === 'Online',
-                              ).length
-                            } online`
-                          : 'Status unavailable'}
-                      </small>
-                    </strong>
-                  </span>
-                </div>
-                <div>
-                  <Cable size={18} />
-                  <span>
-                    Edges
-                    <strong>
-                      {network.edges.length}
-                      <small>
-                        {live
-                          ? `${network.edges.filter((e) => edgeView(network, e, statuses, rates, live).state === 'Connected').length} connected`
-                          : 'Status unavailable'}
-                      </small>
-                    </strong>
-                  </span>
-                </div>
-                <div>
-                  <Activity size={18} />
-                  <span>
-                    Configuration
-                    <strong>
-                      {draft ? 'Draft' : `r${state.revision}`}
-                      {draft && <small>{dirty ? 'Unsaved changes' : 'No changes yet'}</small>}
-                    </strong>
-                  </span>
-                </div>
-              </div>
-              <div className="modebar">
-                <div className="segmented" role="group" aria-label="Topology mode">
-                  <button
-                    className={!draft ? 'active' : ''}
-                    onClick={() => {
-                      if (!dirty || confirm('Discard your unsaved topology changes?'))
-                        setDraft(undefined)
-                    }}
-                  >
-                    <Eye size={15} />
-                    Observe
-                  </button>
-                  <button className={draft ? 'active' : ''} onClick={() => !draft && edit()}>
-                    <Pencil size={15} />
-                    Edit
-                  </button>
+                  {sessionControls}
                 </div>
               </div>
               <Topology

@@ -497,6 +497,29 @@ fieldset:disabled select {
   margin-bottom: 16px;
   font-size: 11px;
 }
+.main.network-main {
+  padding-top: 16px;
+}
+.network-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.network-toolbar .actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.network-toolbar .actions button {
+  font-size: 11px;
+  padding: 7px 10px;
+}
+.network-toolbar .actions .icon {
+  padding: 7px;
+}
 .segmented {
   display: flex;
   gap: 2px;

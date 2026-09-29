@@ -340,7 +340,7 @@ test('live view: agreeing paths, report-time rates, preference editing and conne
   )
   await login(page)
   await page.getByRole('button', { name: 'Production backbone', exact: true }).click()
-  await expect(page.getByText('1 connected', { exact: true })).toBeVisible()
+  await expect(page.locator('.react-flow__edge')).toContainText('UDP · 17.5 ms')
   const update = structuredClone(fixture)
   for (const status of update.agents) {
     status.last_seen = '2026-01-01T00:00:02Z'
