@@ -28,6 +28,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Runnable agent CLI, durable private identity and cached configuration.
 - [x] Validate → persist → reconcile → ACK; old runtime retained on failed updates.
 - [ ] Per-network TUN, address/route setup and safe resource cleanup on all platforms.
+- [x] FreeBSD native IPv4/IPv6 TUN, full-MTU kernel I/O and live MTU reconciliation.
+- [ ] FreeBSD multi-host/NAT acceptance, older kernels and IPv6 same-IP prefix changes.
 - [x] Local recovery from fatal TUN I/O, independent runtime health and Linux offline recovery.
 - [x] Actual multi-hop IP forwarding and network/source admission enforcement.
 - [x] Native Linux IPv4/IPv6 overlays and underlays, all six IPv6 transports and mixed families.
@@ -275,3 +277,19 @@ Every feature below derives from the accepted proposal, including its suggestion
   vet, including vet for the integration-tagged adapter test, pass. Reproduction
   commands and precise remaining gaps are in the
   [Linux verification matrix](linux-operation.md#ipv4-and-ipv6-verification-matrix).
+
+- FreeBSD adapter: native FreeBSD 15.1/amd64 tests in QEMU/KVM verify exclusive
+  TUN allocation, both address families at MTUs 1280 and 9000, connected routes,
+  full-MTU UDP between kernel and Agent, interruptible idle reads, idempotent
+  close, explicit cleanup fallback and kernel cleanup after SIGKILL. IPv4/IPv6
+  address replacement preserves the connected route after retiring the old TUN.
+  An actual two-Network Agent updates MTUs in place without replacing its readers
+  or Mesh, then removes its devices at shutdown. The full Agent test package also
+  passes natively. Ten Linux race-enabled repetitions verify multi-Network MTU
+  transactions, rollback, rollback failure and recovery from the applied snapshot.
+  Full Linux Go race tests/vet, native TUN tests and the three-Agent IPv6/IPv6
+  TCP+UDP process test pass. Core cross-builds pass for FreeBSD amd64/arm64/386/arm/
+  riscv64, macOS/arm64, Windows/amd64 and Linux/arm64. Other platforms' native
+  adapters, FreeBSD multi-host/NAT acceptance,
+  earlier kernel versions and same-address IPv6 prefix changes remain open.
+  See [FreeBSD operation and reproduction](freebsd-operation.md).

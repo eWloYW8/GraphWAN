@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/netip"
 	"sync/atomic"
 	"time"
 
@@ -104,9 +105,9 @@ func (r *DataPlane) repairTunnels(now time.Time) {
 		if now.Before(old.retryAt) {
 			continue
 		}
-		cfg := old.Configuration()
-		// Native interfaces use fresh names. Never attach to a stale kernel object.
-		cfg.Name = ""
+		// Recover the applied snapshot, even if an interrupted in-place update
+		// left the failed device with a different kernel configuration.
+		cfg := tunnel.Config{Address: netip.PrefixFrom(network.Self.Address, network.CIDR.Bits()), MTU: network.MTU}
 		device, err := r.options.TunnelFactory(cfg)
 		if err != nil {
 			old.backoff = min(30*time.Second, 2*old.backoff)

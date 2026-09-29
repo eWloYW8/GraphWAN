@@ -58,6 +58,10 @@ func (d *recoveryDevice) Write(raw []byte) (int, error) {
 func (d *recoveryDevice) Close() error { d.once.Do(func() { close(d.done) }); return nil }
 
 func recoveryRuntime(t *testing.T) (*DataPlane, model.Snapshot, *atomic.Bool, *atomic.Int32) {
+	return recoveryRuntimeWithDevice(t, nil)
+}
+
+func recoveryRuntimeWithDevice(t *testing.T, wrap func(*recoveryDevice) tunnel.Device) (*DataPlane, model.Snapshot, *atomic.Bool, *atomic.Int32) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -72,7 +76,11 @@ func recoveryRuntime(t *testing.T) (*DataPlane, model.Snapshot, *atomic.Bool, *a
 		if fail.Load() {
 			return nil, errors.New("injected creation failure")
 		}
-		return &recoveryDevice{config: cfg, input: make(chan []byte, 1), output: make(chan []byte, 1), done: make(chan struct{})}, nil
+		device := &recoveryDevice{config: cfg, input: make(chan []byte, 1), output: make(chan []byte, 1), done: make(chan struct{})}
+		if wrap != nil {
+			return wrap(device), nil
+		}
+		return device, nil
 	}})
 	if err != nil {
 		t.Fatal(err)

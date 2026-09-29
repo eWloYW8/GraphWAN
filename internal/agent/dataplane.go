@@ -84,10 +84,24 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 	}
 	next := &runtimeState{snapshot: snapshot.Clone(), devices: map[model.ID]*runtimeTunnel{}}
 	prepared := []tunnel.Device{}
+	type mtuUpdate struct {
+		network       model.ID
+		device        *runtimeTunnel
+		setter        tunnel.MTUSetter
+		before, after int
+	}
+	var mtuUpdates []mtuUpdate
+	updatedMTUs := 0
 	committed := false
 	newMesh := false
 	defer func() {
 		if !committed {
+			for i := updatedMTUs - 1; i >= 0; i-- {
+				update := mtuUpdates[i]
+				if err := update.setter.SetMTU(update.before); err != nil {
+					r.failTunnel(update.network, update.device, fmt.Errorf("rollback TUN MTU: %w", err))
+				}
+			}
 			for _, device := range prepared {
 				device.Close()
 			}
@@ -99,9 +113,17 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 	for _, network := range snapshot.Networks {
 		cfg := tunnel.Config{Address: netip.PrefixFrom(network.Self.Address, network.CIDR.Bits()), MTU: network.MTU}
 		if previous != nil {
-			if old := previous.devices[network.ID]; old != nil && old.failure.Load() == nil && old.Configuration().Address == cfg.Address && old.Configuration().MTU == cfg.MTU {
-				next.devices[network.ID] = old
-				continue
+			if old := previous.devices[network.ID]; old != nil && old.failure.Load() == nil && old.Configuration().Address == cfg.Address {
+				before := old.Configuration().MTU
+				if before == cfg.MTU {
+					next.devices[network.ID] = old
+					continue
+				}
+				if setter, ok := old.Device.(tunnel.MTUSetter); ok {
+					mtuUpdates = append(mtuUpdates, mtuUpdate{network.ID, old, setter, before, cfg.MTU})
+					next.devices[network.ID] = old
+					continue
+				}
 			}
 		}
 		device, err := r.options.TunnelFactory(cfg)
@@ -128,6 +150,12 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 	next.router = router
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	for _, update := range mtuUpdates {
+		if err := update.setter.SetMTU(update.after); err != nil {
+			return fmt.Errorf("network %s: update TUN MTU: %w", update.network, err)
+		}
+		updatedMTUs++
 	}
 	if err := next.mesh.Apply(snapshot); err != nil {
 		return err

@@ -5,8 +5,10 @@ weighted multi-hop routing and peer-to-peer data transport.
 
 **Under development.** The repository is implementing the full design in
 `proposal.md`. The Linux CLI now supports authenticated TCP/UDP/QUIC/WS/WSS/gRPC multi-hop networking;
-the embedded React management UI supports topology editing and live status. Other
-platform adapters and the remaining acceptance items are still in progress.
+the embedded React management UI supports topology editing and live status.
+FreeBSD now has a native TUN adapter with verified kernel IPv4/IPv6 packet I/O
+and live MTU updates. Its multi-host acceptance, other platform adapters and the
+remaining acceptance items are still in progress.
 Progress and verification gaps are
 tracked in [the acceptance checklist](docs/implementation-status.md).
 
@@ -60,6 +62,8 @@ controller is unavailable.
 
 See [Linux operation and testing](docs/linux-operation.md) for behavior, current
 limits, and reproducible native tests.
+For the FreeBSD adapter, requirements and native checks, see
+[FreeBSD operation](docs/freebsd-operation.md).
 
 ## Development
 

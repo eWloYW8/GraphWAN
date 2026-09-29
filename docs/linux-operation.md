@@ -69,9 +69,10 @@ remains in progress. See the acceptance tracker.
 - The controller is used only for management, configuration and telemetry.
   Its absence does not cancel the runtime, peer reconnection or cached startup.
 
-Other operating systems currently return an explicit unsupported-TUN error when
-configured with a Network. This is an implementation gap, not the final platform
-support policy.
+FreeBSD has a [native adapter and separate verification guide](freebsd-operation.md).
+Windows, macOS and other BSD adapters remain incomplete and currently return an
+explicit unsupported-TUN error when configured with a Network. This is an
+implementation gap, not the final platform support policy.
 
 ## Reproduce native verification
 

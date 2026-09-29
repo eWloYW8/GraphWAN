@@ -18,7 +18,7 @@ type Config struct {
 	MTU     int
 }
 
-var validName = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`)
+var validName = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,14}$`)
 
 func (c Config) Validate() error {
 	if c.Name != "" && !validName.MatchString(c.Name) {
@@ -52,3 +52,10 @@ type Device interface {
 	Configuration() Config
 }
 type Factory func(Config) (Device, error)
+
+// MTUSetter optionally updates a live device without creating a second interface
+// with the same address. On error, the previous MTU remains in effect. Calls may
+// race with Configuration and Close; the adapter must serialize those operations.
+type MTUSetter interface {
+	SetMTU(int) error
+}
