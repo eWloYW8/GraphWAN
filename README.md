@@ -45,6 +45,10 @@ Open the controller URL in a browser and sign in to the management UI. See the
 [UI guide](docs/management-ui.md) and [management API](docs/control-api.md). Setting
 a different password environment variable on restart does not replace the stored password.
 
+The [administrative CLI](docs/admin-cli.md) supports `graphwan network create`,
+`graphwan network list`, `graphwan node list` and `graphwan edge add`, with JSON
+output, verified HTTPS and revision-checked updates.
+
 ## Run a Linux agent
 
 Create an enrollment token from **Agents → Enroll agent** or the

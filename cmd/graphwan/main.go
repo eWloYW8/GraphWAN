@@ -22,14 +22,14 @@ import (
 var version = "dev"
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	if err := run(os.Args[1:]); err != nil && !errors.Is(err, flag.ErrHelp) {
 		slog.Error("graphwan failed", "error", err)
 		os.Exit(1)
 	}
 }
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: graphwan server [flags] | agent [flags] | version")
+		return errors.New("usage: graphwan server | agent | network create/list | node list | edge add | version (use --help after a command)")
 	}
 	switch args[0] {
 	case "version":
@@ -39,6 +39,10 @@ func run(args []string) error {
 		return runAgent(args[1:])
 	case "server":
 		return runServer(args[1:])
+	case "network", "node", "edge":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return runAdmin(ctx, args, os.Stdout)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}

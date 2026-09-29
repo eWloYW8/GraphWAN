@@ -45,6 +45,12 @@ remaining acceptance items and detailed earlier evidence.
   enforced. Automatic path-MTU adaptation was a future suggestion and is not
   claimed. The [packet contract](peer-protocol.md#packet-bounds-and-backpressure)
   states queue limits, checksum responsibilities and fragmentation behavior.
+- The proposal's administrative command examples are implemented by the
+  [CLI](admin-cli.md): `network create`, `node list` and `edge add`, plus
+  `network list`. Real-controller TLS tests cover durable changes, Node membership
+  identity, revision conflicts, authentication and logout. HTTP fault fixtures
+  cover redirect refusal, deadlines and malformed responses; output failure after
+  commit is reported without implying rollback.
 
 ## Platform support
 
@@ -92,17 +98,22 @@ scenarios. Existing scenario results and reproduction commands are linked from
 the tracker and platform/transport guides. This audit does not claim all 24 were
 rerun in this change or that hosted CI ran; no Git remote is configured locally.
 
+The subsequent administrative CLI change passes the uncached full Linux Go gate
+(now sixteen test-bearing packages), including nine CLI test roots. Separate
+Linux CLI/controller process smoke checks pass with the generated CA, JSON
+creation/listing, help and failure exit codes. All 33 production targets were
+cross-built again and their target inventory, sizes and hashes verified. The
+frontend/native/packaging results above remain evidence for their earlier
+revisions; they were not rerun for the CLI-only change.
+
 ## Work still required before completion
 
-1. Implement the administrative command examples shown in the proposal:
-   `graphwan network create`, `graphwan node list`, and `graphwan edge add`.
-   The current CLI dispatch implements `server`, `agent` and `version`; the
-   corresponding administrative operations already exist in the UI/API.
-2. Finish the all-viable-Link capacity audit. TCP punch allowances now grow with
+1. Finish the all-viable-Link capacity audit. TCP punch allowances now grow with
    authorized topology and DNS answers, but native UDP and QUIC admission retain
-   fixed 512-entry limits, and gRPC has a fixed 512-stream Mesh allowance. Those
+   fixed 512-entry limits, and gRPC has a fixed 512-connection Mesh allowance
+   (its HTTP/2 stream allowance is separately 64 per connection). Those
    bounds must not silently exclude candidates of accepted configurations.
    Preserve bounded unauthenticated admission while fixing/retesting this case.
-3. After those implementation changes, complete the relevant Linux regression
+2. After those implementation changes, complete the relevant Linux regression
    and delivery gates, reconcile user/API/protocol documentation, and repeat the
    requirement audit. Until then, the final project checkbox remains open.

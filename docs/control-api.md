@@ -5,6 +5,9 @@ fields, multiple JSON values and bodies larger than 8 MiB are rejected. Error
 responses are `{ "error": "message" }`. HTTPS is the default; agent control
 requires TLS 1.3 and a controller-issued client certificate.
 
+The [administrative CLI](admin-cli.md) uses these session and revision contracts
+for Network creation/listing, Node listing and Edge creation.
+
 ## Browser session
 
 `POST /login` accepts `{ "password": "..." }`. On success the server sets a

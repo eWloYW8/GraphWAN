@@ -28,7 +28,7 @@ checks are listed separately from outstanding implementation work.
 - [x] TCP/UDP observed endpoint exchange and rendezvous through peer snapshots, never relay.
 - [x] Batched live telemetry, stale/offline state and bounded event streaming.
 - [x] Agent process CPU/Go memory/runtime telemetry with table and Node-detail display.
-- [ ] Administrative CLI examples from the proposal: `network create`, `node list`, `edge add`.
+- [x] Administrative CLI examples from the proposal: `network create`, `node list`, `edge add`; also `network list` for ID discovery.
 
 ## Agent and forwarding
 
@@ -990,3 +990,21 @@ These checks are not required for completion under the agreed Linux validation s
   the remaining administrative CLI examples and fixed UDP/QUIC/gRPC admission
   limits explicitly rather than treating the presence of existing modules as
   proof of full feature completion.
+
+- The proposal's administrative CLI commands now use the real controller API:
+  `network create`, `node list`, `edge add`, and `network list` for discovering
+  IDs. They preserve TLS verification, password sessions/CSRF and `If-Match`
+  concurrency protection; Edge additions retain all other configuration.
+  Results are JSON, and ambiguous mutation failures are never automatically
+  retried. [CLI operation](admin-cli.md) documents flags and recovery behavior.
+- Nine CLI test roots cover real TLS/store creation, multi-Network memberships,
+  complete Edge policy/defaults, configuration preservation, concurrent edits,
+  failed authentication, session invalidation, input validation, redirect refusal,
+  deadlines, malformed responses and output failure after commit. The uncached
+  full Linux race gate passes across sixteen test-bearing packages, with tracked
+  formatting, module integrity and vet. Separate Linux controller/CLI processes
+  pass trusted-TLS create/list, empty Node output, help and error-exit checks.
+- All 33 selected production targets cross-build after the CLI change; their
+  complete target set, byte sizes and SHA-256 digests were verified. No non-Linux
+  binary was executed. The all-viable-Link admission audit and final project
+  acceptance remain open; the administrative CLI item is complete.
