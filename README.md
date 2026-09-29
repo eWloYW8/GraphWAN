@@ -3,23 +3,6 @@
 A centrally managed overlay network with administrator-defined graph topology,
 weighted multi-hop routing and peer-to-peer data transport.
 
-GraphWAN implements the accepted proposal with a Go controller and Agent,
-an embedded React management UI, and authenticated TCP/UDP/QUIC/WS/WSS/gRPC
-transport. The UI supports graph editing, live status and Link preferences;
-the administrative CLI supports Network creation, Node listing and Edge creation.
-
-Runtime acceptance is on Linux, including 24 isolated three-Agent network
-scenarios. Windows, macOS, FreeBSD, OpenBSD, NetBSD and DragonFly adapters have
-source review and cross-build evidence; complete native validation on those
-systems is optional. The [acceptance audit](docs/acceptance-audit.md) maps the
-requirements to implementation, tests and operational limits. Deployment
-instructions and distribution packaging are in [the deployment guide](docs/deployment.md).
-
-The controller manages multiple networks and distributes durable configuration.
-Agents own TUN interfaces, authenticate their neighbors and forward packets along
-compiled routes. Each logical edge can retain several transport links with one
-active link and automatic failover. The controller does not relay user traffic.
-
 ## Run the controller
 
 ```sh
@@ -105,8 +88,3 @@ pnpm --dir web test
 pnpm --dir web exec playwright install chromium
 pnpm --dir web test:e2e
 ```
-
-See [architecture](docs/architecture.md) for domain boundaries and invariants.
-See [build and CI verification](docs/continuous-integration.md) for the native
-test gates, Linux network matrix and cross-build commands.
-Changes use Conventional Commits (`feat:`, `fix:`, `test:`, `docs:`, `build:`).
