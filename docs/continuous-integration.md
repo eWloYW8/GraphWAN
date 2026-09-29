@@ -116,6 +116,30 @@ for reproducible revision artifacts. Keep the output outside that checkout.
 binary paths, sizes and SHA-256 hashes. A manifest is written only after all
 selected builds succeed; failed builds remove any prior manifest at that output.
 
+For a reproducibility comparison, build the same committed revision from two
+clean checkouts in different absolute paths and compare the binaries and
+manifests. Keep output directories outside both checkouts. For example:
+
+```sh
+work=$(mktemp -d)
+git clone --no-hardlinks . "$work/first"
+git clone --no-hardlinks . "$work/second"
+python3 "$work/first/scripts/cross-build.py" --target linux/amd64 --output "$work/build-first"
+python3 "$work/second/scripts/cross-build.py" --target linux/amd64 --output "$work/build-second"
+cmp "$work/build-first/linux-amd64/graphwan" "$work/build-second/linux-amd64/graphwan"
+cmp "$work/build-first/manifest.json" "$work/build-second/manifest.json"
+```
+
+This comparison passes for `linux/amd64` at revision
+`29ed0f66cd2135fe2e684139dbc14a8586be76ea` with Go 1.26.8 on Linux amd64.
+One checkout path contains spaces; its environment also sets conflicting
+`GOAMD64`, `GOARM` and `GOFLAGS`, which the build script overrides. Both clean
+checkouts produce a 17,371,298-byte binary with SHA-256
+`4847a801d6fd16cd196f53e5679e0f8e6c11748cb228c3de45166e163415663c`
+and identical manifests. This is evidence for that target/toolchain/revision;
+the other 32 targets have successful build/hash verification, not repeated-build
+or cross-host reproducibility evidence.
+
 These are build-verification binaries, not complete distribution packages.
 Windows Agents still need the [Wintun DLL](windows-operation.md). Successful
 cross-compilation does not establish native execution or TUN support: the

@@ -459,3 +459,8 @@ Every feature below derives from the accepted proposal, including its suggestion
   and macOS results, remains pending. Cross-build artifacts do not establish
   complete distribution packaging or native platform acceptance. Commands,
   matrix and limitations are in [build and CI verification](continuous-integration.md).
+  Two independent clean checkouts of revision `29ed0f66cd21` also produce
+  byte-identical Linux amd64 binaries and manifests with Go 1.26.8, despite
+  different absolute paths (one with spaces) and conflicting local CPU/build
+  flags. Other targets' repeat-build and cross-host reproducibility, complete
+  packaging and deployment examples remain open.
