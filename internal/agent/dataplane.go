@@ -51,6 +51,9 @@ func NewDataPlane(parent context.Context, identity ed25519.PrivateKey, options D
 		return nil, errors.New("invalid agent identity")
 	}
 	if options.TunnelFactory == nil {
+		if err := tunnel.Recover(); err != nil {
+			return nil, fmt.Errorf("recover owned TUN devices: %w", err)
+		}
 		options.TunnelFactory = tunnel.Open
 	}
 	if options.Logger == nil {

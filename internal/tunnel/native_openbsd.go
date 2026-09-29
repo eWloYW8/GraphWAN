@@ -39,6 +39,7 @@ type openBSDIfreq struct {
 type openBSDDevice struct {
 	*framedDevice
 	index int
+	lease *openBSDLease
 }
 
 func openBSDInterfaceIOCTL(fd int, operation uintptr, name string) error {
@@ -102,15 +103,24 @@ func Open(config Config) (_ Device, resultError error) {
 	}
 	defer unix.Close(control)
 	name := config.Name
+	var lease *openBSDLease
 	for attempt := 0; attempt < 16; attempt++ {
 		if config.Name == "" {
 			var raw [2]byte
 			rand.Read(raw[:])
 			name = "tun" + strconv.Itoa(int(binary.BigEndian.Uint16(raw[:])))
 		}
+		lease, err = newOpenBSDLease(name)
+		if err != nil {
+			return nil, err
+		}
 		err = openBSDInterfaceIOCTL(control, unix.SIOCIFCREATE, name)
 		if err == nil {
 			break
+		}
+		cleanupError := lease.close()
+		if cleanupError != nil {
+			return nil, errors.Join(err, cleanupError)
 		}
 		if config.Name != "" || !errors.Is(err, unix.EEXIST) {
 			return nil, fmt.Errorf("create owned TUN (requires root): %w", err)
@@ -121,7 +131,7 @@ func Open(config Config) (_ Device, resultError error) {
 	}
 	iface, err := net.InterfaceByName(name)
 	if err != nil {
-		return nil, errors.Join(err, openBSDInterfaceIOCTL(control, unix.SIOCIFDESTROY, name))
+		return nil, errors.Join(err, openBSDInterfaceIOCTL(control, unix.SIOCIFDESTROY, name), lease.close())
 	}
 	var device *openBSDDevice
 	success := false
@@ -130,15 +140,18 @@ func Open(config Config) (_ Device, resultError error) {
 			if device != nil {
 				resultError = errors.Join(resultError, device.Close())
 			} else {
-				resultError = errors.Join(resultError, destroyOpenBSDInterface(name, iface.Index))
+				resultError = errors.Join(resultError, destroyOpenBSDInterface(name, iface.Index), lease.close())
 			}
 		}
 	}()
+	if _, err := openBSDDescription(name, openBSDMarker(lease.token, iface.Index)); err != nil {
+		return nil, err
+	}
 	// Only a few /dev/tunN nodes exist by default. Create a private device node
 	// for the atomically allocated unit; /tmp can be mounted nodev. Remove the
 	// node and private directory after opening, without touching /dev/tunN.
-	directory, err := os.MkdirTemp("/dev", "graphwan-")
-	if err != nil {
+	directory := filepath.Join("/dev", "graphwan-"+lease.token)
+	if err := os.Mkdir(directory, 0700); err != nil {
 		return nil, err
 	}
 	nodeDirectory := directory
@@ -159,8 +172,8 @@ func Open(config Config) (_ Device, resultError error) {
 	config.Name = name
 	device = &openBSDDevice{framedDevice: &framedDevice{
 		file: os.NewFile(uintptr(fd), path), config: config, ipv6Family: unix.AF_INET6,
-		cleanup: func() error { return destroyOpenBSDInterface(name, iface.Index) },
-	}, index: iface.Index}
+		cleanup: lease.close,
+	}, index: iface.Index, lease: lease}
 	if err := device.setMTU(config.MTU); err != nil {
 		return nil, err
 	}
@@ -250,6 +263,10 @@ func (d *openBSDDevice) checkOwnership() error {
 	iface, err := net.InterfaceByName(d.config.Name)
 	if err != nil || iface.Index != d.index {
 		return fmt.Errorf("%w: owned TUN identity changed", ErrUnavailable)
+	}
+	description, err := openBSDDescription(d.config.Name, "")
+	if err != nil || description != openBSDMarker(d.lease.token, d.index) {
+		return fmt.Errorf("%w: owned TUN marker changed: %v", ErrUnavailable, err)
 	}
 	return nil
 }

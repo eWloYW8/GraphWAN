@@ -3,8 +3,9 @@
 The OpenBSD TUN adapter has native kernel and Agent configuration evidence on
 OpenBSD 7.9/amd64. It supports IPv4/IPv6 packet I/O, live address/prefix/MTU changes,
 route-conflict rollback and owned-interface cleanup. **Complete OpenBSD networking
-is not accepted yet:** multi-host/NAT and crash recovery remain open. Native
-transport and Mesh tests pass for both IPv4 and IPv6 underlay connections. See the [acceptance tracker](implementation-status.md).
+is not accepted yet:** multi-host/NAT and interruption before an interface is
+marked remain open. Configured TUN crash recovery and native transport/Mesh tests
+pass for both IP families. See the [acceptance tracker](implementation-status.md).
 
 ## Build and run
 
@@ -109,15 +110,52 @@ foreign equal-prefix routes independently of enumeration order. Both Darwin
 architectures also cross-build after extracting the common BSD route reader.
 These are kernel/component checks, not three-host forwarding acceptance.
 
+## Recovery after process termination
+
+Before applying any cached configuration, the native Agent factory recovers
+orphaned marked interfaces, even if no Networks remain in its new configuration.
+Opening a TUN also runs recovery. Each device holds an exclusive advisory lock
+on a root-owned, mode-0600 record under `/var/run/graphwan-tun` (mode 0700).
+The record's filename is a random 128-bit token and has no mutable payload;
+its file and parent directory are synced before kernel creation. A separate
+registry lock serializes publication and recovery with bounded waiting.
+
+The interface description contains the token and the original kernel interface
+index. Recovery requires an unlocked record and an exact marker/index match.
+A living Agent keeps its record locked; a same-name replacement with a different
+index, an unmarked interface or an altered description is preserved. Changing
+the description revokes GraphWAN ownership and prevents further reconfiguration
+or automatic destruction. Do not edit it during normal operation.
+
+Normal close destroys the owned interface and removes its record. Failed cleanup
+retains the record for retry. Recovery also removes the token-derived private
+`/dev/graphwan-TOKEN/tun` node/directory if interrupted during opening; it never
+changes public `/dev/tunN` nodes. Registry opens reject symlinks, hard-linked or
+non-private records and non-root ownership. The empty registry and `.lock` file
+remain for reuse; do not delete records or the registry lock while Agents run.
+Privileged administrators must coordinate with the Agent;
+these checks do not lock out concurrent root changes to the kernel.
+
+Native subprocess tests send SIGKILL after IPv4/IPv6 configuration, then verify
+cleanup and reuse of the same address/subnet with bidirectional full-MTU kernel
+traffic. They also verify a surviving concurrent owner, same-name replacements,
+changed descriptions, interrupted record publication, and Agent startup without
+opening any new TUN. Thirty concurrent close/recovery iterations and rejection
+of symlinked, hard-linked, public or non-root records also pass. These tests join
+the required native-result gate.
+
 ## Known incomplete behavior
 
-- **SIGKILL recovery:** an atomically cloned OpenBSD TUN remains allocated after
-  its descriptor closes, unlike a TUN created implicitly by opening `/dev/tunN`.
-  The latter can adopt an existing interface and is not used. Normal shutdown
-  cleans up, but a killed process can leave its owned interface/routes behind;
-  automatic verified cleanup on restart is not implemented. After confirming
-  ownership and stopping the Agent, use `ifconfig tunN destroy` to remove that
-  specific residual interface. Never delete other applications' TUNs.
+- **Interruption before ownership marking:** OpenBSD clones survive descriptor
+  close ([tun(4)](https://man.openbsd.org/tun.4)). GraphWAN now recovers marked
+  interfaces after SIGKILL, but interface creation and description assignment
+  are separate kernel operations. A kill between those operations can leave an
+  unmarked, unconfigured TUN. It has no GraphWAN address or subnet route, so it
+  does not block cached-network restart, but its ownership cannot be proven.
+  It is deliberately left untouched. Older GraphWAN versions also created
+  unmarked TUNs. After independently confirming ownership and stopping the Agent,
+  use `ifconfig tunN destroy` for the specific residual interface. Never delete
+  other applications' TUNs.
 - Native physical-interface classification, scoped link-local endpoints,
   multi-host forwarding/NAT, nonzero routing domains, other OpenBSD releases and
   other CPU architectures still need implementation or acceptance evidence.

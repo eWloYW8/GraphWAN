@@ -33,7 +33,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [ ] FreeBSD multi-host/NAT acceptance and older kernels.
 - [x] OpenBSD native IPv4/IPv6 TUN, live configuration, route rollback and ownership checks.
 - [x] Coordinated IPv4/IPv6 listeners with native OpenBSD transport/Mesh evidence.
-- [ ] OpenBSD crash recovery and multi-host/NAT acceptance.
+- [x] OpenBSD marked-TUN SIGKILL recovery, including startup with no Networks.
+- [ ] OpenBSD pre-marker creation-window cleanup and multi-host/NAT acceptance.
 - [x] macOS utun adapter code and Intel/Apple Silicon cross-builds.
 - [ ] Native macOS utun/route/reconfiguration, multi-host and NAT acceptance.
 - [x] Windows Wintun adapter code, pinned DLL retrieval and amd64/arm64/386 cross-builds.
@@ -495,7 +496,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   without skips; the complete Mesh suite passes 66 tests/subtests, including
   IPv6 DNS/punch and live policy edits across all six transports. Required socket
   gates now include dual-family TCP, QUIC, TCP/UDP STUN, cleanup and peer bounds.
-  SIGKILL cleanup/restart recovery, authoritative interface discovery and
+  Pre-marker creation-window cleanup, authoritative interface discovery and
   multi-host/NAT acceptance are still required. Other OpenBSD architectures have
   compile evidence only. See [OpenBSD operation](openbsd-operation.md).
   This listener change passes the uncached Linux full-repository race/vet gate
@@ -504,3 +505,21 @@ Every feature below derives from the accepted proposal, including its suggestion
   targets build with the pinned toolchain; manifest sizes and SHA-256 hashes
   match the artifacts. These cross-builds are not native Windows/macOS/BSD
   execution evidence.
+
+- OpenBSD process recovery: root-private immutable token records are locked for
+  each device's lifetime and published durably before interface creation. The
+  kernel description binds the token to the original interface index; startup
+  and per-Open recovery only destroy matching orphan interfaces. Native tests
+  kill real subprocesses, recover IPv4/IPv6 subnets and verify full-MTU kernel
+  I/O, preserve live owners and replaced/retagged interfaces, retire unpublished
+  records, and recover during Agent startup with no new TUN. Recovery tests are
+  required by the native JSON gate. A kill before the kernel ownership marker
+  is assigned can still leave an unconfigured interface; it is preserved because
+  its ownership cannot be proved. See [OpenBSD operation](openbsd-operation.md).
+  The final OpenBSD native TUN suite passes 31 tests/subtests without skips,
+  including 30 close/recovery races and rejection of symlinked, hard-linked,
+  public or non-root records. Earlier repeated recovery runs also pass. The
+  Agent multi-Network reconciliation/rollback test passes natively. Linux
+  uncached full race tests and vet pass; all six OpenBSD integration targets
+  build and pass vet. All 33 production targets cross-build with verified
+  manifest sizes/hashes. Only OpenBSD amd64 has native recovery evidence.

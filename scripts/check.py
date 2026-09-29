@@ -33,7 +33,7 @@ NATIVE = {
         "discovery": ["TestNativeFreeBSDInterfaceDiscovery"],
     },
     "openbsd": {
-        "tunnel": ["TestNativeOpenBSDTunnel", "TestNativeOpenBSDConfiguration", "TestNativeOpenBSDRouteConflict", "TestNativeOpenBSDOwnership"],
+        "tunnel": ["TestNativeOpenBSDTunnel", "TestNativeOpenBSDConfiguration", "TestNativeOpenBSDRouteConflict", "TestNativeOpenBSDOwnership", "TestNativeOpenBSDCrashRecovery", "TestNativeOpenBSDRecoveryOwnership", "TestNativeOpenBSDRecoveryWithoutOpen", "TestNativeOpenBSDRecoveryIncompleteRecord", "TestNativeOpenBSDRecoveryRecordProtection", "TestNativeOpenBSDRecoveryConcurrentClose"],
         "agent": ["TestNativeBSDConfigurationReconcile"],
     },
 }
