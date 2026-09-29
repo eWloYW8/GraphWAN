@@ -45,6 +45,17 @@ function Login({ ready }: { ready: (csrf: string) => void }) {
           GraphWAN
         </a>
         <div>
+          <div className="eyebrow">YOUR NETWORK. YOUR TOPOLOGY.</div>
+          <h1>
+            Every connection,
+            <br />
+            on your terms.
+          </h1>
+          <p>
+            Define the graph. Choose the paths.
+            <br />
+            Keep your networks connected.
+          </p>
           <div className="login-graph" aria-hidden="true">
             <span>01</span>
             <i />
@@ -53,6 +64,7 @@ function Login({ ready }: { ready: (csrf: string) => void }) {
             <span>03</span>
           </div>
         </div>
+        <small>Central control · Peer-to-peer data</small>
       </div>
       <main className="login-form">
         <form
@@ -74,8 +86,9 @@ function Login({ ready }: { ready: (csrf: string) => void }) {
             }
           }}
         >
-          <h1>Sign in</h1>
-
+          <div className="eyebrow">CONTROLLER ACCESS</div>
+          <h2>Welcome back</h2>
+          <p className="muted">Sign in to manage your GraphWAN networks.</p>
           {error && <ErrorBox>{error}</ErrorBox>}
           <Field label="Administrator password">
             <input
@@ -91,6 +104,9 @@ function Login({ ready }: { ready: (csrf: string) => void }) {
             {busy ? 'Signing in…' : 'Sign in'}
             <ArrowUpRight size={17} />
           </button>
+          <small className="muted">
+            Use the administrator password configured on this controller.
+          </small>
         </form>
       </main>
     </div>
@@ -509,9 +525,7 @@ export default function App() {
             <>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">YOUR WORKSPACE</div>
                   <h1>Networks</h1>
-                  <p>Build the connections your infrastructure needs.</p>
                 </div>
                 <button className="primary" onClick={beginNetwork}>
                   <Plus size={17} />
@@ -559,8 +573,7 @@ export default function App() {
               ) : (
                 <div className="empty-page">
                   <NetworkIcon size={35} />
-                  <h2>Design your first network</h2>
-                  <p>Choose a subnet, add your agents, and draw the connections.</p>
+                  <h2>No networks</h2>
 
                   <button className="primary" onClick={beginNetwork}>
                     Create a network
@@ -580,9 +593,6 @@ export default function App() {
               Licenses
             </a>
           </span>
-          {view === 'networks' && !network && (
-            <span>Explicit topology. Autonomous connectivity.</span>
-          )}
         </footer>
       </div>
       {modal === 'enroll' && <Enrollment csrf={csrf} close={() => setModal(null)} />}
