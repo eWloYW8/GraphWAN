@@ -32,8 +32,12 @@ NATIVE = {
         "agent": ["TestNativeBSDConfigurationReconcile"],
         "discovery": ["TestNativeFreeBSDInterfaceDiscovery"],
     },
+    "openbsd": {
+        "tunnel": ["TestNativeOpenBSDTunnel", "TestNativeOpenBSDConfiguration", "TestNativeOpenBSDRouteConflict", "TestNativeOpenBSDOwnership"],
+        "agent": ["TestNativeBSDConfigurationReconcile"],
+    },
 }
-OPT_IN = {"darwin": "GRAPHWAN_TEST_MACOS", "windows": "GRAPHWAN_TEST_WINDOWS", "freebsd": "GRAPHWAN_TEST_VM"}
+OPT_IN = {"darwin": "GRAPHWAN_TEST_MACOS", "windows": "GRAPHWAN_TEST_WINDOWS", "freebsd": "GRAPHWAN_TEST_VM", "openbsd": "GRAPHWAN_TEST_VM"}
 SOCKET_GATES = {
     "transport": ["TestUDPWildcardReplySource"],
     # Run the complete Mesh package; these mandatory roots also catch missing
@@ -212,7 +216,7 @@ def check_native(logs):
             privilege = [] if system != "windows" and os.geteuid() == 0 else ["sudo", "-n"]
             if system == "linux":
                 args = [*privilege, "unshare", "--net", "env", "GRAPHWAN_TEST_NETNS=1", *args]
-            elif system in ("darwin", "freebsd"):
+            elif system in ("darwin", "freebsd", "openbsd"):
                 args = [*privilege, "env", OPT_IN[system] + "=1", *args]
             output = run(args, env=env, log=logs / f"native-{package}.jsonl")
             require_native_pass(output, expected)

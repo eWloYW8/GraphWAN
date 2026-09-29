@@ -31,6 +31,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] FreeBSD native IPv4/IPv6 TUN, full-MTU kernel I/O and live MTU reconciliation.
 - [x] FreeBSD live address/prefix/MTU edits, multi-Network rollback and applied-state recovery.
 - [ ] FreeBSD multi-host/NAT acceptance and older kernels.
+- [x] OpenBSD native IPv4/IPv6 TUN, live configuration, route rollback and ownership checks.
+- [ ] OpenBSD dual-stack underlay listeners, crash recovery and multi-host/NAT acceptance.
 - [x] macOS utun adapter code and Intel/Apple Silicon cross-builds.
 - [ ] Native macOS utun/route/reconfiguration, multi-host and NAT acceptance.
 - [x] Windows Wintun adapter code, pinned DLL retrieval and amd64/arm64/386 cross-builds.
@@ -469,3 +471,24 @@ Every feature below derives from the accepted proposal, including its suggestion
   settings, module mode, target and compiler flags. Cross-builds now isolate
   these settings for toolchain probes as well as compilation and record them
   in the manifest; native RISC-V and cross-host execution remain unverified.
+
+- OpenBSD TUN: production and integration binaries build for amd64, 386, arm,
+  arm64, ppc64 and riscv64, with integration-tagged vet. A disposable OpenBSD
+  7.9/amd64 VM verifies both IP families at MTUs 1280/9000, exact subnet routes,
+  full-MTU bidirectional kernel UDP, exclusive allocation, blocked-read close,
+  seven configuration migrations and route-conflict rollback. Replacement tests
+  revoke the original descriptor and verify that its update/close cannot change
+  a same-name replacement or adopt an idle foreign TUN. Repeated native runs and
+  the real Agent multi-Network configuration/rollback/cleanup test pass; strict
+  JSON gates reject skips. Private device nodes/directories and owned interfaces
+  are removed on normal close and failed creation. IPv6 configuration waits for
+  DAD completion; route commands use explicit link-layer interface addresses.
+  The shared BSD route reader also cross-builds for both macOS architectures;
+  portable race tests reject foreign equal-prefix routes regardless of list order.
+  Full Linux race tests and vet pass.
+  Native transport testing also establishes an open defect: default wildcard
+  listeners on OpenBSD are IPv4-only. The IPv6 UDP wildcard cases and the IPv6
+  DNS/policy tests across all six transports fail; they remain enabled. Coordinated
+  IPv4/IPv6 listeners, SIGKILL cleanup/restart recovery, authoritative interface
+  discovery and multi-host/NAT acceptance are still required. Other architectures
+  have compile evidence only. See [OpenBSD operation](openbsd-operation.md).

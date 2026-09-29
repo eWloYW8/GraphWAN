@@ -1,4 +1,4 @@
-//go:build (freebsd || darwin) && integration
+//go:build (freebsd || darwin || openbsd) && integration
 
 package agent
 

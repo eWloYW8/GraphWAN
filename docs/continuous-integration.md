@@ -68,6 +68,10 @@ running the same command. Windows requires an elevated terminal and
 `GRAPHWAN_TEST_WINDOWS=1`; use `python` if that is the installed command name.
 The script downloads the pinned, verified Wintun DLL into the test binary's
 temporary directory. See [Windows operation](windows-operation.md).
+OpenBSD can run the TUN/Agent `native` gate on a disposable root host with
+`GRAPHWAN_TEST_VM=1`; see [OpenBSD operation](openbsd-operation.md). Its full
+Go/socket gate currently fails the documented IPv6 wildcard-listener cases,
+and no hosted OpenBSD job is enabled yet.
 
 The FreeBSD CI job cross-compiles with the pinned Go toolchain and executes using
 [vmactions/freebsd-vm](https://github.com/vmactions/freebsd-vm/tree/a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff).
