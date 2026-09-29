@@ -177,6 +177,25 @@ of this configuration's estimated wire-efficiency ceiling, rather than 94%
 of the bare-LAN iperf result. Reaching the bare 940 Mbps would require changing
 the MTU or encapsulation assumptions as well as reducing processing overhead.
 
+## k6 to debian host-local test
+
+After deploying the same optimized release to k6, iperf3 TCP traffic from
+k6 (10.0.76.5) to debian (10.0.76.1), over GraphWAN UDP/IPv4 direct with
+MTU 1280 and ChaCha20-Poly1305, measured 6.883, 6.877 and 6.835 Gbps
+in three 20-second runs (2-second warm-up omitted). Median: 6.877 Gbps.
+Agent CPU averaged 200.1–200.6% on k6 and 223.2–223.7% on debian, sampled
+over 25 seconds including startup and warm-up; 100% is one logical core.
+Four parallel TCP flows measured 6.755 Gbps, with 209.3% and 232.3% CPU,
+respectively, so this run did not improve throughput.
+
+The direct-IP baseline was 27.781 Gbps. Debian is k6's LXC container 100,
+reached over vmbr1/veth100i0, so this is a host-local virtual-bridge baseline,
+not a measurement through the 1 Gbps physical NIC. Both Agents share the
+same physical CPU. These results measure software forwarding on this host
+and do not establish wire-speed performance on a 10/25 Gbps external link.
+The automatic path remained UDP/IPv4 in the before/after snapshots; no
+network settings were changed for the test.
+
 ## Reproduce and validate
 
 Record the active transport/address from both Agents' telemetry before and after
