@@ -40,6 +40,7 @@ NATIVE = {
     "netbsd": {
         "tunnel": ["TestNetBSDIOCTLLayout", "TestNativeNetBSDTunnel", "TestNativeNetBSDConfiguration", "TestNativeNetBSDRouteConflict", "TestNativeNetBSDOwnership", "TestNativeNetBSDMTULimit", "TestNativePersistentBSDCrashRecovery", "TestNativePersistentBSDRecoveryOwnership", "TestNativePersistentBSDRecoveryWithoutOpen", "TestNativePersistentBSDRecoveryIncompleteRecord", "TestNativePersistentBSDRecoveryRecordProtection", "TestNativePersistentBSDRecoveryConcurrentClose"],
         "agent": ["TestNativeBSDConfigurationReconcile"],
+        "discovery": ["TestNativeNetBSDInterfaceDiscovery"],
     },
 }
 OPT_IN = {"darwin": "GRAPHWAN_TEST_MACOS", "windows": "GRAPHWAN_TEST_WINDOWS", "freebsd": "GRAPHWAN_TEST_VM", "openbsd": "GRAPHWAN_TEST_VM", "netbsd": "GRAPHWAN_TEST_VM"}

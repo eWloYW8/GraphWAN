@@ -54,7 +54,13 @@ and interface down/up behavior. Physical Wi-Fi/MBIM hardware has classification
 unit coverage but has not been tested natively. See
 [OpenBSD operation](openbsd-operation.md#physical-interface-discovery).
 
-NetBSD, DragonFly and macOS still use name/MAC heuristics. Authoritative
+NetBSD shares the kernel type/cloner classifier with OpenBSD. Its native
+NetBSD 11.0/amd64 tests reject TAP, TUN, bridge, vether, VLAN, agr and lagg
+interfaces while observing IPv4/IPv6 changes on an independent virtio NIC.
+Descriptions do not influence classification or endpoint IDs. See
+[NetBSD operation](netbsd-operation.md#physical-interface-discovery).
+
+DragonFly and macOS still use name/MAC heuristics. Authoritative
 classification there, native Windows acceptance and IPv6 link-local scope
 mapping remain incomplete.
 

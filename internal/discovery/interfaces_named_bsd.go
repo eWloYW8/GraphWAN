@@ -1,4 +1,4 @@
-//go:build openbsd
+//go:build openbsd || netbsd
 
 package discovery
 
@@ -44,7 +44,7 @@ func physicalInterfaces(interfaces []net.Interface) (map[int]bool, error) {
 				kind = metric.Type
 			}
 		}
-		result[iface.Index] = openBSDPhysical(kind, message.Name, cloners)
+		result[iface.Index] = namedBSDPhysical(kind, message.Name, cloners)
 	}
 	return result, nil
 }

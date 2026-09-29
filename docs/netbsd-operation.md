@@ -77,10 +77,11 @@ serialized with GraphWAN's transactions.
 Run only in a disposable root NetBSD guest with explicit opt-in. With Go and Python in the guest:
 
 ```sh
-GRAPHWAN_TEST_VM=1 python3 scripts/check.py native --logs /tmp/graphwan-native
+GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vioif1 python3 scripts/check.py native --logs /tmp/graphwan-native
 ```
 
-The gate requires named TUN and Agent tests and rejects skipped subtests.
+The gate requires named TUN, Agent and discovery tests and rejects skipped subtests.
+Discovery needs the spare NIC described below.
 Cross-compiling requires no Go installation in the guest:
 
 ```sh
@@ -109,3 +110,48 @@ ad0bc2786b2cd8b7c140ae108fd780064465fe06337a3a2c3f3b694ed3a1e042b3d401c9a682be02
 A disposable qcow2 overlay was expanded to 8 GiB and booted with virtio networking
 and a virtio random source. The guest entropy requirement was zero before SSH
 host keys were regenerated. No host-network interfaces or routes were modified.
+
+
+## Physical-interface discovery
+
+Automatic endpoints use the routing interface snapshot's kernel type/name and
+`SIOCIFGCLONERS`, shared with OpenBSD. The classifier accepts supported hardware
+link types and rejects every registered clone driver, including Ethernet-shaped
+software interfaces. It does not infer hardware from a MAC address or editable
+description. Interface names and indices must match the collected snapshot;
+a stale identity fails discovery rather than publishing a partial result.
+Automatic endpoints remain TCP/UDP only.
+
+Native NetBSD 11.0/amd64 tests use a separate configured management NIC and a
+spare `vioif1`, initially down, without global-unicast addresses or a description.
+Keep dynamic address managers off the spare NIC during testing. For the
+disposable live-image guest, `dhcpcd -k vioif1` releases that interface's lease
+without stopping management-interface DHCP; then `ifconfig vioif1 down` prepares
+it. Verify the fixture state before running the gate. These preparation commands
+belong only in the disposable guest.
+
+```sh
+CGO_ENABLED=0 GOOS=netbsd GOARCH=amd64 go test -c -tags integration -o discovery.test ./internal/discovery
+# Copy into the guest and run there:
+env GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vioif1 \
+  ./discovery.test -test.v -test.count=3 -test.timeout=90s
+```
+
+The tests create TAP, TUN, bridge, vether, VLAN, agr and lagg fixtures, including
+addressed Ethernet clones with misleading descriptions. They verify clone
+exclusion, stable endpoint IDs, IPv4/IPv6 address addition/removal, interface
+down/up and stale-identity rejection. Cleanup preserves original link-local
+addresses, removes only test-created resources and returns the spare NIC to its
+initial state. NetBSD's empty-description setter retains an empty description;
+the fixture uses `-description` to remove it completely.
+
+VLAN cleanup first detaches the parent and waits for the kernel to report link
+down. Direct destruction of an attached VLAN in the NetBSD 11.0 guest hung in
+`iflnkst`: [`if_detach` and the link worker](https://github.com/NetBSD/src/blob/netbsd-11/sys/net/if.c)
+acquire the same interface lock while destruction waits for queued work. Separating parent detachment and destruction avoids the
+observed wait. This is test-fixture cleanup; production discovery is read-only.
+
+The complete discovery package passes three consecutive native runs with no
+skips. Hardware Wi-Fi/MBIM and other physical NICs have classification-unit
+coverage but no native hardware evidence. IPv6 link-local scope mapping and
+multi-host/NAT acceptance remain open.

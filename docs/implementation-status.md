@@ -37,7 +37,7 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [ ] OpenBSD pre-marker creation-window cleanup and multi-host/NAT acceptance.
 - [x] NetBSD native dual-stack TUN, MTU validation, live edits and route rollback.
 - [x] NetBSD marked-TUN SIGKILL recovery and multi-Network Agent configuration/shutdown.
-- [ ] NetBSD discovery, multi-host/NAT, pre-marker interruption and other-architecture native acceptance.
+- [ ] NetBSD multi-host/NAT, pre-marker interruption and other-architecture native acceptance.
 - [x] macOS utun adapter code and Intel/Apple Silicon cross-builds.
 - [ ] Native macOS utun/route/reconfiguration, multi-host and NAT acceptance.
 - [x] Windows Wintun adapter code, pinned DLL retrieval and amd64/arm64/386 cross-builds.
@@ -52,6 +52,7 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
 - [x] FreeBSD kernel driver/type discovery with native renamed-interface and address-change tests.
 - [x] OpenBSD kernel type/cloner discovery with native clone exclusion and address-change tests.
+- [x] NetBSD kernel type/cloner discovery with native clone exclusion and address-change tests.
 - [ ] Manual hostname/path endpoints and configurable listeners (default 24752), full platform acceptance.
 - [x] Per-address DNS Candidates across all six transports, refresh, preference and healthy rekey on Linux.
 - [x] Windows UDP packet-info implementation and portable 32/64-bit ABI validation.
@@ -419,7 +420,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   port failure, exhaustion, cancellation and release of failed TCP reservations.
   Production, discovery and Mesh tests cross-compile for Windows amd64/arm64/386,
   macOS arm64, FreeBSD amd64 and Linux arm64. Native Windows discovery, authoritative
-  NetBSD/DragonFly/macOS classification and IPv6 link-local scope mapping remain open, so the
+  DragonFly/macOS classification and IPv6 link-local scope mapping remain open, so the
   overall interface-discovery acceptance item is still unchecked. See
   [endpoint discovery and updates](endpoint-resolution.md).
 
@@ -445,7 +446,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   The Go 1.26.8 i386 discovery binary and a minimal Go hello program both crash
   under this VM's i386 compatibility mode; cause remains unresolved. Therefore
   32-bit native acceptance is explicitly not met despite successful cross-builds.
-  NetBSD/DragonFly/macOS discovery, broader hardware coverage, link-local scope mapping,
+  DragonFly/macOS discovery, broader hardware coverage, link-local scope mapping,
   multi-host and NAT acceptance remain open. Reproduction and limitations are in
   [FreeBSD operation](freebsd-operation.md).
 
@@ -568,6 +569,23 @@ Every feature below derives from the accepted proposal, including its suggestion
   the final NetBSD nonblocking fix is additionally built for all four NetBSD
   targets. Integration binaries and vet pass for all ten NetBSD/OpenBSD targets.
   Cross-builds do not establish native execution on those other architectures.
-  NetBSD physical discovery, multi-host/NAT and broader platform acceptance remain
-  open. Its new local native gate rejects skipped or missing required TUN/Agent
+  NetBSD multi-host/NAT and broader platform acceptance remain open. Its new local native gate rejects skipped or missing required TUN/Agent
   tests; no hosted NetBSD job has run.
+
+
+- NetBSD physical discovery now shares the kernel type/cloner implementation with
+  OpenBSD, replacing the name/MAC fallback. NetBSD 11.0/amd64 and OpenBSD
+  7.9/amd64 each pass three full discovery-package runs (102 tests/subtests,
+  zero skips). NetBSD fixtures include TAP, TUN, bridge, vether, VLAN, agr and
+  lagg plus a separate physical guest NIC; addresses, endpoint IDs, interface
+  state and stale identities are checked. Fixture cleanup is verified to remove
+  clones and restore the spare NIC. See [NetBSD operation](netbsd-operation.md#physical-interface-discovery)
+  for the observed NetBSD VLAN-destruction wait and the explicit detach/wait
+  cleanup sequence. The native gate now requires NetBSD discovery and an
+  explicitly selected spare interface. Broader physical hardware coverage and
+  IPv6 link-local scope mapping remain incomplete.
+
+  Linux uncached full race tests and vet pass. Integration builds/vet pass for
+  all 14 advertised NetBSD/OpenBSD/FreeBSD architecture targets, and all 33
+  production targets have verified manifest sizes/hashes. Native evidence is
+  limited to the two amd64 guests above; no hosted CI run is claimed.

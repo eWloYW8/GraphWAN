@@ -79,10 +79,12 @@ No hosted OpenBSD job is enabled yet.
 
 NetBSD's disposable-root `native` gate covers TUN packet I/O, live configuration,
 route conflicts, MTU limits, ownership and process recovery, plus multi-Network
-Agent reconciliation and shutdown. Set `GRAPHWAN_TEST_VM=1`; see
+Agent reconciliation and shutdown. Its physical discovery test requires a
+separate spare guest NIC, initially down and without unicast addresses or a
+description. Set `GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vioif1`; see
 [NetBSD operation](netbsd-operation.md). NetBSD 11.0/amd64 has local native
-evidence; no hosted NetBSD job is enabled. Discovery and multi-host/NAT acceptance
-remain open.
+evidence; no hosted NetBSD job is enabled. Broader physical hardware coverage and
+multi-host/NAT acceptance remain open.
 
 The FreeBSD CI job cross-compiles with the pinned Go toolchain and executes using
 [vmactions/freebsd-vm](https://github.com/vmactions/freebsd-vm/tree/a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff).

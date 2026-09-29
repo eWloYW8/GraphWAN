@@ -1,4 +1,4 @@
-//go:build !linux && !windows && !freebsd && !openbsd
+//go:build !linux && !windows && !freebsd && !openbsd && !netbsd
 
 package discovery
 
