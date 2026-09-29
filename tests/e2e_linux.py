@@ -48,7 +48,13 @@ def main():
     parser.add_argument("--restricted-agent", action="store_true", help="run agents with the capability bounding set used by the systemd example")
     parser.add_argument("--link-local", action="store_true", help="use only IPv4 link-local underlay addresses on the shared link")
     parser.add_argument("--peer-link-local-v6", action="store_true", help="IPv6 link-local-only peer data with distinct NIC names; IPv4 controller")
+    parser.add_argument("--punch-only", action="store_true", help="disable both direct methods and exercise TCP/UDP source-port punching without requiring NAT")
+    parser.add_argument("--nat-nodes", type=int, choices=(1, 2, 3), default=3, help="with --nat, place the first N agents behind separate NATs; leave the rest public")
     args = parser.parse_args()
+    if args.nat_nodes != 3 and not args.nat:
+        parser.error("--nat-nodes requires --nat")
+    if args.punch_only and args.transport not in ("auto", "udp", "tcp"):
+        parser.error("--punch-only supports automatic TCP/UDP candidates")
     if args.nat and args.transport not in ("udp", "tcp"):
         parser.error("--nat verifies UDP or TCP punching")
     if args.nat and args.underlay_family != 4:
@@ -119,7 +125,7 @@ def main():
                 eventually(lambda: os.readlink(f"/proc/{holder.pid}/ns/net") != os.readlink("/proc/self/ns/net"))
                 namespaces.append(holder)
                 gateway = holder
-                if args.nat:
+                if args.nat and index < args.nat_nodes:
                     gateway = spawn(f"nat-{index}", ["unshare", "--net", "sleep", "300"])
                     eventually(lambda: os.readlink(f"/proc/{gateway.pid}/ns/net") != os.readlink("/proc/self/ns/net"))
                     routers.append(gateway)
@@ -150,7 +156,13 @@ def main():
                     command(*prefix, "ip", "link", "set", f"backup{index}", "mtu", str(args.underlay_mtu), "addrgenmode", "none")
                     command(*prefix, "ip", "addr", "add", f"fe80::42:{index+1}/64", "dev", f"backup{index}", "nodad")
                     command(*prefix, "ip", "link", "set", f"backup{index}", "up")
-                if args.nat:
+                if args.peer_link_local_v6 and args.punch_only:
+                    # Hole punch is independent of the direct-family switches and
+                    # therefore also tries the IPv4 management endpoints. Block
+                    # their peer port in this fixture to prove IPv6-only data.
+                    for protocol in ("tcp", "udp"):
+                        command(*prefix, "/usr/sbin/iptables", "-A", "OUTPUT", "-p", protocol, "--dport", "24752", "-j", "REJECT")
+                if args.nat and index < args.nat_nodes:
                     command("ip", "link", "add", f"lan{index}", "type", "veth", "peer", "name", f"client{index}")
                     command("ip", "link", "set", f"lan{index}", "netns", str(gateway.pid))
                     command("ip", "link", "set", f"client{index}", "netns", str(holder.pid))
@@ -164,7 +176,7 @@ def main():
                     # confirmation, rather than becoming connections to the router.
                     command(*iptables, "-A", "INPUT", "-i", "eth0", "-p", "udp", "-j", "DROP")
                     command(*iptables, "-A", "INPUT", "-i", "eth0", "-p", "tcp", "-j", "DROP")
-                    command(*iptables, "-A", "FORWARD", "-i", "lan", "-o", "eth0", "-p", "tcp", "--sport", "24752", "--dport", "33752:33754", "--tcp-flags", "SYN,ACK", "SYN", "-m", "comment", "--comment", "graphwan-syn", "-j", "ACCEPT")
+                    command(*iptables, "-A", "FORWARD", "-i", "lan", "-o", "eth0", "-p", "tcp", "--sport", "24752", "-m", "multiport", "--dports", "24752,33752:33754", "--tcp-flags", "SYN,ACK", "SYN", "-m", "comment", "--comment", "graphwan-syn", "-j", "ACCEPT")
                     command(*iptables, "-A", "FORWARD", "-i", "lan", "-o", "eth0", "-j", "ACCEPT")
                     command(*iptables, "-A", "FORWARD", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT")
                     command(*iptables, "-A", "FORWARD", "-j", "DROP")
@@ -246,6 +258,13 @@ def main():
                     state = api("GET", "/state")
                     for agent in state["agents"]:
                         index = int(agent["name"].split("-")[1])
+                        if index >= args.nat_nodes:
+                            # A public address already advertised by its NIC takes
+                            # precedence over the identical STUN observation.
+                            for protocol in ("udp", "tcp"):
+                                if not any(e["source"] == "interface" and e["url"] == f"{protocol}://192.0.2.{11+index}:24752" for e in agent["endpoints"]):
+                                    return False
+                            continue
                         expected = [f"udp://192.0.2.{11+index}:{32752+index}"]
                         if args.transport == "tcp":
                             expected.append(f"tcp://192.0.2.{11+index}:{33752+index}")
@@ -254,13 +273,13 @@ def main():
                                 return False
                     return True
                 eventually(observed)
-                print("PASS: STUN discovered the independently translated data ports through all three NATs", flush=True)
+                print(f"PASS: STUN discovered independently translated ports through {args.nat_nodes} NATs; {3-args.nat_nodes} peers use public interface endpoints", flush=True)
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
                     probe.bind(("192.0.2.1", 0))
-                    for index in range(3):
+                    for index in range(args.nat_nodes):
                         probe.sendto(b"unsolicited", (f"192.0.2.{11+index}", 32752+index))
                 if args.transport == "tcp":
-                    for index in range(3):
+                    for index in range(args.nat_nodes):
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                             probe.settimeout(0.1)
                             assert probe.connect_ex((f"192.0.2.{11+index}", 33752+index)) != 0, "NAT allowed unsolicited TCP"
@@ -271,7 +290,7 @@ def main():
                             return False
                     return True
                 eventually(restricted)
-                print(f"PASS: all three NATs reject unsolicited incoming {args.transport.upper()} before peer punching", flush=True)
+                print(f"PASS: all {args.nat_nodes} NATs reject unsolicited incoming {args.transport.upper()} before peer punching", flush=True)
             transports = ["udp", "tcp"] if args.transport == "auto" else [args.transport]
             if args.transport not in ("auto", "udp", "tcp"):
                 for index in range(3):
@@ -293,7 +312,7 @@ def main():
             nodes = [{"id": uuid.uuid4().hex, "agent_id": by_name[f"node-{i}"]["id"], "name": f"node-{i}", "address": overlay_ips[i]} for i in range(3)]
             network = {"name": "native three-node test", "cidr": overlay_cidr, "nodes": nodes, "edges": [{"id": uuid.uuid4().hex, "a": nodes[i]["id"], "b": nodes[i+1]["id"], "weight": 10, "enabled": True, "transports": transports, "methods": {"ipv4_direct": peer_family == 4, "ipv6_direct": peer_family == 6, "hole_punch": False}} for i in range(2)]}
             network["mtu"] = args.mtu
-            if args.nat:
+            if args.nat or args.punch_only:
                 for edge in network["edges"]:
                     edge["methods"] = {"ipv4_direct": False, "ipv6_direct": False, "hole_punch": True}
             def create_network():
@@ -304,6 +323,7 @@ def main():
                         return None
                     raise
             eventually(create_network)
+            expected_punch = {}
             expected_scoped = {}
             backup_scoped = set()
             if args.peer_link_local_v6:
@@ -325,7 +345,8 @@ def main():
                                 # on the other recipient NIC must fail admission.
                                 if ("%25backup" in scope["url"]) != ("%25backup" in target["url"]):
                                     continue
-                                base = digest(f"{edge['id']}/{initiator['id']}/{target['id']}/6/direct")
+                                method = "punch" if args.punch_only else "direct"
+                                base = digest(f"{edge['id']}/{initiator['id']}/{target['id']}/6/{method}")
                                 scope_id = digest("/".join(scope[key] for key in ("id", "source", "transport", "url")))
                                 candidate_id = digest(f"{base}/scope/{scope_id}")
                                 expected.add(candidate_id)
@@ -333,6 +354,24 @@ def main():
                                     backup_scoped.add(candidate_id)
                     assert len(expected) == 4 * len(transports), "fixture omitted a link or dialing direction"
                     expected_scoped[edge["id"]] = expected
+            if (args.punch_only or args.nat) and not args.peer_link_local_v6:
+                current = api("GET", "/state")
+                endpoints = {a["id"]: a["endpoints"] for a in current["agents"]}
+                for edge in network["edges"]:
+                    expected = set()
+                    pair = [node for node in nodes if node["id"] in (edge["a"], edge["b"])]
+                    for initiator, recipient in (pair, pair[::-1]):
+                        index = int(recipient["name"].split("-")[1])
+                        for kind in transports:
+                            port = 24752
+                            if args.nat and index < args.nat_nodes:
+                                port = (32752 if kind == "udp" else 33752) + index
+                            url = f"{kind}://{host_port(underlay_ips[index], port)}"
+                            endpoint = next(item for item in endpoints[recipient["agent_id"]] if item["url"] == url)
+                            identity = f"{edge['id']}/{initiator['id']}/{endpoint['id']}/{peer_family}/punch"
+                            expected.add(hashlib.sha256(identity.encode()).hexdigest()[:32])
+                    assert len(expected) == 2 * len(transports), "fixture omitted a punch direction"
+                    expected_punch[edge["id"]] = expected
             def connected():
                 reports = api("GET", "/telemetry")
                 if len(reports) != 3:
@@ -351,12 +390,15 @@ def main():
                             candidates.setdefault(link["edge_id"], set()).add(link["candidate_id"])
                         if link["active"]:
                             active.setdefault(link["edge_id"], []).append(link["link_id"])
-                    if expected_scoped and any(actual != expected_scoped[edge_id] for edge_id, actual in candidates.items()):
+                    expected = expected_scoped or expected_punch
+                    if expected and any(actual != expected[edge_id] for edge_id, actual in candidates.items()):
                         return False
                     if not healthy or any(actual != set(transports) for actual in healthy.values()):
                         return False
                 return all(len(active.get(edge["id"], [])) == 2 and len(set(active[edge["id"]])) == 1 for edge in network["edges"])
             eventually(connected)
+            if expected_punch:
+                print("PASS: both dialing directions have the exact punch-only candidate IDs on every edge", flush=True)
             if expected_scoped:
                 print("PASS: every direction/transport on both IPv6 link-local scopes is healthy; mismatched scopes are rejected", flush=True)
                 def primary_sessions():

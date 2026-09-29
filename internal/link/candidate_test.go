@@ -90,3 +90,73 @@ func TestCandidatePolicyAndStableIdentity(t *testing.T) {
 		t.Fatal("expired mapping remained dialable")
 	}
 }
+
+// Direct-family switches do not filter punching, and observed NAT leases never
+// become direct destinations merely because the corresponding family is enabled.
+func TestCandidateConnectionMethodAllowlist(t *testing.T) {
+	type expectation struct {
+		endpoint int
+		family   int
+		method   link.Method
+	}
+	direct4 := []expectation{{90, 4, link.Direct}, {92, 4, link.Direct}}
+	direct6 := []expectation{{91, 6, link.Direct}, {92, 6, link.Direct}}
+	punch := []expectation{{90, 4, link.Punch}, {91, 6, link.Punch}, {93, 4, link.Punch}, {94, 6, link.Punch}}
+	combine := func(groups ...[]expectation) []expectation {
+		var result []expectation
+		for _, group := range groups {
+			result = append(result, group...)
+		}
+		return result
+	}
+	for _, test := range []struct {
+		name    string
+		methods model.ConnectionMethods
+		want    []expectation
+	}{
+		{"none", model.ConnectionMethods{}, nil},
+		{"v4", model.ConnectionMethods{IPv4Direct: true}, direct4},
+		{"v6", model.ConnectionMethods{IPv6Direct: true}, direct6},
+		{"both-direct", model.ConnectionMethods{IPv4Direct: true, IPv6Direct: true}, combine(direct4, direct6)},
+		{"punch", model.ConnectionMethods{HolePunch: true}, punch},
+		{"v4-and-punch", model.ConnectionMethods{IPv4Direct: true, HolePunch: true}, combine(direct4, punch)},
+		{"v6-and-punch", model.ConnectionMethods{IPv6Direct: true, HolePunch: true}, combine(direct6, punch)},
+		{"all", model.ConnectionMethods{IPv4Direct: true, IPv6Direct: true, HolePunch: true}, combine(direct4, direct6, punch)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			edge := testutil.Topology().Networks[0].Edges[0]
+			edge.Enabled, edge.Methods = true, test.methods
+			edge.Transports = []model.Transport{model.UDP, model.TCP, model.WSS}
+			peer := model.Peer{Edge: edge, Endpoints: []model.Endpoint{
+				{ID: testutil.ID(90), Source: model.Interface, Transport: model.UDP, URL: "udp://192.0.2.1:24752"},
+				{ID: testutil.ID(91), Source: model.Interface, Transport: model.TCP, URL: "tcp://[2001:db8::1]:24752"},
+				{ID: testutil.ID(92), Source: model.Manual, Transport: model.WSS, URL: "wss://peer.example.test:443/overlay"},
+				{ID: testutil.ID(93), Source: model.Observed, Transport: model.UDP, URL: "udp://198.51.100.1:30000", ExpiresAt: time.Now().Add(time.Minute)},
+				{ID: testutil.ID(94), Source: model.Observed, Transport: model.TCP, URL: "tcp://[2001:db8::2]:30000", ExpiresAt: time.Now().Add(time.Minute)},
+				{ID: testutil.ID(95), Source: model.Manual, Transport: model.GRPC, URL: "grpc://unconfigured.example.test:443"},
+			}}
+			for _, disabled := range []bool{false, true} {
+				peer.Edge.Enabled = !disabled
+				got := link.Candidates(edge.A, peer, time.Now())
+				want := map[string]bool{}
+				if !disabled {
+					for _, expected := range test.want {
+						want[link.CandidateID(edge.ID, edge.A, testutil.ID(expected.endpoint), expected.family, expected.method)] = true
+					}
+				}
+				if len(got) != len(want) {
+					t.Fatalf("disabled=%t: %d candidates, want %d: %+v", disabled, len(got), len(want), got)
+				}
+				for _, candidate := range got {
+					if !want[candidate.ID] {
+						t.Fatalf("candidate bypassed method/transport policy: %+v", candidate)
+					}
+					delete(want, candidate.ID)
+				}
+				if len(want) != 0 {
+					t.Fatal("allowed candidate was omitted")
+				}
+			}
+		})
+	}
+}

@@ -153,6 +153,11 @@ sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
 | IPv6 | IPv6 link-local, two NICs | TCP + UDP; WS, WSS, gRPC, QUIC separately | 9000 / 1280 | Passed |
 | IPv6 | IPv4 | TCP + UDP | 1280 / 1500 | Passed |
 | IPv6 | IPv4 restricted SNAT | UDP alone, TCP alone; punch-only | 9000 / 1280 | Passed |
+| IPv6 | Two IPv4 NAT peers + one public peer | UDP alone, TCP alone; punch-only | 9000 / 1280 | Passed |
+| IPv4 | IPv6 global | TCP + UDP; punch-only | 9000 / 1280 | Passed |
+| IPv6 | IPv6 link-local, two NICs | TCP + UDP; punch-only | 9000 / 1280 | Passed |
+
+Punch-only and mixed NAT reproduction commands are in [NAT operation](nat-operation.md#mixed-peers-ipv6-and-scheduler-acceptance).
 
 Every row uses three actual Agents and TUN interfaces. Checks include a full-MTU
 ICMP/ICMPv6 packet, a 155,648-byte TCP echo, resource reports, controller outage,

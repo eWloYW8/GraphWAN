@@ -65,7 +65,7 @@ checks are listed separately from outstanding implementation work.
 - [x] STUN from the data socket and UDP punching through verified restricted NATs.
 - [x] Linux TCP hole punching, independent STUN mappings and pooled authenticated sessions.
 - [ ] Remaining Linux NAT cases and cross-platform TCP punching implementation review.
-- [ ] IPv4/IPv6 direct and punch allowlists, bounded scheduling/backoff.
+- [x] IPv4/IPv6 direct and punch allowlists, bounded scheduling/backoff.
 - [ ] All viable Links retained; one active Link, preferred/lowest RTT selection.
 - [x] Heartbeat, RTT/loss/traffic metrics, hysteresis and standby failover.
 - [x] Common active-Link agreement for implemented transports, including rekey.
@@ -728,3 +728,30 @@ These checks are not required for completion under the agreed Linux validation s
   every manifest byte count and SHA-256 digest was checked. FreeBSD/OpenBSD/NetBSD
   integration Discovery test binaries also cross-compile. No non-Linux native
   test or hosted CI execution is claimed for this change.
+
+
+- Connection-policy acceptance now covers every combination of IPv4 direct,
+  IPv6 direct and punch switches, disabled Edges, disallowed transports, DNS
+  templates and observed leases. A real-socket test saturates the eight outgoing
+  handshake slots with nonresponding endpoints, checks backoff/eventual admission
+  of all sixteen endpoints, and verifies slot release on configuration removal.
+  Link/Mesh race suites and vet pass; the new scheduler test also passed three
+  initial repetitions. Existing encrypted-introduction and endpoint-revocation
+  tests remain part of the same Mesh suite.
+- Linux three-Agent acceptance adds IPv6 global and dual-NIC link-local
+  punch-only TCP/UDP, plus separate TCP/UDP mixed NAT/public-peer scenarios.
+  Exact expected punch Candidate IDs must become healthy in both directions;
+  traffic alone is insufficient. Mixed cases verify translated STUN ports,
+  unsolicited ingress filtering, TCP source-port SYNs, multi-hop IPv6 traffic,
+  STUN/controller outages, offline TUN repair, cached restart and cleanup.
+  IPv6 scoped punching also verifies interface-scope withdrawal/restoration.
+  All four cases pass with Agent capability restrictions and MTU 9000/1280.
+- TCP port-reuse call paths, Go 1.26.8 hook ordering and documented Windows,
+  macOS and four BSD socket-option contracts were reviewed. Sources, actual
+  Linux evidence and optional non-Linux native checks are separated in
+  [NAT operation](nat-operation.md#cross-platform-tcp-socket-review).
+  The open NAT acceptance item still includes live mapped-port change/recovery;
+  this review does not assert that every NAT can be traversed.
+- Linux network CI now has twenty cases, adding scoped/global IPv6 punching
+  and both mixed NAT transports. The pinned actionlint check passes locally;
+  no hosted CI execution is claimed.
