@@ -1,0 +1,250 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  backend:
+    name: Backend and native tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
+      - name: Configure disposable macOS loopback fixtures
+        if: runner.os == 'macOS'
+        run: |
+          sudo ifconfig lo0 inet 127.0.0.2/32 alias
+          sudo ifconfig lo0 inet 127.0.0.3/32 alias
+      - name: Enable Linux TUN driver
+        if: runner.os == 'Linux'
+        run: sudo modprobe tun
+      - name: Check CI evidence gate
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Validate workflow definitions
+        if: runner.os == 'Linux'
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+      - name: Format, module integrity, vet and race tests
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/check.py go --logs "${{ runner.temp }}/graphwan-checks"
+      - name: Native kernel and Agent checks
+        env:
+          GRAPHWAN_TEST_MACOS: '1'
+          GRAPHWAN_TEST_WINDOWS: '1'
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/check.py native --logs "${{ runner.temp }}/graphwan-checks"
+      - name: Remove macOS loopback fixtures
+        if: always() && runner.os == 'macOS'
+        run: |
+          sudo ifconfig lo0 inet 127.0.0.2 -alias
+          sudo ifconfig lo0 inet 127.0.0.3 -alias
+      - name: Retain check output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: checks-${{ matrix.os }}
+          path: ${{ runner.temp }}/graphwan-checks
+          if-no-files-found: warn
+          retention-days: 7
+
+  frontend:
+    name: Frontend and browser
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: web/package.json
+          cache: true
+          cache_dependency_path: web/pnpm-lock.yaml
+      - name: Install locked dependencies and browser
+        run: |
+          pnpm --dir web install --frozen-lockfile
+          pnpm --dir web exec playwright install --with-deps chromium
+      - name: Check sources, embedded assets and browser behavior
+        run: python3 scripts/check.py frontend --logs "${{ runner.temp }}/graphwan-checks"
+      - name: Retain frontend output and browser traces
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-checks
+          path: |
+            ${{ runner.temp }}/graphwan-checks
+            web/test-results
+            web/playwright-report
+          if-no-files-found: warn
+          retention-days: 7
+
+  linux-network:
+    name: Linux network (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - {name: auto-v4, transport: auto, overlay: 4, underlay: 4, mtu: 1280, nat: false}
+          - {name: auto-v4-over-v6, transport: auto, overlay: 4, underlay: 6, mtu: 9000, nat: false}
+          - {name: auto-v6-over-v4, transport: auto, overlay: 6, underlay: 4, mtu: 9000, nat: false}
+          - {name: tcp-v6, transport: tcp, overlay: 6, underlay: 6, mtu: 9000, nat: false}
+          - {name: udp-v6, transport: udp, overlay: 6, underlay: 6, mtu: 9000, nat: false}
+          - {name: quic-v6, transport: quic, overlay: 6, underlay: 6, mtu: 9000, nat: false}
+          - {name: ws-v6, transport: ws, overlay: 6, underlay: 6, mtu: 9000, nat: false}
+          - {name: wss-v6, transport: wss, overlay: 6, underlay: 6, mtu: 9000, nat: false}
+          - {name: grpc-v6, transport: grpc, overlay: 6, underlay: 6, mtu: 9000, nat: false}
+          - {name: udp-nat-v4, transport: udp, overlay: 4, underlay: 4, mtu: 9000, nat: true}
+          - {name: tcp-nat-v4, transport: tcp, overlay: 4, underlay: 4, mtu: 9000, nat: true}
+          - {name: udp-nat-v6, transport: udp, overlay: 6, underlay: 4, mtu: 9000, nat: true}
+          - {name: tcp-nat-v6, transport: tcp, overlay: 6, underlay: 4, mtu: 9000, nat: true}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
+      - name: Install fixture tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iproute2 iptables iputils-ping util-linux
+          sudo modprobe tun
+      - name: Build peer/controller binary
+        run: go build -trimpath -o "${{ runner.temp }}/graphwan" ./cmd/graphwan
+      - name: Verify three Agents in isolated network namespaces
+        env:
+          TRANSPORT: ${{ matrix.transport }}
+          OVERLAY: ${{ matrix.overlay }}
+          UNDERLAY: ${{ matrix.underlay }}
+          MTU: ${{ matrix.mtu }}
+          NAT: ${{ matrix.nat }}
+          GRAPHWAN_BINARY: ${{ runner.temp }}/graphwan
+          GRAPHWAN_LOG: ${{ runner.temp }}/network.log
+        shell: bash
+        run: |
+          args=(--binary "$GRAPHWAN_BINARY" --transport "$TRANSPORT" --overlay-family "$OVERLAY" --underlay-family "$UNDERLAY" --mtu "$MTU" --underlay-mtu 1280)
+          if [[ "$NAT" == true ]]; then args+=(--nat); fi
+          sudo -n unshare --net python3 tests/e2e_linux.py "${args[@]}" 2>&1 | tee "$GRAPHWAN_LOG"
+      - name: Retain network test output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: network-${{ matrix.name }}
+          path: ${{ runner.temp }}/network.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  freebsd-native:
+    name: FreeBSD 15.1 native tests (amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
+      - name: Build native test bundle with the pinned Go toolchain
+        run: python3 scripts/check.py prepare-freebsd --binaries .ci-native --logs .ci-native/build-logs
+      - name: Execute against a disposable FreeBSD kernel
+        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff # v1.5.8
+        with:
+          release: '15.1'
+          arch: x86_64
+          sync: rsync
+          copyback: true
+          run: env GRAPHWAN_TEST_VM=1 sh .ci-native/run.sh
+      - name: Require execution of native tests and their subtests
+        run: python3 scripts/check.py verify-freebsd --logs .ci-native/logs
+      - name: Retain native build and execution output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: checks-freebsd-15.1-amd64
+          path: |
+            .ci-native/build-logs
+            .ci-native/logs
+          if-no-files-found: warn
+          retention-days: 7
+
+  cross-build:
+    name: Cross-build (${{ matrix.goos }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, windows, darwin, freebsd, openbsd, netbsd, dragonfly]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
+          cache: false
+      - name: Compile all advertised architectures
+        env:
+          TARGET_OS: ${{ matrix.goos }}
+        run: python3 scripts/cross-build.py --goos "$TARGET_OS" --output "${{ runner.temp }}/builds"
+      - name: Retain binaries and SHA-256 manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: builds-${{ matrix.goos }}
+          path: ${{ runner.temp }}/builds
+          if-no-files-found: error
+          retention-days: 7
+
+  required:
+    name: Required checks
+    if: always()
+    needs: [backend, frontend, linux-network, freebsd-native, cross-build]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every matrix and gate to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          failed = {name: job['result'] for name, job in results.items() if job['result'] != 'success'}
+          if failed:
+              raise SystemExit(f'Required checks failed: {failed}')
+          PY

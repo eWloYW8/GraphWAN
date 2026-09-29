@@ -169,3 +169,12 @@ reply sources and rejecting oversized datagrams, both standalone and sharing a
 QUIC listener. All six transports pass DNS address refresh/retention and policy
 edit tests with real sockets. These loopback tests do not establish multi-host or
 NAT acceptance. macOS and the other BSD kernels still require native execution.
+
+The [CI build/check script](continuous-integration.md) now creates a self-contained
+FreeBSD amd64 test bundle, including Go's `test2json` executable. Its generated
+runner and host-side result verification pass on the disposable 15.1-p3 VM:
+TUN, Agent, discovery, wildcard UDP and the complete Mesh package execute with
+no skipped tests. Required roots and skipped subtests are checked explicitly.
+The runner rejects existing loopback fixture addresses; successful execution
+removes its aliases and the native tests remove their interfaces. GitHub-hosted
+execution of the new FreeBSD job has not yet been observed.

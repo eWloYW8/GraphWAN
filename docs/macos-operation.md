@@ -99,3 +99,24 @@ command failures before and after mutation, failed route removal, restoration of
 a missing old route and failed rollback. These simulations and cross-builds do
 not prove macOS kernel behavior. Native socket/packet/route tests, multi-host
 transport/NAT tests and process-crash cleanup remain unverified.
+
+## Socket test fixtures
+
+The multi-address DNS, policy-update and UDP reply-source tests need explicit
+`127.0.0.2` and `127.0.0.3` loopback aliases on macOS. Unprivileged tests skip
+those cases if the aliases are absent. On a disposable test host where both
+addresses are reserved for these fixtures, configure them before the full suite:
+
+```sh
+sudo ifconfig lo0 inet 127.0.0.2/32 alias
+sudo ifconfig lo0 inet 127.0.0.3/32 alias
+python3 scripts/check.py go --logs /tmp/graphwan-checks
+env GRAPHWAN_TEST_MACOS=1 python3 scripts/check.py native --logs /tmp/graphwan-checks
+# Remove only the aliases added for this run, including after a failed test:
+sudo ifconfig lo0 inet 127.0.0.2 -alias
+sudo ifconfig lo0 inet 127.0.0.3 -alias
+```
+
+The [CI workflow](continuous-integration.md) includes these fixtures and cleanup
+on both macOS architectures. Hosted execution is still pending; its definition
+is not native test evidence.

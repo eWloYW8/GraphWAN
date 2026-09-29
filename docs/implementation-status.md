@@ -72,6 +72,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [ ] Windows, Linux, macOS and BSD adapters and documented support matrix.
 - [ ] Common architecture build matrix; native integration evidence where available.
 - [ ] Unit/race/integration/E2E tests, formatting, vet and frontend checks in CI.
+- [x] Pinned-toolchain CI definitions, native-result gates and local Linux/FreeBSD execution.
+- [x] All 33 Go-advertised targets for seven selected operating systems cross-build with hash manifests.
 - [ ] Packaging, reproducible build commands, deployment/service examples.
 - [ ] User/API/protocol documentation and realistic security/operational limitations.
 - [ ] Final requirement-by-requirement audit with linked evidence.
@@ -438,3 +440,22 @@ Every feature below derives from the accepted proposal, including its suggestion
   Other BSD/macOS discovery, broader hardware coverage, link-local scope mapping,
   multi-host and NAT acceptance remain open. Reproduction and limitations are in
   [FreeBSD operation](freebsd-operation.md).
+
+- Build and CI: Go 1.26.8, Node.js 24.21.0 and pnpm 10.33.3 are pinned; the
+  workflow defines Linux/Windows/macOS backend and native jobs, a FreeBSD 15.1
+  VM job, frontend/browser checks, thirteen Linux network scenarios and a
+  seven-system/33-architecture build matrix. Its aggregate check rejects any
+  failed, canceled or skipped dependency. Native result parsing requires actual
+  named test execution and package success, rejecting skipped required subtests
+  and truncated logs; regression tests cover these failure cases. Full race-suite
+  results also require the multi-address Mesh and UDP cases to execute.
+  Local formatting, module integrity, vet, uncached race tests, Linux native
+  tests, pinned frontend/embedded-assets/browser checks and all thirteen native
+  Linux scenarios pass. All 33 binaries build and their manifest hashes/sizes
+  verify. The generated FreeBSD runner passes TUN, Agent, discovery, UDP and
+  complete Mesh tests on 15.1-p3/amd64 with no skips; interface/alias cleanup and
+  rejection of existing fixture addresses are verified. Actionlint passes.
+  No remote is configured, so hosted CI execution, especially actual Windows
+  and macOS results, remains pending. Cross-build artifacts do not establish
+  complete distribution packaging or native platform acceptance. Commands,
+  matrix and limitations are in [build and CI verification](continuous-integration.md).

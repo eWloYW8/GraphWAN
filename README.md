@@ -76,8 +76,9 @@ The Windows Wintun adapter, DLL setup and pending native checks are documented i
 
 ## Development
 
-Requires Go 1.26 or newer. Frontend development additionally uses Node.js 20.19+
-or 22.12+ and pnpm 10.33.3. Production assets are checked in so a Go-only checkout
+Requires Go 1.26 or newer. CI pins Go 1.26.8 and Node.js 24.21.0 in
+`.go-version` and `.node-version`; use those versions to reproduce its builds.
+Frontend development uses pnpm 10.33.3. Production assets are checked in so a Go-only checkout
 builds a complete binary. Rebuild assets whenever frontend sources change.
 
 ```sh
@@ -92,4 +93,6 @@ pnpm --dir web test:e2e
 ```
 
 See [architecture](docs/architecture.md) for domain boundaries and invariants.
+See [build and CI verification](docs/continuous-integration.md) for the native
+test gates, Linux network matrix and cross-build commands.
 Changes use Conventional Commits (`feat:`, `fix:`, `test:`, `docs:`, `build:`).
