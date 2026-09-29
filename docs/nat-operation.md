@@ -94,6 +94,15 @@ regression coverage starts with one network, adds another 19, waits for all 40
 bidirectional candidates to renew their keys, then removes the extra networks.
 The original physical session remains in use throughout growth and renewal.
 
+Physical connections are limited separately for each authenticated adjacent Agent:
+up to 64 established or pending connections per identity, with a dial and its
+result counted once. The number of authorized neighbors does not share that
+64-connection allowance. A Linux loopback fixture verifies 65 simultaneous
+neighbors, encrypted traffic to each, and revocation of one neighbor without
+replacing the others' sessions. A separate saturation fixture checks that a peer's
+65th physical connection is rejected while its first 64 remain open, then removes
+all of them when that peer's last authorized Edge is disabled.
+
 Linux native tests below verify source-port reuse and peer SYNs through restricted
 NATs. Unix adapters set `SO_REUSEADDR`/`SO_REUSEPORT`; Windows sets `SO_REUSEADDR`.
 These options permit local port sharing and differ between operating systems.

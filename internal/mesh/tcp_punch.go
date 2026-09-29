@@ -26,6 +26,27 @@ type punchDial struct {
 	err  error
 }
 
+// Each authenticated neighbor has its own bounded allowance. A busy peer must
+// not consume the connection slots needed by unrelated configured neighbors.
+// Count a dial and its installed connection once; the current key can replace
+// its pending reservation or a closed session even when the allowance is full.
+func (m *Mesh) punchConnectionAvailableLocked(k punchKey) bool {
+	used := 0
+	for existing := range m.punches {
+		if existing.identity == k.identity && existing != k {
+			used++
+		}
+	}
+	for pending := range m.punchDials {
+		if pending.identity == k.identity && pending != k {
+			if _, installed := m.punches[pending]; !installed {
+				used++
+			}
+		}
+	}
+	return used < 64
+}
+
 func (m *Mesh) allowsTCPPunchLocked(identity ed25519.PublicKey) bool {
 	if m.closed {
 		return false
@@ -94,7 +115,7 @@ func (m *Mesh) installPunch(session *transport.PunchMux) bool {
 	}
 	k := punchKey{address, [32]byte(session.Identity())}
 	m.mu.Lock()
-	if !m.allowsTCPPunchLocked(session.Identity()) || len(m.punches) >= 64 {
+	if !m.allowsTCPPunchLocked(session.Identity()) || !m.punchConnectionAvailableLocked(k) {
 		m.mu.Unlock()
 		return false
 	}
@@ -196,7 +217,7 @@ func (m *Mesh) punchStream(ctx context.Context, remote netip.AddrPort, identity 
 			return m.punchStream(ctx, remote, identity)
 		}
 	}
-	if len(m.punches)+len(m.punchDials) >= 64 {
+	if !m.punchConnectionAvailableLocked(k) {
 		m.mu.Unlock()
 		return nil, errors.New("TCP punch connection limit reached")
 	}

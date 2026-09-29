@@ -800,3 +800,24 @@ These checks are not required for completion under the agreed Linux validation s
   Cross-builds and their SHA-256 manifests pass for Linux/386, Windows/amd64,
   macOS/arm64 and FreeBSD/OpenBSD/NetBSD/DragonFly amd64. This adds Linux runtime
   evidence and cross-compilation evidence only, with no new non-Linux native run.
+
+- TCP punch physical-connection admission now allocates the 64-connection bound
+  separately to each authenticated adjacent Agent identity. A real 66-Mesh
+  Linux loopback star reproduced the previous global limit: the hub stopped at
+  64 neighbors and the 65th Edge could not become active. With the fix, all 65
+  Edges agree on their active Links, receive encrypted payloads, and retain the
+  other 64 physical sessions when one Edge is disabled. The earlier global
+  physical-limit description is historical; the per-peer resource bound remains.
+- A real authenticated peer saturates its 64 physical connections; the 65th is
+  rejected without closing the original sessions, and disabling its last Edge
+  closes all of them. Reservation tests also cover pending/installed overlap,
+  canceled dials, replacing a closed session at capacity and independent identity
+  allowances. Mesh/transport/Agent race suites and vet pass. Seven production
+  cross-builds and SHA-256 checks pass: Linux/386, Windows/amd64, macOS/arm64,
+  FreeBSD/amd64, OpenBSD/amd64, NetBSD/amd64 and DragonFly/amd64.
+- Linux mixed public/restricted TCP NAT acceptance passes after the admission
+  change, including live remapping (44.0 s in this run), unaffected public-peer
+  session preservation, MTU 9000/1280 traffic, restricted Agent capabilities,
+  STUN/controller outage, offline TUN recovery, cached restart and cleanup.
+  No non-Linux native execution was added. Full Link-retention/selection and
+  final feature-by-feature acceptance remain separate outstanding audit items.

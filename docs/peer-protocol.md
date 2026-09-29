@@ -101,7 +101,11 @@ IP/port and authenticated Agent identity, allowing multiple Networks and fresh
 Noise sessions to share the same TCP four-tuple. Every stream uses the 32-bit
 length framing and ordinary Network/Edge Noise admission above. Admission also
 checks that a punch candidate arrived over this transport, not ordinary TCP.
-There are at most 64 physical sessions per Agent. Logical stream capacity starts
+There are at most 64 physical sessions per authenticated adjacent Agent identity,
+including pending outgoing connections. A pending connection that becomes
+installed consumes one slot; a closed connection can be replaced in that slot.
+The allowance is separate for each identity, so one peer cannot consume the
+physical-connection capacity of other configured peers. Logical stream capacity starts
 at 32 per session and grows with the locally authorized TCP-punch topology for
 that peer. Its bound includes endpoint aliases, IPv6 egress scopes and headroom
 for concurrent handshakes, replacement keys and retiring streams. Peers cannot
