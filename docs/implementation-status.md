@@ -87,12 +87,12 @@ checks are listed separately from outstanding implementation work.
 
 - [x] Windows, Linux, macOS and BSD adapters and documented support matrix.
 - [x] Common architecture build matrix and Linux integration evidence.
-- [ ] Unit/race/integration/E2E tests, formatting, vet and frontend checks in CI.
+- [x] Unit/race/integration/E2E, formatting, vet and frontend CI gates; local equivalents passed (hosted execution not claimed).
 - [x] Pinned-toolchain CI definitions, native-result gates and local Linux/FreeBSD execution.
 - [x] All 33 Go-advertised targets for seven selected operating systems cross-build with hash manifests.
 - [x] Verified distribution archives, reproducible build commands and Linux deployment/service examples.
-- [ ] User/API/protocol documentation and realistic security/operational limitations.
-- [ ] Final requirement-by-requirement audit with linked evidence.
+- [x] User/API/protocol documentation and realistic security/operational limitations.
+- [x] Final requirement-by-requirement audit with linked evidence.
 
 ## Optional supplemental native verification
 
@@ -104,6 +104,14 @@ These checks are not required for completion under the agreed Linux validation s
 - Hosted execution of the manually dispatched native-platform workflow.
 
 ## Verification evidence
+
+The entries below are a chronological development log. Earlier statements about
+open work describe their then-current revision, not the final project state.
+The [final acceptance audit](acceptance-audit.md) and checklist above are current.
+In particular, old references to five FreeBSD targets or FreeBSD/riscv64 were
+incorrect: Go 1.26.8 advertises four FreeBSD targets, as recorded in the final
+33-target inventory. Historical native runs are supplemental under Linux-only
+runtime acceptance.
 
 - Foundation: `go test -race ./...` and `go vet ./...` pass. Tests cover
   weighted A–B–C forwarding, equal-cost order independence, disconnected Nodes,
@@ -1037,3 +1045,18 @@ These checks are not required for completion under the agreed Linux validation s
   transit restart and shutdown cleanup. Prior TCP pooling, DNS/scope and selection
   evidence plus this admission review close the all-viable-Links item. Final
   documentation/delivery review and the complete requirement audit remain open.
+
+- Final acceptance at production revision `a4c0c37` passes all 24 Linux network
+  scenarios from the current CI matrix, with per-case arguments, exit status,
+  timings and log hashes. All run in disposable namespaces using restricted
+  Agent capabilities. Frontend/embedded/browser, native Linux TUN/discovery/Agent,
+  deployment syntax and pinned actionlint also pass at that revision. The full
+  uncached Go/race/vet/module/format gate and nine Python tests already passed on
+  the same production code during the admission fix.
+- The [final audit](acceptance-audit.md) maps all eight original requirements,
+  all 28 accepted recommendations and the administrative CLI examples to code
+  and evidence. API/resource bounds, NAT and offline-rendezvous limits, hop-by-hop
+  trust, platform constraints and future-only optimizations are explicit. Stale
+  discovery, admission and platform-status descriptions have been corrected.
+  All required implementation/verification items are closed under the user's
+  Linux runtime scope; optional native-platform and hosted CI runs are not claimed.

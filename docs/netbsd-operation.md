@@ -4,8 +4,8 @@ The adapter has native TUN evidence on NetBSD 11.0/amd64: IPv4/IPv6 full-MTU
 packet I/O, live address/prefix/MTU changes, foreign-route conflict rollback,
 blocked-read cancellation and marked-interface recovery after SIGKILL.
 Multi-Network Agent migration, rollback and shutdown also pass.
-Complete NetBSD acceptance remains open; see the
-[acceptance tracker](implementation-status.md).
+Complete NetBSD native validation is optional under the agreed
+[Linux runtime acceptance scope](acceptance-audit.md).
 
 ## Requirements and build
 

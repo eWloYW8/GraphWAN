@@ -10,7 +10,7 @@ transport/NAT acceptance matrix has not yet been repeated on FreeBSD.
 
 Build `go build -o graphwan ./cmd/graphwan` on FreeBSD, or cross-build on another
 system with `CGO_ENABLED=0 GOOS=freebsd GOARCH=amd64 go build -o graphwan ./cmd/graphwan`.
-Core cross-builds pass for FreeBSD amd64, arm64, 386, arm and riscv64; only amd64
+Core cross-builds pass for FreeBSD amd64, arm64, 386 and arm; only amd64
 has native execution evidence. Use the architecture of the target host.
 The Go 1.26.8 `386` discovery binary and a minimal Go hello program both exit with
 SIGSEGV under this FreeBSD 15.1-p3/amd64 VM's i386 compatibility mode, even though
@@ -101,18 +101,20 @@ pairs (`epair`). Core tunnel/bridge/VLAN/aggregation drivers and netgraph `ngeth
 are also excluded even without a visible cloner. No MAC-address heuristic or
 editable interface group decides eligibility.
 
-Up interfaces advertise global-unicast IPv4/IPv6 addresses, including private and
-ULA addresses, as TCP/UDP endpoints. Aliasing a TAP to an Ethernet-looking name,
+Up interfaces advertise global-unicast and link-local IPv4/IPv6 addresses,
+including private and ULA addresses, as TCP/UDP endpoints. Aliasing a TAP to an Ethernet-looking name,
 removing its group, or aliasing an epair to a TUN-looking name does not alter its
 classification. Errors reading kernel metadata reject the scan, preserving the
-last published snapshot. IPv6 link-local scope mapping is still incomplete.
+last published snapshot. Shared IPv6 link-local discovery and scope mapping are
+Linux-tested and cross-built for FreeBSD; native FreeBSD scope checks are optional
+and are not claimed here.
 
 The native discovery test creates owned epair/TUN/TAP/bridge devices and changes
 their aliases and groups. It verifies exclusion, stable unaffected endpoints,
 IPv4/IPv6 additions/removals and down/up transitions, then destroys its fixtures.
 Ten consecutive runs pass on FreeBSD 15.1-p3/amd64. Portable decision tests run
 with the Linux race detector; production, integration tests and discovery vet
-pass for all five FreeBSD architectures listed above.
+pass for all four FreeBSD architectures listed above.
 
 ## Reproduce the native checks
 
@@ -148,9 +150,9 @@ Linux race tests cover MTU and full configuration transactions, failures before
 and after address operations mutate state, rollback failures, device retirement
 and recovery of the last applied configuration. Native FreeBSD tests above are
 not race-enabled.
-Full FreeBSD multi-host forwarding, NAT behavior, older kernel
-releases and the other platform adapters remain open in the
-[acceptance tracker](implementation-status.md).
+Full FreeBSD multi-host forwarding, NAT behavior and older kernel checks are
+optional supplemental validation. Other adapters and their reviewed constraints
+are listed in the [acceptance audit](acceptance-audit.md).
 
 ## Native transport checks
 

@@ -195,17 +195,22 @@ file and conflicting CPU, FIPS, module, target and compiler-flag settings. Both
 binaries and manifests remain identical. This tests configuration isolation;
 it is not an additional clean-checkout or native RISC-V execution claim.
 
-These are build-verification binaries, not complete distribution packages.
-Windows Agents still need the [Wintun DLL](windows-operation.md). Successful
-cross-compilation does not establish native execution or TUN support: the
-remaining BSD adapters, native Windows/macOS acceptance and FreeBSD i386 runtime
-failure are tracked in the [acceptance checklist](implementation-status.md).
+The cross-build output contains binaries and a manifest. Run
+[`scripts/package.py`](../scripts/package.py) to produce distribution archives
+with that manifest, documentation and deployment examples. Windows Agents also
+need the [Wintun DLL](windows-operation.md); its verified retrieval script is
+included. Cross-compilation does not establish native kernel behavior. The
+[acceptance audit](acceptance-audit.md) distinguishes Linux execution from
+other-platform review/build evidence, including the recorded FreeBSD i386
+compatibility-mode failure.
 
-## Evidence and remaining verification
+## Local evidence
 
 Local runs with the pinned toolchains pass Go race tests/vet, Linux native tests,
-frontend build/embedded-asset/browser checks, all thirteen Linux network
-scenarios and all 33 cross-build targets. The generated FreeBSD runner passes
+frontend build/embedded-asset/browser checks, all 24 Linux network
+scenarios and all 33 cross-build targets. The final
+[audit](acceptance-audit.md#current-local-validation) records the tested production
+revision and gate results. Historical supplemental evidence includes the generated FreeBSD runner passing
 all five packages on a disposable 15.1-p3/amd64 VM, with no skipped tests and
 verified interface/loopback cleanup. Its pre-existing-alias rejection also passes.
 The workflow definition passes actionlint. Hosted Actions execution has not been

@@ -46,6 +46,14 @@ Edges have `id`, `a`, `b`, positive `weight`, `enabled`, `transports`,
 `preferred_candidate`. Transports are `udp`, `tcp`, `quic`, `ws`, `wss`, `grpc`.
 The current cipher suite is `chacha20-poly1305`.
 
+Validation permits at most 10,000 Nodes and 100,000 Edges per Network, 64 total
+endpoints per Agent (manual plus discovered), and four STUN services per Agent.
+A complete Network write must also fit the 8 MiB request limit; the individual
+count ceilings do not imply that every maximum-size combination fits, or promise
+that workload's performance. Names are 1–128 bytes without control characters.
+Network MTU is 1280–9000; platform adapters may impose a lower native ceiling,
+as documented for NetBSD.
+
 Manual endpoints have `id`, `transport`, `url` and `source: "manual"`. URLs require
 an explicit port. WS/WSS/gRPC may include a path. Automatic endpoints cannot be
 edited by a browser. `PATCH` replaces the complete manual endpoint list while

@@ -67,4 +67,5 @@ Browser tests cover table/Node detail rendering, absent versus zero CPU, and
 hiding historical data when either the Agent or live stream disconnects.
 
 Native CPU sampling is verified on Linux. Windows, macOS, FreeBSD, OpenBSD and
-NetBSD code cross-compiles; their native platform acceptance remains outstanding.
+NetBSD code cross-compiles; their native sampling checks are optional under the
+agreed Linux runtime acceptance scope and are not claimed here.

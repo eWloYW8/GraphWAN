@@ -3,22 +3,17 @@
 A centrally managed overlay network with administrator-defined graph topology,
 weighted multi-hop routing and peer-to-peer data transport.
 
-**Under development.** The repository is implementing the full design in
-`proposal.md`. The Linux CLI now supports authenticated TCP/UDP/QUIC/WS/WSS/gRPC multi-hop networking;
-the embedded React management UI supports topology editing and live status.
-FreeBSD now has a native TUN adapter with verified kernel IPv4/IPv6 packet I/O
-and live address/prefix/MTU updates. A macOS utun adapter is implemented and
-cross-built for Intel and Apple Silicon. Windows Wintun support and a verified
-DLL download script are implemented with amd64/arm64/386 cross-builds. DragonFly
-has source-reviewed, cross-built TUN and interface-discovery adapters. Remaining
-implementation and final acceptance items are tracked below.
-Runtime acceptance is required on Linux; other platforms are reviewed and
-cross-built. Complete native validation on those platforms is optional.
-OpenBSD now has native TUN, Agent configuration, IPv4/IPv6 transport and configured
-TUN crash-recovery tests. Creation-window cleanup review is documented with its
-remaining interruption boundary; multi-host/NAT native checks are optional.
-Progress and verification gaps are
-tracked in [the acceptance checklist](docs/implementation-status.md).
+GraphWAN implements the accepted proposal with a Go controller and Agent,
+an embedded React management UI, and authenticated TCP/UDP/QUIC/WS/WSS/gRPC
+transport. The UI supports graph editing, live status and Link preferences;
+the administrative CLI supports Network creation, Node listing and Edge creation.
+
+Runtime acceptance is on Linux, including 24 isolated three-Agent network
+scenarios. Windows, macOS, FreeBSD, OpenBSD, NetBSD and DragonFly adapters have
+source review and cross-build evidence; complete native validation on those
+systems is optional. The [acceptance audit](docs/acceptance-audit.md) maps the
+requirements to implementation, tests and operational limits. Deployment
+instructions and distribution packaging are in [the deployment guide](docs/deployment.md).
 
 The controller manages multiple networks and distributes durable configuration.
 Agents own TUN interfaces, authenticate their neighbors and forward packets along

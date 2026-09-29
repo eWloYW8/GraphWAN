@@ -25,8 +25,8 @@ TCP, UDP, QUIC, WS, WSS and gRPC direct connectivity are operational. Configure 
 using [manual endpoints](websocket-operation.md); gRPC has its own
 [endpoint guide](grpc-operation.md). See [QUIC setup](quic-operation.md) for
 QUIC manual endpoints and datagram MTU behavior. [STUN and TCP/UDP hole punching](nat-operation.md)
-are operational for the verified Linux NAT scenarios; wider platform/NAT coverage
-remains in progress. See the acceptance tracker.
+are operational for the verified Linux NAT scenarios. That guide describes the
+traversal limits; the [acceptance audit](acceptance-audit.md) records platform scope.
 
 ## Runtime behavior
 

@@ -1,8 +1,9 @@
 # Peer data protocol v1
 
-This documents the packet/channel components integrated into the Linux Agent.
-Other platform adapters and broader NAT acceptance are still
-being implemented. See the full-scope acceptance tracker for verification status.
+This documents the packet/channel components shared by the Agent adapters.
+Runtime acceptance is on Linux; other platforms have source review and
+cross-build evidence. See the [acceptance audit](acceptance-audit.md) and
+[NAT limits](nat-operation.md) for the tested scope.
 
 ## Admission and handshake
 

@@ -1,10 +1,12 @@
 # Proposal acceptance audit
 
 This audit maps the accepted proposal to implementation and executable evidence.
-It does not declare the project complete. Runtime acceptance is Linux-only;
-other systems require source review and cross-compilation. Historical native BSD
-results are supplemental. The [tracker](implementation-status.md) records the
-remaining acceptance items and detailed earlier evidence.
+The accepted implementation and required verification are complete under the
+agreed Linux-only runtime scope. Other systems have source review and
+cross-compilation evidence; complete native execution is optional. Historical
+native BSD results are supplemental. The [tracker](implementation-status.md)
+preserves earlier evidence in chronological order; its old open-item statements
+are superseded by this audit and its current checklist.
 
 ## Original requirements
 
@@ -21,36 +23,48 @@ remaining acceptance items and detailed earlier evidence.
 
 ## Accepted architecture recommendations
 
-- Network/Agent/Node/Endpoint/Edge/Candidate/Link identities are separate. The
-  controller compiles per-Agent forwarding tables; Edge weight is independent of
-  measured Link RTT. Equal-cost routing is deterministic rather than per-packet
-  random. Flow identifiers are stable; optional future ECMP is not enabled.
-- Packets carry bounded versioned overlay headers, source/destination/Network,
-  flow identity, routing epoch and hop limit. Mixed-revision loops terminate;
-  coordinated two-phase *route* activation remains the proposal's future option.
-  Active-Link selection does have authenticated two-party agreement.
-- UDP is a packet transport; TCP is framed; WS/WSS use binary messages; gRPC uses
-  bidirectional protobuf streams; QUIC uses bounded datagram fragmentation.
-  Network cipher policy, Ed25519 identity, ephemeral Noise keys, replay checks
-  and rekey are covered by real-socket and cryptographic regression tests.
-- Enrollment uses expiring single-use tokens and controller-issued certificates.
-  Control uses authenticated TLS/WebSocket. The proposal allowed WebSocket or
-  gRPC for control; gRPC is also implemented as a peer transport.
-- Desired configuration is validated and persisted before runtime application
-  and acknowledgement. Desired/applied revisions and actual telemetry remain
-  distinct. Runtime reconciliation, Link reconciliation and forwarding run
-  independently; the controller never relays overlay payloads.
-- Endpoint discovery and STUN advertise mapped ports. Candidate dialing has
-  concurrency limits and backoff. The minimum MTU is 1280; configured MTU is
-  enforced. Automatic path-MTU adaptation was a future suggestion and is not
-  claimed. The [packet contract](peer-protocol.md#packet-bounds-and-backpressure)
-  states queue limits, checksum responsibilities and fragmentation behavior.
-- The proposal's administrative command examples are implemented by the
-  [CLI](admin-cli.md): `network create`, `node list` and `edge add`, plus
-  `network list`. Real-controller TLS tests cover durable changes, Node membership
-  identity, revision conflicts, authentication and logout. HTTP fault fixtures
-  cover redirect refusal, deadlines and malformed responses; output failure after
-  commit is reported without implying rollback.
+The numbers below match the proposal's 28 recommendations. Each row identifies
+implementation and executable evidence; an architecture suggestion is not treated
+as a promise of every possible future optimization.
+
+| # | Recommendation | Implementation and evidence |
+| --- | --- | --- |
+| 1 | Separate Network, Agent, Node, Endpoint, Edge and Link identities | [Model validation](../internal/model), [candidate identity](../internal/link/candidate.go); model, candidate and scope tests, multi-Network Agent tests |
+| 2 | Separate control, runtime and packet layers | [Architecture](architecture.md), [controller](../internal/control), [Agent](../internal/agent), [Mesh](../internal/mesh); real controller/client and encrypted forwarding tests |
+| 3 | Compile per-Agent configuration centrally | [Routing compiler](../internal/routing/routing.go); weighted multi-hop, disabled/revoked, isolated and deterministic equal-cost tests |
+| 4 | Versioned overlay header with bounded forwarding | [Packet codec](../internal/packet/packet.go); round-trip/malformed/framing tests, parser fuzz evidence, mixed-epoch loop test |
+| 5 | Separate Edge weights from Link metrics | [Routing](../internal/routing) and [selection](../internal/link/selection.go); weighted-route tests, contradictory local RTT and common-selection tests |
+| 6 | Candidate and Link lifecycle, liveness and failover | [Mesh reconciliation](../internal/mesh/mesh.go), [Edge state](../internal/link/edge.go); backoff/scheduling, heartbeat, standby recovery, preference, selection-loss and rekey tests |
+| 7 | Typed automatic, observed and manual endpoints | [Discovery](../internal/discovery), [endpoint contract](endpoint-resolution.md); physical-interface, STUN lease, manual-host/path and source-validation tests |
+| 8 | Discover actual public mappings, including ports | [UDP/TCP STUN](nat-operation.md); shared data-socket mapping tests and live restricted-NAT remapping E2E |
+| 9 | Controller rendezvous without payload relay | [Control snapshots](../internal/control/stream.go), [observations](../internal/mesh/observed.go); independent TCP/UDP mappings, punch-only, restricted/mixed-NAT process tests |
+| 10 | UDP as a packet transport, TCP framing | [Transport implementations](../internal/transport), [packet framing](../internal/packet); real-socket encrypted UDP/TCP, retransmitted handshake and bounded-message tests |
+| 11 | Add QUIC | [QUIC datagrams](quic-operation.md); datagram fragmentation, IPv6, shared socket, link-local, rekey and 540-candidate tests. HTTP/3 and automatic connection migration are not additional implemented features |
+| 12 | Identity separate from ephemeral session keys | [Noise/Ed25519 handshake](../internal/secure/handshake.go), [sessions](../internal/secure/session.go); topology/role/transport binding, forgery, replay, concurrent nonce and key-lifetime tests |
+| 13 | Authenticate control-plane identities | [Enrollment](../internal/control/enrollment.go), [client](../internal/agent/client.go); real TLS, CSR/token reuse/expiry, lost-response retry, mutual authentication and revocation tests |
+| 14 | Revisioned durable configuration and ACK | [Reconciler](../internal/agent/reconcile.go), [cache](../internal/agent/cache.go); persist-before-apply, failed application, applied-state recovery and concurrent-editor tests |
+| 15 | Keep operating when the controller is offline | `TestClientControlAndOfflineRestart` and [Linux process E2E](../tests/e2e_linux.py); controller outage, offline TUN repair, cached transit-Agent restart and continued traffic |
+| 16 | Per-Network TUN and subnet route | [Adapters](../internal/tunnel), [Agent reconciliation](../internal/agent/dataplane.go); native Linux IPv4/IPv6 kernel I/O, two-Network migration, rollback, ownership and cleanup tests |
+| 17 | Stable flow hash | [IP inspection](../internal/packet/ip.go), `TestIPInspection`; payload-independent hashing and port separation. The proposal's conditional future ECMP is not enabled |
+| 18 | Routing epochs and loop containment | [Forwarding](../internal/forwarding/router.go); `TestMixedRoutingEpochLoopExhaustsHopLimit`, deterministic terminating forwarding tables. Atomic local snapshots and hop limit are implemented; two-phase route activation remains the proposal's future option |
+| 19 | Graph editor and detailed observation | [UI](management-ui.md), [real-controller browser tests](../web/tests/workspace.spec.ts); graph CRUD/positions, Node resources/version/endpoints, Edge RTT/loss/rates, all policy fields, preferred candidates, responsive/accessibility/error checks |
+| 20 | Desired configuration separate from actual state | [Controller streams](../internal/control), [runtime reports](resource-telemetry.md); revision-conflict, applied ACK, telemetry admission/staleness and browser desired/observed tests |
+| 21 | Modular Agent internals | [Architecture](architecture.md); separate control/cache/reconciliation, discovery, Mesh, Link, transport, secure session, packet/router and TUN packages with component and integrated tests |
+| 22 | OS-specific TUN and route backends | [Platform matrix](#platform-support); Linux execution, source review and all 33 selected Go OS/architecture cross-builds |
+| 23 | Explicit MTU and packet bounds | [Packet bounds](peer-protocol.md#packet-bounds-and-backpressure); minimum 1280, exact-MTU/+1 checks, bounded queues/fragments and Linux overlay 9000 over underlay 1280. Dynamic path-MTU adaptation remains a future suggestion |
+| 24 | WS/WSS/gRPC only through manual endpoints | [Endpoint validation](endpoint-resolution.md), [WS](websocket-operation.md), [gRPC](grpc-operation.md); manual hostname/path tests, automatic discovery restricted to UDP/TCP, all six transports over IPv6 |
+| 25 | Independent transport and connection-method policy | [Candidate policy](../internal/link/candidate.go), [Mesh policy tests](../internal/mesh/policy_test.go); all eight direct/punch combinations, source-family admission and live policy revocation |
+| 26 | Keep successful Links and select a common active Link | [Selection protocol](peer-protocol.md), [capacity fixture](../internal/mesh/admission_linux_test.go); preferred/RTT/hysteresis/failover, TCP multiple-address pooling and UDP/QUIC/gRPC 540-candidate retention with overlapping key replacement |
+| 27 | Batch telemetry and bound streaming cost | [Agent client](../internal/agent/client.go), [browser events](../internal/control/events.go); two-second batched reports, one-second UI snapshots, coalescing, stream limits, expiration and shutdown tests. Configuration count ceilings are not a 10,000-Node performance benchmark |
+| 28 | Independent control, Link and forwarding loops | [Agent reconciliation](../internal/agent/reconcile.go), [Mesh](../internal/mesh), [forwarding](../internal/forwarding); offline operation, failed-update retention, ongoing key rotation and full process E2E |
+
+The proposal's administrative command examples are implemented by the
+[CLI](admin-cli.md): `network create`, `node list` and `edge add`, plus
+`network list`. Nine test roots cover real-controller TLS/durable changes,
+Node memberships, revision conflicts, authentication/logout, redirects, deadlines,
+malformed responses and output failure after a committed mutation. Separate
+Linux CLI/controller processes also passed trusted-TLS create/list and exit-code
+smoke checks.
 
 ## Platform support
 
@@ -70,59 +84,80 @@ the precise recovery boundaries instead of silently deleting unknown resources.
 
 ## Current local validation
 
-At production revision `3eedd7c`, the following local gates passed. The added
-Linux Agent native fixture is defined in this audit's change. Cross-build manifests
-truthfully report a dirty worktree when local/untracked files are present.
+The final Linux runtime pass used production revision
+`a4c0c37a54ae64133e1ef83389789aef04748fae` on 2026-09-29. The audit update changes
+documentation only. Toolchain versions are Go 1.26.8, Node.js 24.21.0 and
+pnpm 10.33.3. These are local runs of the CI gates; no hosted Actions execution
+is claimed, and the development checkout has no Git remote.
 
-- `python3 scripts/check.py go`: tracked Go formatting, module integrity, vet and
-  uncached full race suite; 15 test-bearing packages passed. Required dual-stack
-  socket/Mesh test roots executed; the gate rejects missing/skipped roots.
-- `python3 scripts/check.py frontend`: frozen install, formatting, production
-  build, exact checked-in embedded assets, unit tests and both Chromium scenarios.
-- `python3 scripts/check.py native`: race-enabled Linux TUN, discovery and
-  two-Network Agent fixtures in separate disposable network namespaces, without
-  skipped required tests. The Agent fixture also passes integration-tag vet.
-- `python3 scripts/check.py deployment`: unit syntax checked against a built
-  executable without installing or starting host services.
-- `python3 -B -m unittest discover -s scripts -p 'test_*.py' -v`: nine verifier
-  and packaging regressions passed.
-- `python3 scripts/cross-build.py`: all 33 advertised selected targets built;
-  actual byte lengths and SHA-256 digests matched every manifest entry.
-- `python3 scripts/package.py`: 33 distribution archives generated locally;
-  checksums, extracted binary identities, build manifests and every packaged
-  document matched their recorded hashes. No archive was published.
-- Pinned `actionlint` 1.7.12 accepted both workflow definitions.
+| Gate | Actual result |
+| --- | --- |
+| `scripts/check.py go` | Uncached full race suite: 16 test-bearing packages; tracked Go formatting, module integrity and vet passed. Required dual-stack roots and all UDP/QUIC/gRPC 540-candidate subtests executed without skips |
+| `scripts/check.py frontend` | Frozen install, formatting, TypeScript/Vite production build, exact embedded file/content comparison, unit tests and both real-controller Chromium scenarios passed; desktop/mobile screenshots inspected |
+| `scripts/check.py native` | Race-enabled Linux TUN, discovery and two-Network Agent fixtures passed in disposable network namespaces, without skipped required tests |
+| `scripts/check.py deployment` | Built executable and systemd unit syntax passed; no host service installed or started |
+| Python verifier/packager regressions | All nine tests passed |
+| Linux process network matrix | All 24 current CI cases executed and passed at the production revision above; details below |
+| `scripts/cross-build.py` | All 33 selected Go-advertised targets built; full inventory, actual byte sizes and SHA-256 hashes verified. No non-Linux binary executed in the final acceptance pass |
+| `scripts/package.py` | All 33 distribution archives generated and independently checked: archive digests, extracted binaries, build manifests and every packaged document. Archives remain local |
+| Pinned actionlint 1.7.12 | Both workflow definitions accepted |
 
-The [Linux network workflow](../.github/workflows/ci.yml) defines 24 isolated E2E
-scenarios. Existing scenario results and reproduction commands are linked from
-the tracker and platform/transport guides. This audit does not claim all 24 were
-rerun in this change or that hosted CI ran; no Git remote is configured locally.
+The unchanged production code's full Go/race, Python and 33-target build results
+were obtained during the admission fix. Frontend, native Linux, deployment,
+actionlint and the complete network matrix were run again at `a4c0c37`.
+Packaging had already passed all 33 targets; final delivery uses the same build
+and packaging commands after the documentation audit, with the exact revision
+and document hashes recorded in its generated manifests. These distinctions
+avoid attributing an earlier test run to a later commit.
 
-The subsequent administrative CLI change passes the uncached full Linux Go gate
-(now sixteen test-bearing packages), including nine CLI test roots. Separate
-Linux CLI/controller process smoke checks pass with the generated CA, JSON
-creation/listing, help and failure exit codes. All 33 production targets were
-cross-built again and their target inventory, sizes and hashes verified. The
-frontend/native/packaging results above remain evidence for their earlier
-revisions; they were not rerun for the CLI-only change.
+The final network run started at `2026-09-29T08:01:32Z`. Its executable SHA-256 is
+`bd8ad6518ef80be20b21118f0b18abd8e3707b55d80142203e777025a41a7edf`.
+The runner read the matrix from the checked-in workflow and retained each case's
+arguments, exit status, duration and log digest. Four cases ran concurrently,
+each inside its own `sudo unshare --net` namespace. All used restricted Agent
+capabilities and underlay MTU 1280. Overlay MTU was 9000 except `auto-v4` (1280).
 
-The subsequent admission fix removes the fixed established-Link ceiling for
-native UDP, QUIC and gRPC while keeping 512 pending unauthenticated reservations
-per transport. TLS alone never promotes a connection. The
-[Linux capacity fixture](../internal/mesh/admission_linux_test.go) passes with
-540 candidates per transport, preserved original sessions, overlapping replacement
-keys, preferred-Link agreement, traffic and membership removal. The Linux Go gate
-requires this test and rejects skipped subtests. Full uncached race/vet/format and
-module checks, all nine Python tests and all 33 cross-builds pass. Every cross-build
-target, size and hash was verified. Real Linux TUN E2E also passes for UDP through
-three restricted NATs with live remapping, plus QUIC/gRPC IPv6 listener conflict
-and recovery, all with restricted capabilities and overlay/underlay MTUs 9000/1280.
-Those runs include controller outage, offline repair/restart and resource cleanup.
+| Scenarios | Result |
+| --- | --- |
+| `auto-v4`, `auto-v4-over-v6`, `auto-v6-over-v4` | 3/3 passed |
+| `auto-listener-change`, `grpc-listener-change` | 2/2 passed |
+| `auto-link-local-v4`, `auto-link-local-v6`, `grpc-link-local-v6`, `punch-link-local-v6` | 4/4 passed |
+| `punch-global-v6` | 1/1 passed |
+| `tcp-v6`, `udp-v6`, `quic-v6`, `ws-v6`, `wss-v6`, `grpc-v6` | 6/6 passed |
+| `udp-nat-v4`, `tcp-nat-v4`, `udp-nat-v6`, `tcp-nat-v6` | 4/4 passed |
+| `udp-mixed-nat`, `tcp-mixed-nat`, `udp-remapped-nat`, `tcp-remapped-nat` | 4/4 passed |
 
-## Work still required before completion
+These process fixtures verify real TUN forwarding, ICMP and a 155,648-byte TCP
+exchange, controller outage, offline TUN repair, cached transit-Agent restart and
+owned-resource cleanup. NAT cases also cover STUN outage; the remapping cases
+change live router mappings. Listener-change cases include failed-bind rollback
+and automatic retry. IPv6 link-local cases use two independently scoped paths.
+The exact checks and reproduction flags are in [the fixture](../tests/e2e_linux.py)
+and [CI workflow](../.github/workflows/ci.yml).
 
-1. Complete the final Linux regression and delivery review, distinguishing checks
-   rerun at the final revision from earlier unchanged-component evidence.
-2. Reconcile user/API/protocol documentation and repeat the requirement-by-requirement
-   completion audit against the current tree and actual artifacts. Until that
-   audit passes, the final project checkbox remains open.
+## Operational boundaries
+
+- The Edge graph must connect the intended Nodes. Disconnected components have
+  no route; the controller does not manufacture Edges or relay payloads.
+- NAT traversal depends on router mapping/filtering behavior. The tests establish
+  the documented Linux scenarios, not universal traversal. If both peers acquire
+  unknown remote mappings while the controller is unavailable, fresh rendezvous
+  can be required; established paths and cached configurations remain usable.
+- Identity-bound encryption is hop-by-hop. Administratively trusted transit
+  Agents can inspect transit payloads; this is not end-to-end encryption between
+  nonadjacent Nodes. See [the peer protocol](peer-protocol.md).
+- [API limits](control-api.md) bound request size, topology and endpoint counts.
+  Discovery shares the 64-entry Agent allowance with manual endpoints; overflow
+  is logged and selected deterministically. Bounded queues may drop packets
+  under load. No throughput or large-topology performance SLA is claimed.
+- Windows requires the matching verified Wintun DLL. NetBSD limits native MTU to
+  1500. Persistent BSD interface creation has documented interruption windows;
+  cleanup does not delete a resource without ownership evidence. Other-platform
+  native execution is optional and the platform guides preserve known failures.
+- Peers must use a compatible protocol revision; mixed-version rolling upgrades
+  across wire-format changes are not promised. Back up controller/Agent state
+  and follow [deployment and upgrade instructions](deployment.md).
+
+There are no remaining implementation or required verification items from the
+accepted scope. Future ECMP, coordinated two-phase route activation and dynamic
+path-MTU adaptation retain their future status from the proposal.

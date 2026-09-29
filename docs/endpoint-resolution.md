@@ -33,6 +33,13 @@ failure rejects the entire scan, leaving the last published snapshot in place
 until a complete scan succeeds. Removing an address or taking its interface down
 withdraws its endpoints on the next successful scan and controller update.
 
+An Agent has a total allowance of 64 endpoints, shared by manual and discovered
+entries. Manual entries reserve their slots first. If discovery exceeds the
+remaining allowance, the Agent logs a warning and publishes the first entries
+in stable ID order. On hosts with large address inventories, reserve needed
+addresses as manual endpoints within that allowance. Duplicate URLs do not use
+extra slots, and expired STUN observations are removed.
+
 Linux reads kernel link types in one netlink dump and accepts physical devices
 and container veth interfaces. TUN, TAP, dummy devices and bridges are excluded
 regardless of their names. Windows uses `GetIfTable2Ex` hardware, filter, endpoint
@@ -125,8 +132,10 @@ TCP/UDP punching uses separate candidates under the edge's punch policy.
 
 Every candidate has independent backoff and renewal. Eight Mesh-wide dial slots
 bound simultaneous attempts; an unreachable address cannot prevent another
-address from connecting. Successful Links are retained, subject to the existing
-transport connection limits. One common active Link is selected by both Agents.
+address from connecting. Successful Links are retained. UDP, QUIC and gRPC
+release pending admission reservations after the configured Noise handshake;
+TCP pool allowances grow with authorized topology and resolved candidates.
+One common active Link is selected by both Agents.
 Use its Candidate in the edge preference selector to prefer that particular
 address. Literal-IP endpoints keep their existing Candidate IDs. Preferences for
 older hostname/family-only IDs fall back to automatic selection; select a new
@@ -190,7 +199,7 @@ STUN data-port reuse and IP fragmentation are preserved. The implementation uses
 `x/net` packet control messages on Unix and native Winsock packet information on
 Windows. Truncated datagrams/control data are discarded without stopping the
 listener, including Windows `WSAEMSGSIZE`. Native Windows wildcard/multiple-address
-acceptance remains open; its ABI codec is tested on Linux and cross-compiled.
+checks are optional and unverified; its ABI codec is tested on Linux and cross-compiled.
 FreeBSD 15.1-p3/amd64 and OpenBSD 7.9/amd64 native tests verify reply sources, truncation recovery and
 maximum-size IPv4/IPv6 messages with both listeners. Owned BSD sockets reserve a
 64 KiB send buffer because the default may be below the protocol's 16 KiB message
@@ -222,8 +231,10 @@ controller/STUN outage continuity where applicable, offline TUN recovery, cached
 transit-Agent restart and cleanup. Those process tests use literal IP endpoints;
 they are regression evidence for the transport changes, not native DNS fixtures.
 Production cross-builds pass for Windows amd64/arm64/386, macOS arm64, FreeBSD
-amd64 and Linux arm64. Broader platform and DNS failure scenarios remain in the
-[acceptance tracker](implementation-status.md).
+amd64 and Linux arm64; the final [acceptance audit](acceptance-audit.md) records
+all 33 cross-builds. Resolver failure/withdrawal behavior is covered by Linux
+injected-resolver tests, without claiming an external DNS outage experiment.
+Complete non-Linux native checks are optional.
 
 
 ## IPv6 link-local scopes

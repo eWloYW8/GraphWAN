@@ -5,8 +5,8 @@ routes and per-family MTUs. Native Windows execution is **not yet verified** in
 the current development environment. The production binary and native test
 binaries cross-build for Windows amd64, arm64 and 386. Linux race tests verify
 the shared ring lifetime and rollback algorithms; this does not establish that
-Windows kernel networking works. Native and multi-host acceptance remain open in
-the [implementation tracker](implementation-status.md).
+Windows kernel networking works. Native and multi-host checks are optional under
+the agreed [Linux runtime acceptance scope](acceptance-audit.md).
 
 ## Build and install the DLL
 
@@ -182,9 +182,11 @@ Discovery uses `GetIfTable2Ex` interface metadata. An adapter must report itself
 as hardware, must not be a filter or endpoint interface, and must not have a
 loopback, virtual, tunnel or bridge interface type. Alias names and MAC-address
 presence do not determine eligibility. Ethernet, Wi-Fi and cellular interfaces
-can advertise their global-unicast IPv4/IPv6 addresses when up; each address gets
+can advertise their global-unicast and link-local IPv4/IPv6 addresses when up; each address gets
 TCP and UDP endpoints at the configured Agent port. Guest NIC eligibility depends
-on the hardware flag reported by its driver. IPv6 link-local discovery is pending.
+on the hardware flag reported by its driver. Shared discovery attaches the owner's
+IPv6 scope, and Mesh maps it to local dialing interfaces. This behavior is
+Linux-tested and Windows-cross-built; native Windows scope tests are not claimed.
 
 Linux fixture tests cover the metadata decision, alias-independent classification,
 duplicate addresses, deterministic IDs and rejecting partial address snapshots.

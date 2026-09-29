@@ -36,7 +36,9 @@ TCP, UDP, QUIC, WS, WSS and gRPC data transports run in the Agent. WS/WSS requir
 [QUIC also requires a manual endpoint](quic-operation.md). Agent settings include
 [STUN servers for TCP/UDP hole punching](nat-operation.md). Use `host:port` for UDP
 and `tcp://host:port` for TCP; the two protocols can have different NAT mappings.
-Wider NAT/platform coverage remains incomplete. See [the acceptance tracker](implementation-status.md).
+See [NAT operation](nat-operation.md) for the verified Linux scenarios and
+traversal limits. Complete native testing on other platforms is optional under
+the [acceptance scope](acceptance-audit.md).
 
 Agent rows show process CPU and Go-managed memory. Node details additionally show
 heap memory, goroutines, logical CPUs and uptime. CPU can exceed 100% when multiple
