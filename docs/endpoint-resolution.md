@@ -186,3 +186,54 @@ they are regression evidence for the transport changes, not native DNS fixtures.
 Production cross-builds pass for Windows amd64/arm64/386, macOS arm64, FreeBSD
 amd64 and Linux arm64. Broader platform and DNS failure scenarios remain in the
 [acceptance tracker](implementation-status.md).
+
+
+## IPv6 link-local scopes
+
+Automatic discovery includes IPv6 link-local unicast addresses on eligible
+underlay NICs. Each URL records the **owner's** interface, for example
+`udp://[fe80::1%25uplink0]:24752`. The percent sign is URL-escaped; the stored
+scope belongs to the advertising Agent. It is never used directly as a dialing
+node's interface name. The same address on two NICs produces separate endpoints.
+As specified by [RFC 4007 §6](https://www.rfc-editor.org/rfc/rfc4007.html#section-6),
+zone identifiers are local to their node.
+
+Mesh expands a link-local candidate over the initiator's configured automatic
+IPv6 link-local UDP endpoints. These endpoints identify eligible local interfaces
+for **all** transports; this does not require enabling UDP on the Edge. A socket
+target uses the remote IP with that local interface's zone. The endpoint URL,
+HTTP authority and TLS identity remain tied to the advertised endpoint. A DNS
+answer containing an unscoped IPv6 link-local address follows the same expansion.
+No local scope means no dial; there is no guessed/default interface fallback.
+
+Each scoped candidate has its own bounded retry and Link lifecycle. Define `H`
+as the lowercase hex encoding of the first 16 SHA-256 bytes:
+
+```
+scope = H(endpointID + "/" + source + "/" + transport + "/" + URL)
+candidate = H(baseCandidateID + "/scope/" + scope)
+```
+
+The scope endpoint belongs to the **initiator**, whereas the base endpoint belongs
+to the recipient. DNS expansion happens before scoping. The authenticated
+introduction carries `scope`; optional `target` remains an unscoped DNS answer.
+The receiver reconstructs the scope from the initiator's current endpoint list,
+rejects unknown or missing scopes, and checks a scoped literal's receiving
+interface against the actual socket's remote-address zone. Numeric owner zones
+and interface names are matched through the receiving OS's interface index.
+Scope withdrawal/replacement revokes pending and established candidates on both
+nodes, including healthy retained DNS sessions. Unaffected interfaces keep their
+existing sessions. Interface renaming changes the advertised scope and therefore
+its candidate identity.
+
+Linux acceptance uses three real Agents, two separate Ethernet links and the same
+IPv6 link-local IP on both NICs of each Agent. Every Agent uses different NIC
+names. IPv4 carries only the controller connection; Edge policy permits only
+IPv6, preventing data-plane fallback. Exact healthy candidate sets must contain
+both dialing directions on both links and exclude mismatched scopes. Automatic
+TCP/UDP and manual WS/WSS/gRPC/QUIC are exercised with overlay MTU 9000 over
+underlay MTU 1280, multi-hop traffic, controller outage, TUN repair, cached transit
+restart and cleanup. Removing/restoring the secondary NIC addresses checks scope
+revocation while primary sessions retain their Link IDs. Portable tests cover
+DNS scoping, invalid scope introduction, endpoint replacement and policy changes.
+These tests do not claim that link-local addresses can traverse routers or NAT.

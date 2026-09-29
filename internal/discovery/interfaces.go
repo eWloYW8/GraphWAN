@@ -50,12 +50,15 @@ func interfaceEndpoints(identity []byte, port uint16, interfaces []net.Interface
 				continue
 			}
 			ip := prefix.Addr().Unmap()
-			// IPv4 link-local addresses use ordinary on-link routes and need no
-			// zone identifier. IPv6 link-local endpoints need peer-local scope
-			// mapping before they can be advertised safely.
-			if !ip.IsGlobalUnicast() && !(ip.Is4() && ip.IsLinkLocalUnicast()) {
+			if !ip.IsGlobalUnicast() && !ip.IsLinkLocalUnicast() {
 				continue
 			}
+			// This is the owner's zone. Mesh translates it into each dialing
+			// node's local zone; duplicate addresses on different NICs stay distinct.
+			if ip.Is6() && ip.IsLinkLocalUnicast() {
+				ip = ip.WithZone(iface.Name)
+			}
+
 			for _, kind := range []model.Transport{model.UDP, model.TCP} {
 				key := append(append([]byte{}, identity...), []byte("/"+iface.Name+"/"+ip.String()+"/"+string(kind))...)
 				sum := sha256.Sum256(key)

@@ -693,3 +693,38 @@ These checks are not required for completion under the agreed Linux validation s
   interface groups can be edited. Group membership alone would not close the
   outstanding classification requirement. The finding is recorded in the
   [DragonFly guide](dragonfly-operation.md); no native platform validation was run.
+
+
+- IPv6 link-local scope mapping is implemented across discovery, candidate
+  generation, authenticated admission, all six transports and policy revocation.
+  Owner interface names are advertised in escaped URLs; dialing uses only a
+  configured initiator interface. Scope endpoint replacement changes the candidate
+  identity and stale handshakes cannot restore it. Portable tests cover literal
+  and DNS scopes, invalid introductions, both directions, replacement/removal,
+  numeric zone aliases and disabled policies. Previous entries listing IPv6 scope
+  mapping as incomplete are historical; DragonFly interface classification and
+  the remaining top-level audit items are still open.
+- Linux native discovery verifies IPv6 link-local inclusion/exclusion on real
+  veth versus dummy/bridge/TUN/TAP devices, address withdrawal and down/up changes.
+  Three-Agent Linux E2E now includes two independent links with repeated link-local
+  IPs and different NIC names on every Agent. It checks exact healthy candidates
+  for both dialing directions, rejects mismatched scopes, removes/restores one
+  scope while retaining the other Link IDs, and exercises native TUN forwarding,
+  controller outage, offline TUN repair, cached transit restart and cleanup.
+  Automatic TCP/UDP and manual WS/WSS/gRPC/QUIC pass at MTU 9000/1280 with restricted
+  Agent capabilities. This caught and fixed a gRPC resolver-URI escaping defect
+  affecting zone names whose first two characters are not hexadecimal.
+- Default CI adds automatic and gRPC IPv6 link-local cases (16 Linux network
+  scenarios total). BSD native discovery fixtures account for OS-generated scoped
+  addresses on their explicitly allowed test NICs; they are compile-checked only
+  in this change. Other-platform native runs remain optional under the agreed
+  Linux-only runtime acceptance scope. Reproduction and wire identity details are
+  in [Linux operation](linux-operation.md) and
+  [endpoint scopes](endpoint-resolution.md#ipv6-link-local-scopes).
+
+- Validation for this scope change: Linux race suites for Link, Discovery, Mesh,
+  Transport and Agent pass, along with `go vet ./...` and pinned actionlint.
+  `scripts/cross-build.py` produces all 33 selected Go OS/architecture binaries;
+  every manifest byte count and SHA-256 digest was checked. FreeBSD/OpenBSD/NetBSD
+  integration Discovery test binaries also cross-compile. No non-Linux native
+  test or hosted CI execution is claimed for this change.

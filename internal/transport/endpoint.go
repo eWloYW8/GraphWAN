@@ -23,10 +23,10 @@ func EndpointDialAddress(endpoint model.Endpoint, family int, target netip.Addr)
 	if !target.IsValid() {
 		return u.Host, nil
 	}
-	if target.Is4In6() || target.Zone() != "" || target.IsUnspecified() || target.IsMulticast() || target.Is4() != (family == 4) {
+	if target.Is4In6() || (target.Zone() != "" && !target.IsLinkLocalUnicast()) || target.IsUnspecified() || target.IsMulticast() || target.Is4() != (family == 4) {
 		return "", errors.New("invalid endpoint target address")
 	}
-	if literal, err := netip.ParseAddr(u.Hostname()); err == nil && literal != target {
+	if literal, err := netip.ParseAddr(u.Hostname()); err == nil && literal.WithZone("") != target.WithZone("") {
 		return "", errors.New("cannot override a literal endpoint")
 	}
 	return net.JoinHostPort(target.String(), u.Port()), nil

@@ -26,7 +26,7 @@ func (g *group) candidates(cfg *policy, outgoing bool) []link.Candidate {
 	bases := link.Candidates(initiator, peer, time.Now())
 	result := bases
 	if outgoing {
-		result = g.resolveCandidates(bases)
+		result = scopedCandidates(g.resolveCandidates(bases), cfg.endpoints)
 	}
 	seen := map[string]bool{}
 	for _, candidate := range result {
@@ -61,9 +61,12 @@ func (g *group) candidates(cfg *policy, outgoing bool) []link.Candidate {
 			if outgoing {
 				for _, base := range bases {
 					resolved, err := link.ResolveCandidate(base, candidate.Target)
-					if err == nil && resolved.ID == id {
-						result = append(result, resolved)
-						break
+					if err == nil {
+						for _, scoped := range scopedCandidates([]link.Candidate{resolved}, cfg.endpoints) {
+							if scoped.ID == id {
+								result = append(result, scoped)
+							}
+						}
 					}
 				}
 			}

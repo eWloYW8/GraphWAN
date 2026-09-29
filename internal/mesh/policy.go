@@ -32,21 +32,26 @@ func candidateConfigured(cfg *policy, candidate link.Candidate, healthy bool) bo
 			}
 		}
 	}
-	bases := link.Candidates(cfg.self, cfg.peer, time.Now())
-	bases = append(bases, link.Candidates(cfg.peer.Node.ID, model.Peer{Edge: cfg.peer.Edge, Endpoints: cfg.endpoints}, time.Now())...)
-	for _, base := range bases {
-		if base.Endpoint.URL != candidate.Endpoint.URL || base.Endpoint.Source != candidate.Endpoint.Source {
-			continue
+	for _, outgoing := range []bool{true, false} {
+		initiator, peer, scopes := cfg.self, cfg.peer, cfg.endpoints
+		if !outgoing {
+			initiator, peer, scopes = cfg.peer.Node.ID, model.Peer{Edge: cfg.peer.Edge, Endpoints: cfg.endpoints}, cfg.peer.Endpoints
 		}
-		if candidate.Target.IsValid() {
-			var err error
-			base, err = link.ResolveCandidate(base, candidate.Target)
-			if err != nil {
+		for _, base := range link.Candidates(initiator, peer, time.Now()) {
+			if base.Endpoint.URL != candidate.Endpoint.URL || base.Endpoint.Source != candidate.Endpoint.Source {
 				continue
 			}
-		}
-		if base.ID == candidate.ID {
-			return true
+			if candidate.Target.IsValid() {
+				var err error
+				base, err = link.ResolveCandidate(base, candidate.Target)
+				if err != nil {
+					continue
+				}
+			}
+			base, ok := introducedScope(base, link.ScopeIdentity(candidate.Scope), scopes)
+			if ok && base.ID == candidate.ID {
+				return true
+			}
 		}
 	}
 	return false

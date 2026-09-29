@@ -3,6 +3,7 @@
 package discovery
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"strings"
@@ -33,6 +34,14 @@ func TestNativeInterfaceDiscovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { netlink.LinkDel(link) })
+		if err := os.WriteFile("/proc/sys/net/ipv6/conf/"+link.Attrs().Name+"/addr_gen_mode", []byte("1"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		v6local, _ := netlink.ParseAddr(fmt.Sprintf("fe80::33:%d/64", i+1))
+		v6local.Flags = unix.IFA_F_NODAD
+		if err := netlink.AddrAdd(link, v6local); err != nil {
+			t.Fatal(err)
+		}
 		address := &netlink.Addr{IPNet: &net.IPNet{IP: net.IPv4(198, 18, 33, byte(i+1)), Mask: net.CIDRMask(24, 32)}}
 		if err := netlink.AddrAdd(link, address); err != nil {
 			t.Fatal(err)
@@ -47,6 +56,9 @@ func TestNativeInterfaceDiscovery(t *testing.T) {
 	}
 	peer, err := netlink.LinkByName("peer-nic")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("/proc/sys/net/ipv6/conf/peer-nic/addr_gen_mode", []byte("1"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := netlink.LinkSetUp(peer); err != nil {
@@ -80,11 +92,11 @@ func TestNativeInterfaceDiscovery(t *testing.T) {
 			}
 		}
 	}
-	check([]string{"198.18.33.1", "fd42:6766::1", "169.254.33.1"})
+	check([]string{"198.18.33.1", "fd42:6766::1", "169.254.33.1", "fe80::33:1%25tun-real-nic"})
 	if err := netlink.AddrDel(links[0], v6); err != nil {
 		t.Fatal(err)
 	}
-	check([]string{"198.18.33.1", "169.254.33.1"})
+	check([]string{"198.18.33.1", "169.254.33.1", "fe80::33:1%25tun-real-nic"})
 	if err := netlink.LinkSetDown(links[0]); err != nil {
 		t.Fatal(err)
 	}
@@ -92,9 +104,19 @@ func TestNativeInterfaceDiscovery(t *testing.T) {
 	if err := netlink.LinkSetUp(links[0]); err != nil {
 		t.Fatal(err)
 	}
-	check([]string{"198.18.33.1", "169.254.33.1"})
+	v6local, _ := netlink.ParseAddr("fe80::33:1/64")
+	v6local.Flags = unix.IFA_F_NODAD
+	if err := netlink.AddrAdd(links[0], v6local); err != nil {
+		t.Fatal(err)
+	}
+
+	check([]string{"198.18.33.1", "169.254.33.1", "fe80::33:1%25tun-real-nic"})
 	linkLocal, _ := netlink.ParseAddr("169.254.33.1/16")
 	if err := netlink.AddrDel(links[0], linkLocal); err != nil {
+		t.Fatal(err)
+	}
+	check([]string{"198.18.33.1", "fe80::33:1%25tun-real-nic"})
+	if err := netlink.AddrDel(links[0], v6local); err != nil {
 		t.Fatal(err)
 	}
 	check([]string{"198.18.33.1"})

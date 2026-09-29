@@ -47,7 +47,7 @@ remains in progress. See the acceptance tracker.
   routing state. Failed preparation closes new resources and retains existing
   interfaces and connections. Changing only graph weights preserves peer sessions.
 - Linux underlay discovery runs every five seconds. It includes device and veth
-  global-unicast and IPv4 link-local addresses, excludes TUN/TAP/bridge devices, and advertises only
+  global-unicast and IPv4/IPv6 link-local addresses, excludes TUN/TAP/bridge devices, and advertises only
   TCP/UDP endpoints using the configured Agent listen port (24752 by default).
 - Each Edge independently retries allowed candidates with jittered backoff.
   The Agent permits eight concurrent outgoing attempts and eight incoming
@@ -126,10 +126,23 @@ creating the topology; automatic mode then requires both transports to become
 healthy. It verifies full-MTU IPv6 overlay traffic, controller outage, offline
 TUN repair, cached transit-Agent restart and shutdown cleanup. IPv4 link-local
 connectivity is intended for peers on the same link, not as a public/NAT endpoint.
-IPv6 link-local addresses still require mapping each peer's address to the local
-outgoing interface and remain excluded from automatic discovery until that feature
-is implemented. Unspecified, loopback, multicast and broadcast addresses remain
-excluded from automatic interface endpoints.
+
+`--peer-link-local-v6` keeps IPv4 for controller access and enables only IPv6 peer
+traffic. Each Agent has two NICs on separate links with identical link-local IPs,
+but different interface names across Agents. Mesh maps owner scopes to each
+initiator's local NICs and checks the receiving scope during admission. The test
+requires every viable candidate in both directions, rejects mismatched scopes,
+and verifies address removal/restoration without replacing unaffected sessions.
+It works with automatic TCP/UDP and manual QUIC/WS/WSS/gRPC endpoints. See
+[scope identities and policy](endpoint-resolution.md#ipv6-link-local-scopes).
+Unspecified, loopback, multicast and broadcast interface addresses remain excluded.
+
+```sh
+sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
+  --peer-link-local-v6 --restricted-agent --overlay-family 6 \
+  --mtu 9000 --underlay-mtu 1280
+# Repeat with --transport ws, wss, grpc or quic for manual ingress.
+```
 
 | Overlay | Underlay | Transports | Overlay/underlay MTU | Result |
 | --- | --- | --- | --- | --- |
@@ -137,6 +150,7 @@ excluded from automatic interface endpoints.
 | IPv6 | IPv6 | TCP + UDP | 1280 / 1500 | Passed |
 | IPv6 | IPv6 | Each of TCP, UDP, QUIC, WS, WSS, gRPC alone | 9000 / 1280 | Passed |
 | IPv4 | IPv6 | TCP + UDP | 1280 / 1500 | Passed |
+| IPv6 | IPv6 link-local, two NICs | TCP + UDP; WS, WSS, gRPC, QUIC separately | 9000 / 1280 | Passed |
 | IPv6 | IPv4 | TCP + UDP | 1280 / 1500 | Passed |
 | IPv6 | IPv4 restricted SNAT | UDP alone, TCP alone; punch-only | 9000 / 1280 | Passed |
 
@@ -167,6 +181,6 @@ done
 ```
 
 These are Linux scenarios with fixed underlay MTUs. They do not establish native
-support on other systems, IPv6 link-local scope mapping, changing path MTUs,
+support on other systems, changing path MTUs,
 NAT64 or arbitrary NAT behavior. The NAT fixture models IPv4 SNAT and explicitly
 rejects `--nat --underlay-family 6`; either virtual address family can use it.

@@ -223,6 +223,7 @@ func TestNativeNetBSDInterfaceDiscovery(t *testing.T) {
 			}
 			delete(got, endpoint)
 		}
+		addresses = append(addresses, fixtureLinkLocalAddresses(t, fixture)...)
 		want := map[string]bool{}
 		for _, address := range addresses {
 			for _, kind := range []string{"tcp", "udp"} {

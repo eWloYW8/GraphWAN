@@ -335,6 +335,11 @@ func (m *Mesh) accept(conn transport.Conn, kind model.Transport) {
 					continue
 				}
 			}
+			var scoped bool
+			c, scoped = introducedScope(c, introduction.Scope, cfg.peer.Endpoints)
+			if !scoped {
+				continue
+			}
 			if c.ID == introduction.Candidate && c.Endpoint.Transport == kind && candidateIngress(c, conn) {
 				copy := c
 				candidate = &copy
@@ -478,6 +483,19 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 }
 
 func candidateIngress(candidate link.Candidate, conn transport.Conn) bool {
+	// A scoped literal belongs to a receiving interface, not merely an address
+	// family. Prevent a link arriving on a different NIC from claiming its ID.
+	if candidate.NeedsScope() {
+		remote, err := netip.ParseAddrPort(conn.RemoteAddr().String())
+		if err != nil || !remote.Addr().IsLinkLocalUnicast() || remote.Addr().Zone() == "" {
+			return false
+		}
+		zone := candidate.Address().Zone()
+		if zone != "" && !sameLocalZone(zone, remote.Addr().Zone()) {
+			return false
+		}
+	}
+
 	if candidate.Endpoint.Transport == model.TCP {
 		_, punched := conn.(interface{ TCPPunch() bool })
 		if (candidate.Method == link.Punch) != punched {

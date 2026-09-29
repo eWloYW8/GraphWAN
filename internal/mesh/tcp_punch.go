@@ -99,8 +99,12 @@ func (m *Mesh) dialTCPPunch(ctx context.Context, candidate link.Candidate, ident
 	if err != nil || len(identity) != ed25519.PublicKeySize {
 		return nil, errors.New("invalid TCP punch candidate")
 	}
-	addresses := []netip.Addr{candidate.Target}
-	if !candidate.Target.IsValid() {
+	target, err := candidate.DialTarget()
+	if err != nil {
+		return nil, err
+	}
+	addresses := []netip.Addr{target}
+	if !target.IsValid() {
 		addresses, err = net.DefaultResolver.LookupNetIP(ctx, "ip"+strconv.Itoa(candidate.Family), u.Hostname())
 		if err != nil {
 			return nil, err

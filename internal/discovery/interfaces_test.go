@@ -3,6 +3,7 @@ package discovery
 import (
 	"errors"
 	"net"
+	"net/netip"
 	"slices"
 	"testing"
 
@@ -30,7 +31,7 @@ func TestInterfaceEndpointSnapshot(t *testing.T) {
 	}
 	physical := map[int]bool{1: true, 2: false, 3: true, 4: true, 5: true}
 	before, err := interfaceEndpoints([]byte("identity"), 24752, interfaces, physical, addresses)
-	if err != nil || len(before) != 6 {
+	if err != nil || len(before) != 10 {
 		t.Fatalf("endpoint snapshot: %v %v", before, err)
 	}
 	for _, endpoint := range before {
@@ -78,4 +79,32 @@ func TestHardwareMetadataClassification(t *testing.T) {
 			t.Fatalf("classification %+v: %t", test.metadata, got)
 		}
 	}
+}
+
+// Native BSD fixtures can acquire OS-generated link-local addresses when raised.
+// Include those addresses only for the explicitly allowed fixture NICs; unexpected
+// addresses on excluded clones still fail the native snapshot comparison.
+func fixtureLinkLocalAddresses(t *testing.T, names ...string) []string {
+	t.Helper()
+	var result []string
+	for _, name := range names {
+		iface, err := net.InterfaceByName(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addresses, err := iface.Addrs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, raw := range addresses {
+			prefix, err := netip.ParsePrefix(raw.String())
+			if err == nil && prefix.Addr().Is6() && prefix.Addr().IsLinkLocalUnicast() {
+				result = append(result, prefix.Addr().WithZone(name).String())
+			}
+		}
+	}
+	return result
 }

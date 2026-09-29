@@ -107,6 +107,8 @@ jobs:
           - {name: auto-v4-over-v6, transport: auto, overlay: 4, underlay: 6, mtu: 9000, nat: false}
           - {name: auto-v6-over-v4, transport: auto, overlay: 6, underlay: 4, mtu: 9000, nat: false}
           - {name: auto-link-local-v4, transport: auto, overlay: 6, underlay: 4, mtu: 9000, nat: false, link_local: true}
+          - {name: auto-link-local-v6, transport: auto, overlay: 6, underlay: 4, mtu: 9000, nat: false, peer_link_local_v6: true}
+          - {name: grpc-link-local-v6, transport: grpc, overlay: 6, underlay: 4, mtu: 9000, nat: false, peer_link_local_v6: true}
           - {name: tcp-v6, transport: tcp, overlay: 6, underlay: 6, mtu: 9000, nat: false}
           - {name: udp-v6, transport: udp, overlay: 6, underlay: 6, mtu: 9000, nat: false}
           - {name: quic-v6, transport: quic, overlay: 6, underlay: 6, mtu: 9000, nat: false}
@@ -140,6 +142,7 @@ jobs:
           MTU: ${{ matrix.mtu }}
           NAT: ${{ matrix.nat }}
           LINK_LOCAL: ${{ matrix.link_local || false }}
+          PEER_LINK_LOCAL_V6: ${{ matrix.peer_link_local_v6 || false }}
           GRAPHWAN_BINARY: ${{ runner.temp }}/graphwan
           GRAPHWAN_LOG: ${{ runner.temp }}/network.log
         shell: bash
@@ -147,6 +150,7 @@ jobs:
           args=(--binary "$GRAPHWAN_BINARY" --transport "$TRANSPORT" --overlay-family "$OVERLAY" --underlay-family "$UNDERLAY" --mtu "$MTU" --underlay-mtu 1280 --restricted-agent)
           if [[ "$NAT" == true ]]; then args+=(--nat); fi
           if [[ "$LINK_LOCAL" == true ]]; then args+=(--link-local); fi
+          if [[ "$PEER_LINK_LOCAL_V6" == true ]]; then args+=(--peer-link-local-v6); fi
           sudo -n unshare --net python3 tests/e2e_linux.py "${args[@]}" 2>&1 | tee "$GRAPHWAN_LOG"
       - name: Retain network test output
         if: always()

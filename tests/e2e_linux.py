@@ -3,6 +3,7 @@
 import argparse
 import contextlib
 import http.cookiejar
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -46,6 +47,7 @@ def main():
     parser.add_argument("--nat", action="store_true", help="place each agent behind a separate restricted NAT; requires --transport udp/tcp and iptables")
     parser.add_argument("--restricted-agent", action="store_true", help="run agents with the capability bounding set used by the systemd example")
     parser.add_argument("--link-local", action="store_true", help="use only IPv4 link-local underlay addresses on the shared link")
+    parser.add_argument("--peer-link-local-v6", action="store_true", help="IPv6 link-local-only peer data with distinct NIC names; IPv4 controller")
     args = parser.parse_args()
     if args.nat and args.transport not in ("udp", "tcp"):
         parser.error("--nat verifies UDP or TCP punching")
@@ -53,6 +55,8 @@ def main():
         parser.error("the NAT fixture currently models IPv4 SNAT; IPv6 overlay is supported")
     if args.link_local and (args.nat or args.underlay_family != 4):
         parser.error("--link-local requires IPv4 underlay without NAT")
+    if args.peer_link_local_v6 and (args.nat or args.underlay_family != 4 or args.link_local):
+        parser.error("--peer-link-local-v6 requires IPv4 controller underlay without NAT or --link-local")
     if not 1280 <= args.mtu <= 9000 or not 1280 <= args.underlay_mtu <= 9000:
         parser.error("MTUs must be between 1280 and 9000")
     if os.geteuid() != 0 or os.readlink("/proc/self/ns/net") == os.readlink("/proc/1/ns/net"):
@@ -64,6 +68,9 @@ def main():
         controller_ip = "169.254.42.1"
         underlay_ips = [f"169.254.42.{11+i}" for i in range(3)]
         underlay_bits = 16
+    interface_names = [f"uplink{i}" if args.peer_link_local_v6 else "eth0" for i in range(3)]
+    peer_ips = [f"fe80::42:{i+1}%25{interface_names[i]}" for i in range(3)] if args.peer_link_local_v6 else underlay_ips
+    peer_family = 6 if args.peer_link_local_v6 else args.underlay_family
     overlay_ips = [f"10.42.0.{i+1}" if args.overlay_family == 4 else f"fd42:6777::{i+1}" for i in range(3)]
     overlay_cidr = "10.42.0.0/24" if args.overlay_family == 4 else "fd42:6777::/64"
     def host_port(ip, port):
@@ -101,6 +108,10 @@ def main():
             command("ip", "link", "set", "gw-underlay", "mtu", str(args.underlay_mtu))
             command("ip", "addr", "add", f"{controller_ip}/{underlay_bits}", "dev", "gw-underlay", *address_flags)
             command("ip", "link", "set", "gw-underlay", "up")
+            if args.peer_link_local_v6:
+                command("ip", "link", "add", "gw-link-local", "type", "bridge")
+                command("ip", "link", "set", "gw-link-local", "mtu", str(args.underlay_mtu))
+                command("ip", "link", "set", "gw-link-local", "up")
             namespaces = []
             routers = []
             for index in range(3):
@@ -121,9 +132,24 @@ def main():
                 command("ip", "link", "set", inside, "netns", str(gateway.pid))
                 prefix = ["nsenter", "-t", str(gateway.pid), "-n"]
                 command(*prefix, "ip", "link", "set", "lo", "up")
-                command(*prefix, "ip", "link", "set", inside, "name", "eth0")
-                command(*prefix, "ip", "addr", "add", f"{underlay_ips[index]}/{underlay_bits}", "dev", "eth0", *address_flags)
-                command(*prefix, "ip", "link", "set", "eth0", "up")
+                nic = interface_names[index]
+                command(*prefix, "ip", "link", "set", inside, "name", nic)
+                command(*prefix, "ip", "link", "set", nic, "addrgenmode", "none")
+                command(*prefix, "ip", "addr", "add", f"{underlay_ips[index]}/{underlay_bits}", "dev", nic, *address_flags)
+                if args.peer_link_local_v6:
+                    command(*prefix, "ip", "addr", "add", f"fe80::42:{index+1}/64", "dev", nic, "nodad")
+                command(*prefix, "ip", "link", "set", nic, "up")
+                if args.peer_link_local_v6:
+                    # The same link-local address exists on two independent links.
+                    # Owner and initiator zones must both be honored, never guessed.
+                    command("ip", "link", "add", f"gws{index}", "type", "veth", "peer", "name", f"backup{index}")
+                    command("ip", "link", "set", f"gws{index}", "mtu", str(args.underlay_mtu))
+                    command("ip", "link", "set", f"gws{index}", "master", "gw-link-local")
+                    command("ip", "link", "set", f"gws{index}", "up")
+                    command("ip", "link", "set", f"backup{index}", "netns", str(holder.pid))
+                    command(*prefix, "ip", "link", "set", f"backup{index}", "mtu", str(args.underlay_mtu), "addrgenmode", "none")
+                    command(*prefix, "ip", "addr", "add", f"fe80::42:{index+1}/64", "dev", f"backup{index}", "nodad")
+                    command(*prefix, "ip", "link", "set", f"backup{index}", "up")
                 if args.nat:
                     command("ip", "link", "add", f"lan{index}", "type", "veth", "peer", "name", f"client{index}")
                     command("ip", "link", "set", f"lan{index}", "netns", str(gateway.pid))
@@ -187,12 +213,14 @@ def main():
                 agent_commands.append(argv)
                 agents.append(spawn(f"agent-{index}", argv, dict(os.environ, GRAPHWAN_ENROLLMENT_TOKEN=token, HTTP_PROXY="", HTTPS_PROXY="", ALL_PROXY="")))
             state = eventually(lambda: (s if len(s["agents"]) == 3 and all(a["endpoints"] for a in s["agents"]) else None) if (s := api("GET", "/state")) else None)
-            if args.link_local:
+            if args.link_local or args.peer_link_local_v6:
                 for index, item in enumerate(sorted(state["agents"], key=lambda item: item["name"])):
                     actual = {(endpoint["transport"], endpoint["url"]) for endpoint in item["endpoints"]}
                     expected = {(kind, f"{kind}://{underlay_ips[index]}:24752") for kind in ("udp", "tcp")}
+                    if args.peer_link_local_v6:
+                        expected |= {(kind, f"{kind}://{host_port(ip, 24752)}") for kind in ("udp", "tcp") for ip in (peer_ips[index], f"fe80::42:{index+1}%25backup{index}")}
                     assert actual == expected, f"unexpected link-local discovery: {actual}"
-                print("PASS: all automatic TCP/UDP endpoints use the link-local-only underlay", flush=True)
+                print("PASS: automatic TCP/UDP link-local endpoints match each node’s interface scope", flush=True)
             if args.restricted_agent:
                 for process in agents:
                     status = dict(line.split(":", 1) for line in Path(f"/proc/{process.pid}/status").read_text().splitlines())
@@ -250,17 +278,20 @@ def main():
                     agent = by_name[f"node-{index}"]
                     path = "" if args.transport in ("udp", "tcp", "quic") else "/custom/overlay"
                     endpoint = {"id": uuid.uuid4().hex, "source": "manual", "transport": args.transport,
-                                "url": f"{args.transport}://{host_port(underlay_ips[index], 24752)}{path}"}
+                                "url": f"{args.transport}://{host_port(peer_ips[index], 24752)}{path}"}
+                    manual_endpoints = [endpoint]
+                    if args.peer_link_local_v6:
+                        manual_endpoints.append({**endpoint, "id": uuid.uuid4().hex, "url": endpoint["url"].replace(f"%25uplink{index}", f"%25backup{index}")})
                     def configure_endpoint():
                         try:
-                            return api("PATCH", f"/agents/{agent['id']}", {"manual_endpoints": [endpoint]}, api("GET", "/state")["revision"])
+                            return api("PATCH", f"/agents/{agent['id']}", {"manual_endpoints": manual_endpoints}, api("GET", "/state")["revision"])
                         except urllib.error.HTTPError as error:
                             if error.code == 409:
                                 return None
                             raise
                     eventually(configure_endpoint)
             nodes = [{"id": uuid.uuid4().hex, "agent_id": by_name[f"node-{i}"]["id"], "name": f"node-{i}", "address": overlay_ips[i]} for i in range(3)]
-            network = {"name": "native three-node test", "cidr": overlay_cidr, "nodes": nodes, "edges": [{"id": uuid.uuid4().hex, "a": nodes[i]["id"], "b": nodes[i+1]["id"], "weight": 10, "enabled": True, "transports": transports, "methods": {"ipv4_direct": args.underlay_family == 4, "ipv6_direct": args.underlay_family == 6, "hole_punch": False}} for i in range(2)]}
+            network = {"name": "native three-node test", "cidr": overlay_cidr, "nodes": nodes, "edges": [{"id": uuid.uuid4().hex, "a": nodes[i]["id"], "b": nodes[i+1]["id"], "weight": 10, "enabled": True, "transports": transports, "methods": {"ipv4_direct": peer_family == 4, "ipv6_direct": peer_family == 6, "hole_punch": False}} for i in range(2)]}
             network["mtu"] = args.mtu
             if args.nat:
                 for edge in network["edges"]:
@@ -273,6 +304,35 @@ def main():
                         return None
                     raise
             eventually(create_network)
+            expected_scoped = {}
+            backup_scoped = set()
+            if args.peer_link_local_v6:
+                current = api("GET", "/state")
+                endpoints = {a["id"]: a["endpoints"] for a in current["agents"]}
+                def digest(raw):
+                    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+                for edge in network["edges"]:
+                    expected = set()
+                    pair = [node for node in nodes if node["id"] in (edge["a"], edge["b"])]
+                    for initiator, recipient in (pair, pair[::-1]):
+                        for scope in endpoints[initiator["agent_id"]]:
+                            if scope["source"] != "interface" or scope["transport"] != "udp" or "%25" not in scope["url"]:
+                                continue
+                            for target in endpoints[recipient["agent_id"]]:
+                                if target["transport"] not in transports or "%25" not in target["url"]:
+                                    continue
+                                # Only matching links can connect; same IPv6 literals
+                                # on the other recipient NIC must fail admission.
+                                if ("%25backup" in scope["url"]) != ("%25backup" in target["url"]):
+                                    continue
+                                base = digest(f"{edge['id']}/{initiator['id']}/{target['id']}/6/direct")
+                                scope_id = digest("/".join(scope[key] for key in ("id", "source", "transport", "url")))
+                                candidate_id = digest(f"{base}/scope/{scope_id}")
+                                expected.add(candidate_id)
+                                if "%25backup" in scope["url"]:
+                                    backup_scoped.add(candidate_id)
+                    assert len(expected) == 4 * len(transports), "fixture omitted a link or dialing direction"
+                    expected_scoped[edge["id"]] = expected
             def connected():
                 reports = api("GET", "/telemetry")
                 if len(reports) != 3:
@@ -284,15 +344,36 @@ def main():
                         return False
                     assert resources["cpu_percent"] >= 0 and resources["heap_bytes"] <= resources["go_memory_bytes"], "invalid process resource report"
                     healthy = {}
+                    candidates = {}
                     for link in report["links"] or []:
                         if link["healthy"]:
                             healthy.setdefault(link["edge_id"], set()).add(link["transport"])
+                            candidates.setdefault(link["edge_id"], set()).add(link["candidate_id"])
                         if link["active"]:
                             active.setdefault(link["edge_id"], []).append(link["link_id"])
+                    if expected_scoped and any(actual != expected_scoped[edge_id] for edge_id, actual in candidates.items()):
+                        return False
                     if not healthy or any(actual != set(transports) for actual in healthy.values()):
                         return False
                 return all(len(active.get(edge["id"], [])) == 2 and len(set(active[edge["id"]])) == 1 for edge in network["edges"])
             eventually(connected)
+            if expected_scoped:
+                print("PASS: every direction/transport on both IPv6 link-local scopes is healthy; mismatched scopes are rejected", flush=True)
+                def primary_sessions():
+                    return {link["candidate_id"]: link["link_id"] for report in api("GET", "/telemetry") for link in report["links"] or [] if link["healthy"] and link["candidate_id"] not in backup_scoped}
+                original_sessions = primary_sessions()
+                complete_scoped = expected_scoped
+                expected_scoped = {edge_id: candidates - backup_scoped for edge_id, candidates in complete_scoped.items()}
+                for index, holder in enumerate(namespaces):
+                    command("nsenter", "-t", str(holder.pid), "-n", "ip", "addr", "del", f"fe80::42:{index+1}/64", "dev", f"backup{index}")
+                eventually(connected)
+                assert primary_sessions() == original_sessions, "scope withdrawal replaced an unaffected primary session"
+                for index, holder in enumerate(namespaces):
+                    command("nsenter", "-t", str(holder.pid), "-n", "ip", "addr", "add", f"fe80::42:{index+1}/64", "dev", f"backup{index}", "nodad")
+                expected_scoped = complete_scoped
+                eventually(connected)
+                assert primary_sessions() == original_sessions, "scope restoration replaced an unaffected primary session"
+                print("PASS: scope withdrawal/restoration revokes and restores only the affected links", flush=True)
             if args.nat and args.transport == "tcp":
                 for index, router in enumerate(routers):
                     rules = command("nsenter", "-t", str(router.pid), "-n", "/usr/sbin/iptables", "-L", "FORWARD", "-nvx").stdout
@@ -310,7 +391,7 @@ def main():
                 result = command("nsenter", "-t", str(namespaces[0].pid), "-n", "python3", "-c", exchange_code, check=False, timeout=15)
                 return result.returncode == 0
             eventually(exchange)
-            print(f"PASS: three native TUN agents, {transports} links, IPv{args.overlay_family} overlay/IPv{args.underlay_family} underlay, MTU {args.mtu}/{args.underlay_mtu}, multi-hop ICMP and TCP", flush=True)
+            print(f"PASS: three native TUN agents, {transports} links, IPv{args.overlay_family} overlay/IPv{peer_family} peer underlay, MTU {args.mtu}/{args.underlay_mtu}, multi-hop ICMP and TCP", flush=True)
             if args.nat:
                 stop(stun)
                 eventually(ping)

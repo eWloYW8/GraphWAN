@@ -64,6 +64,7 @@ func TestNativeFreeBSDInterfaceDiscovery(t *testing.T) {
 		t.Fatal("VM needs an up physical or guest NIC with a unicast address")
 	}
 	created := map[string]string{}
+	var epairPeer string
 	for i, driver := range []string{"epair", "tap", "tun", "bridge"} {
 		name := command(driver, "create")
 		iface, err := net.InterfaceByName(name)
@@ -81,7 +82,8 @@ func TestNativeFreeBSDInterfaceDiscovery(t *testing.T) {
 			}
 		})
 		if driver == "epair" {
-			command(strings.TrimSuffix(name, "a")+"b", "up")
+			epairPeer = strings.TrimSuffix(name, "a") + "b"
+			command(epairPeer, "up")
 		}
 		alias := fmt.Sprintf("eth-gw%x%c", os.Getpid(), 'a'+i)
 		if driver == "epair" {
@@ -110,6 +112,7 @@ func TestNativeFreeBSDInterfaceDiscovery(t *testing.T) {
 			}
 			delete(got, endpointURL)
 		}
+		addresses = append(addresses, fixtureLinkLocalAddresses(t, ep, epairPeer)...)
 		want := map[string]bool{}
 		for _, address := range addresses {
 			for _, kind := range []string{"tcp", "udp"} {

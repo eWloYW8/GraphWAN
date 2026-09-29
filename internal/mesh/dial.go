@@ -21,6 +21,7 @@ type introduction struct {
 	Candidate string `json:"candidate"`
 	Target    string `json:"target,omitempty"`
 	Endpoint  string `json:"endpoint"`
+	Scope     string `json:"scope,omitempty"`
 }
 
 func receiveIntroduction(ctx context.Context, channel *peer.Channel) (introduction, error) {
@@ -35,7 +36,7 @@ func receiveIntroduction(ctx context.Context, channel *peer.Channel) (introducti
 	if err := json.Unmarshal(raw[1:], &intro); err != nil {
 		return intro, err
 	}
-	if len(intro.Candidate) != 32 || len(intro.Endpoint) != 32 {
+	if len(intro.Candidate) != 32 || len(intro.Endpoint) != 32 || (intro.Scope != "" && len(intro.Scope) != 32) {
 		return intro, errors.New("invalid candidate identity")
 	}
 	return intro, nil
@@ -133,7 +134,11 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 	if err != nil {
 		return err
 	}
-	address, err := transport.EndpointDialAddress(candidate.Endpoint, candidate.Family, candidate.Target)
+	target, err := candidate.DialTarget()
+	if err != nil {
+		return err
+	}
+	address, err := transport.EndpointDialAddress(candidate.Endpoint, candidate.Family, target)
 	if err != nil {
 		return err
 	}
@@ -152,25 +157,24 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 		}
 		raw = transport.NewStream(conn)
 	} else if candidate.Endpoint.Transport == model.WS || candidate.Endpoint.Transport == model.WSS {
-		conn, err := transport.DialWebSocketAt(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, nil, candidate.Target)
+		conn, err := transport.DialWebSocketAt(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, nil, target)
 		if err != nil {
 			return err
 		}
 		raw = conn
 	} else if candidate.Endpoint.Transport == model.GRPC {
-		conn, err := transport.DialGRPCAt(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, nil, candidate.Target)
+		conn, err := transport.DialGRPCAt(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, nil, target)
 		if err != nil {
 			return err
 		}
 		raw = conn
 	} else if candidate.Endpoint.Transport == model.QUIC {
-		conn, err := g.mesh.quic.DialAt(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, candidate.Target)
+		conn, err := g.mesh.quic.DialAt(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, target)
 		if err != nil {
 			return err
 		}
 		raw = conn
 	} else {
-		target := candidate.Target
 		if !target.IsValid() {
 			target, err = netip.ParseAddr(parsed.Hostname())
 		}
@@ -191,7 +195,7 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 	if err != nil {
 		return err
 	}
-	intro := introduction{Candidate: candidate.ID, Endpoint: endpointFingerprint(candidate.Endpoint)}
+	intro := introduction{Candidate: candidate.ID, Endpoint: endpointFingerprint(candidate.Endpoint), Scope: link.ScopeIdentity(candidate.Scope)}
 	if candidate.Target.IsValid() {
 		intro.Target = candidate.Target.String()
 	}

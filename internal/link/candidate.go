@@ -28,6 +28,7 @@ type Candidate struct {
 	Method   Method         `json:"method"`
 	Priority int            `json:"priority"`
 	Target   netip.Addr     `json:"target,omitempty"`
+	Scope    model.Endpoint `json:"scope,omitempty"`
 }
 
 // ResolveCandidate preserves the configured URL (including its TLS hostname)
@@ -35,7 +36,7 @@ type Candidate struct {
 // Literal endpoints already have a unique target and keep their original ID.
 func ResolveCandidate(base Candidate, address netip.Addr) (Candidate, error) {
 	u, err := url.Parse(base.Endpoint.URL)
-	if err != nil || base.Endpoint.Source != model.Manual || base.Target.IsValid() {
+	if err != nil || base.Endpoint.Source != model.Manual || base.Target.IsValid() || base.Scope.ID != "" {
 		return Candidate{}, errors.New("invalid DNS candidate")
 	}
 	if _, err := netip.ParseAddr(u.Hostname()); err == nil {

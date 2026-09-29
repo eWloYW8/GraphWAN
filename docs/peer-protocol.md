@@ -54,11 +54,15 @@ is the stable Candidate ID; `endpoint` is lowercase hexadecimal encoding of the
 first 16 bytes of SHA-256 over `source + NUL + transport + NUL + URL` using the
 exact advertised endpoint strings. Optional `target` identifies a concrete DNS
 answer. The receiver checks the fingerprint, candidate family/method/transport,
-DNS target and actual ingress path against current policy. Registration rechecks
+DNS target and actual ingress path against current policy. IPv6 link-local
+candidates additionally require a 32-character `scope`, binding the initiator’s
+configured interface endpoint; see [scope mapping](endpoint-resolution.md#ipv6-link-local-scopes). Registration rechecks
 that policy under its update lock, so revoked pending handshakes cannot restore
 Links. See [endpoint admission](endpoint-resolution.md#tls-and-peer-admission).
 This development protocol now requires the endpoint fingerprint for all Links;
 Agents predating that requirement must be upgraded together with their peers.
+Link-local scope introductions also require updated peers; existing unscoped
+global-address candidate identities and introductions are unchanged.
 
 ## Encrypted messages
 

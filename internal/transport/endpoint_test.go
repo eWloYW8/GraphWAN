@@ -104,7 +104,7 @@ func TestEndpointTargetPolicy(t *testing.T) {
 		valid   bool
 	}{
 		{"127.0.0.1", 4, true}, {"::1", 6, true}, {"127.0.0.1", 6, false}, {"::1", 4, false},
-		{"0.0.0.0", 4, false}, {"ff02::1", 6, false}, {"fe80::1%lo", 6, false}, {"::ffff:127.0.0.1", 4, false},
+		{"0.0.0.0", 4, false}, {"ff02::1", 6, false}, {"fe80::1%lo", 6, true}, {"2001:db8::1%lo", 6, false}, {"::ffff:127.0.0.1", 4, false},
 	} {
 		_, err := EndpointDialAddress(endpoint, test.family, netip.MustParseAddr(test.address))
 		if (err == nil) != test.valid {
@@ -114,5 +114,16 @@ func TestEndpointTargetPolicy(t *testing.T) {
 	endpoint.URL = "tcp://127.0.0.1:24752"
 	if _, err := EndpointDialAddress(endpoint, 4, netip.MustParseAddr("127.0.0.2")); err == nil {
 		t.Fatal("literal endpoint overridden")
+	}
+}
+
+func TestLiteralLinkLocalZoneTranslation(t *testing.T) {
+	endpoint := model.Endpoint{ID: testutil.ID(1), Source: model.Manual, Transport: model.WSS, URL: "wss://[fe80::1%25remote]:24752/path"}
+	got, err := EndpointDialAddress(endpoint, 6, netip.MustParseAddr("fe80::1%local"))
+	if err != nil || got != "[fe80::1%local]:24752" {
+		t.Fatalf("translated socket address: %s %v", got, err)
+	}
+	if _, err := EndpointDialAddress(endpoint, 6, netip.MustParseAddr("fe80::2%local")); err == nil {
+		t.Fatal("scope translation changed endpoint IP")
 	}
 }
