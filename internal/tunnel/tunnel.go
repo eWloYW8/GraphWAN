@@ -69,3 +69,13 @@ type MTUSetter interface {
 type Reconfigurable interface {
 	Reconfigure(Config) error
 }
+
+// BatchDevice amortizes kernel I/O without changing packet boundaries. Reads
+// fill caller-owned buffers; writes must not modify or retain their input.
+// Implementations support one reader and concurrent writers, like Device.
+type BatchDevice interface {
+	Device
+	BatchSize() int
+	ReadBatch(buffers [][]byte, sizes []int) (int, error)
+	WriteBatch(packets [][]byte) error
+}

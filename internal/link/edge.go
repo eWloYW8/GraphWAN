@@ -46,8 +46,15 @@ func (e *Edge) Remove(id string) {
 }
 func (e *Edge) Send(ctx context.Context, frame []byte) error {
 	e.mu.Lock()
-	selected := e.selectLocked(time.Now())
 	defer e.mu.Unlock()
+	// Coordinated selection is maintained by Tick and authenticated control
+	// messages. A data packet must not scan or format every standby Link.
+	selected := e.links[e.active]
+	if e.selection == nil {
+		selected = e.selectLocked(time.Now())
+	} else if selected != nil && !selected.healthy() {
+		selected = nil
+	}
 	if selected == nil {
 		return ErrUnavailable
 	}
@@ -70,7 +77,7 @@ func (e *Edge) selectLocked(now time.Time) *Link {
 	if e.selection != nil {
 		e.advanceLocked(now)
 		active := e.links[e.active]
-		if active != nil && active.Stats().Healthy {
+		if active != nil && active.healthy() {
 			return active
 		}
 		return nil
@@ -99,7 +106,7 @@ func (e *Edge) bestLocked(now time.Time) *Link {
 	// candidate exists. Prefer that replacement before retiring the old session.
 	newest := map[string]time.Time{}
 	for _, l := range e.links {
-		if l.Stats().Healthy && l.Created().After(newest[l.Info().CandidateID]) {
+		if l.healthy() && l.Created().After(newest[l.Info().CandidateID]) {
 			newest[l.Info().CandidateID] = l.Created()
 		}
 	}

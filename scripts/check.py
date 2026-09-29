@@ -16,7 +16,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = {
     "linux": {
-        "tunnel": ["TestNativeLinuxTunnel"],
+        "tunnel": ["TestNativeLinuxTunnel", "TestNativeLinuxBatchTCP"],
         "discovery": ["TestNativeInterfaceDiscovery"],
         "agent": ["TestNativeLinuxConfigurationReconcile"],
     },

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"github.com/graphwan/graphwan/internal/packetbuf"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -134,7 +135,7 @@ func TestQueueBoundAndInvalidMessages(t *testing.T) {
 	eventually(t, func() bool { return l.Stats().Healthy })
 	// The receiver is deliberately not drained. Flooding valid-size messages must
 	// drop excess packets while leaving heartbeat control processing responsive.
-	for i := range 200 {
+	for i := range queueSize + 72 {
 		raw := make([]byte, packet.HeaderSize+21)
 		raw[0] = dataMessage
 		binary.BigEndian.PutUint32(raw[1:5], uint32(i))
@@ -249,4 +250,57 @@ func TestAutomaticSelectionHysteresis(t *testing.T) {
 	if err := edge.Send(context.Background(), make([]byte, 100)); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
+}
+
+type ownedTestChannel struct {
+	*testChannel
+	batches chan []*packetbuf.Buffer
+}
+
+func (c *ownedTestChannel) ReceiveOwnedBatch(ctx context.Context) ([]*packetbuf.Buffer, error) {
+	select {
+	case batch := <-c.batches:
+		return batch, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-c.done:
+		return nil, net.ErrClosed
+	}
+}
+func TestOwnedQueueDropAndCloseReleaseBuffers(t *testing.T) {
+	all := make([]*packetbuf.Buffer, queueSize+100)
+	for i := range all {
+		all[i] = packetbuf.Get(101)
+		all[i].Data[0] = dataMessage
+	}
+	c := &ownedTestChannel{testChannel: &testChannel{id: "owned", incoming: make(chan []byte, 1), done: make(chan struct{})}, batches: make(chan []*packetbuf.Buffer, 32)}
+	for i := 0; i < len(all); i += 32 {
+		c.batches <- append([]*packetbuf.Buffer(nil), all[i:min(i+32, len(all))]...)
+	}
+	l, err := New(t.Context(), c, Info{NetworkID: testutil.ID(1), EdgeID: testutil.ID(2), PeerID: testutil.ID(3), CandidateID: "candidate", Transport: model.TCP}, Options{OwnedPackets: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	eventually(t, func() bool { return l.rx.Load() == uint64(len(all)*100) })
+	l.Close()
+	if l.dropped.Load() != 100 {
+		t.Fatal("wrong overflow count", l.dropped.Load())
+	}
+	for _, b := range all {
+		if b != nil && b.Data != nil {
+			t.Fatal("buffer survived queue drop or close")
+		}
+	}
+	// A double return would allow the same live storage to be acquired twice.
+	held := make([]*packetbuf.Buffer, len(all))
+	seen := map[*packetbuf.Buffer]bool{}
+	for i := range held {
+		held[i] = packetbuf.Get(101)
+		if seen[held[i]] {
+			t.Fatal("buffer returned twice")
+		}
+		seen[held[i]] = true
+	}
+	packetbuf.ReleaseAll(held)
 }

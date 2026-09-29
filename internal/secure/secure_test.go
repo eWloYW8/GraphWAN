@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -269,4 +270,130 @@ func FuzzHandshakeInput(f *testing.F) {
 		}
 		h.Read(message)
 	})
+}
+
+func TestSealAppendPrefixAndReuse(t *testing.T) {
+	a, b := configs(t)
+	sender, receiver := establish(t, a, b)
+	buffer := make([]byte, 0, 4096)
+	for i := range 64 {
+		prefix := []byte{7, 8, 9}
+		buffer = append(buffer[:0], prefix...)
+		plaintext := bytes.Repeat([]byte{byte(i)}, 1200)
+		encrypted, err := sender.SealAppend(buffer, plaintext)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(encrypted[:3], prefix) {
+			t.Fatal("prefix overwritten")
+		}
+		decoded, err := receiver.Open(encrypted[3:])
+		if err != nil || !bytes.Equal(decoded, plaintext) {
+			t.Fatalf("decrypt: %v", err)
+		}
+		if _, err := receiver.Open(encrypted[3:]); !errors.Is(err, ErrReplay) {
+			t.Fatal("replay accepted", err)
+		}
+	}
+}
+
+func TestOpenInPlaceAuthenticationAndReplay(t *testing.T) {
+	a, b := configs(t)
+	sender, receiver := establish(t, a, b)
+	plaintext := bytes.Repeat([]byte("secure"), 200)
+	frame, err := sender.Seal(plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupt := bytes.Clone(frame)
+	corrupt[len(corrupt)-1] ^= 1
+	if _, err := receiver.OpenInPlace(corrupt); err == nil {
+		t.Fatal("forgery accepted")
+	}
+	original := bytes.Clone(frame)
+	got, err := receiver.OpenInPlace(frame)
+	if err != nil || !bytes.Equal(got, plaintext) {
+		t.Fatal("valid frame failed after forgery", err)
+	}
+	if &got[0] != &frame[8] {
+		t.Fatal("decryption allocated plaintext")
+	}
+	if _, err := receiver.OpenInPlace(original); !errors.Is(err, ErrReplay) {
+		t.Fatal("replay accepted", err)
+	}
+}
+
+func TestBatchAuthenticationMatchesSequentialReplayWindow(t *testing.T) {
+	for _, jump := range []bool{false, true} {
+		t.Run(fmt.Sprint(jump), func(t *testing.T) {
+			a, b := configs(t)
+			sender, receiver := establish(t, a, b)
+			reference := newSession(receiver.id, bytes.Clone(receiver.binding), receiver.send, receiver.receive)
+			early, err := sender.Seal(bytes.Repeat([]byte{77}, 1280))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if jump {
+				sender.sequence = ReplayWindow + 2
+			}
+			frames := make([][]byte, 32)
+			for i := range frames {
+				frames[i], err = sender.Seal(bytes.Repeat([]byte{byte(i)}, 4096))
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			frames[3] = bytes.Clone(frames[0])                       // Duplicate inside one parallel batch.
+			frames[5][len(frames[5])-1] ^= 1                         // Authentication failure.
+			binary.BigEndian.PutUint64(frames[7][:8], MaxMessages-2) // Forged high nonce.
+			frames[8] = []byte{1, 2, 3}
+			frames[31] = early // Falls outside the window only after preceding commits.
+			expected := make([][]byte, len(frames))
+			wantErrors := make([]error, len(frames))
+			for i, frame := range frames {
+				expected[i], wantErrors[i] = reference.Open(bytes.Clone(frame))
+			}
+			gotErrors := receiver.OpenBatchInPlace(frames)
+			for i := range frames {
+				if (gotErrors[i] == nil) != (wantErrors[i] == nil) || errors.Is(gotErrors[i], ErrReplay) != errors.Is(wantErrors[i], ErrReplay) || !bytes.Equal(frames[i], expected[i]) {
+					t.Fatalf("entry %d: batch %v sequential %v", i, gotErrors[i], wantErrors[i])
+				}
+			}
+			if receiver.highest != reference.highest || receiver.seen != reference.seen {
+				t.Fatal("parallel authentication changed replay commits")
+			}
+		})
+	}
+}
+
+func TestConcurrentBatchDuplicateAcceptedOnce(t *testing.T) {
+	a, b := configs(t)
+	sender, receiver := establish(t, a, b)
+	var batches [2][][]byte
+	for range 32 {
+		raw, err := sender.Seal(bytes.Repeat([]byte{1}, 4096))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range batches {
+			batches[i] = append(batches[i], bytes.Clone(raw))
+		}
+	}
+	results := make(chan []error, 2)
+	for _, batch := range batches {
+		go func() { results <- receiver.OpenBatchInPlace(batch) }()
+	}
+	accepted := 0
+	for range 2 {
+		for _, err := range <-results {
+			if err == nil {
+				accepted++
+			} else if !errors.Is(err, ErrReplay) {
+				t.Fatal(err)
+			}
+		}
+	}
+	if accepted != 32 {
+		t.Fatal("duplicate batch accepted more than once", accepted)
+	}
 }

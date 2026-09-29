@@ -37,14 +37,20 @@ type Packet struct {
 	Payload []byte
 }
 
-func (p Packet) MarshalBinary() ([]byte, error) {
+func (p Packet) MarshalBinary() ([]byte, error) { return p.AppendBinary(nil) }
+
+// AppendBinary appends the wire frame to caller-owned storage. dst must not
+// overlap Payload. Callers can reuse capacity without changing the wire format.
+func (p Packet) AppendBinary(dst []byte) ([]byte, error) {
 	if len(p.Payload) == 0 || len(p.Payload) > MaxPayload {
 		return nil, errors.New("invalid payload length")
 	}
 	if p.Header.HopLimit == 0 {
 		return nil, ErrHopLimit
 	}
-	out := make([]byte, HeaderSize+len(p.Payload))
+	offset := len(dst)
+	dst = append(dst, make([]byte, HeaderSize+len(p.Payload))...)
+	out := dst[offset:]
 	out[0], out[1] = 'G', 'W'
 	out[2] = Version
 	out[3] = p.Header.HopLimit
@@ -62,7 +68,7 @@ func (p Packet) MarshalBinary() ([]byte, error) {
 	binary.BigEndian.PutUint64(out[64:72], p.Header.Flow)
 	binary.BigEndian.PutUint64(out[72:80], p.Header.Sequence)
 	copy(out[HeaderSize:], p.Payload)
-	return out, nil
+	return dst, nil
 }
 
 // Parse references the caller's frame; callers must copy before reusing buffers.
@@ -83,10 +89,13 @@ func Parse(frame []byte) (Packet, error) {
 	}
 	ids := []*model.ID{&p.Header.Network, &p.Header.Source, &p.Header.Destination}
 	for i, dest := range ids {
-		*dest = model.ID(hex.EncodeToString(frame[8+i*16 : 24+i*16]))
-		if err := dest.Validate(); err != nil {
-			return Packet{}, err
+		raw := frame[8+i*16 : 24+i*16]
+		// Fixed-width binary IDs encode to canonical lowercase hex by construction.
+		// Only the reserved zero value needs validation on this receive path.
+		if [16]byte(raw) == [16]byte{} {
+			return Packet{}, errors.New("zero ID is reserved")
 		}
+		*dest = model.ID(hex.EncodeToString(raw))
 	}
 	p.Header.HopLimit = frame[3]
 	p.Header.Epoch = binary.BigEndian.Uint64(frame[56:64])

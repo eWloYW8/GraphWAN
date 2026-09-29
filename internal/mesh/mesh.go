@@ -18,12 +18,15 @@ import (
 
 	"github.com/graphwan/graphwan/internal/link"
 	"github.com/graphwan/graphwan/internal/model"
+	"github.com/graphwan/graphwan/internal/packetbuf"
 	"github.com/graphwan/graphwan/internal/peer"
 	"github.com/graphwan/graphwan/internal/secure"
 	"github.com/graphwan/graphwan/internal/transport"
 	"google.golang.org/grpc"
 )
 
+// Receive transfers a packet to the callback. The optional batch callback to
+// New borrows its buffers only until it returns; retaining them requires a copy.
 type Receive func(context.Context, model.ID, []byte) error
 type key struct{ network, peer model.ID }
 type policy struct {
@@ -54,6 +57,7 @@ type Mesh struct {
 	udp            *transport.UDP
 	quic           *transport.QUICHub
 	receive        Receive
+	receiveBatch   func(context.Context, model.ID, [][]byte) error
 	mu             sync.Mutex
 	groups         map[key]*group
 	slots          chan struct{}
@@ -63,7 +67,7 @@ type Mesh struct {
 	linkOptions    link.Options
 }
 
-func New(parent context.Context, identity ed25519.PrivateKey, host string, port uint16, receive Receive) (*Mesh, error) {
+func New(parent context.Context, identity ed25519.PrivateKey, host string, port uint16, receive Receive, batches ...func(context.Context, model.ID, [][]byte) error) (*Mesh, error) {
 	if len(identity) != ed25519.PrivateKeySize || receive == nil {
 		return nil, errors.New("mesh requires identity and packet receiver")
 	}
@@ -77,6 +81,9 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 	}
 	ctx, cancel := context.WithCancel(parent)
 	m := &Mesh{grpcSlots: make(chan struct{}, 512), sniffSlots: make(chan struct{}, 8), pending: map[net.Conn]bool{}, identity: bytes.Clone(identity), ctx: ctx, cancel: cancel, listener: listener, udp: udp, receive: receive, groups: map[key]*group{}, slots: make(chan struct{}, 8), acceptSlots: make(chan struct{}, 8)}
+	if len(batches) > 0 {
+		m.receiveBatch = batches[0]
+	}
 	m.dns = newEndpointDNS()
 	m.grpcAdmissions = map[grpcConnectionKey]*grpcAdmission{}
 	m.quic = quicHub
@@ -441,7 +448,9 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 		channel.Close()
 		return
 	}
-	l, err := link.New(g.ctx, channel, link.Info{NetworkID: cfg.network, EdgeID: cfg.peer.Edge.ID, PeerID: cfg.peer.Node.ID, CandidateID: candidate.ID, Transport: candidate.Endpoint.Transport}, g.mesh.linkOptions)
+	options := g.mesh.linkOptions
+	options.OwnedPackets = true
+	l, err := link.New(g.ctx, channel, link.Info{NetworkID: cfg.network, EdgeID: cfg.peer.Edge.ID, PeerID: cfg.peer.Node.ID, CandidateID: candidate.ID, Transport: candidate.Endpoint.Transport}, options)
 	if err != nil {
 		g.mu.Unlock()
 		channel.Close()
@@ -481,11 +490,60 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 		}()
 		for {
 			select {
+			case first, ok := <-l.OwnedPackets():
+				if !ok {
+					return
+				}
+				var owners [32]*packetbuf.Buffer
+				var frames [32][]byte
+				owners[0], frames[0] = first, first.Data
+				count := 1
+			collectOwned:
+				for count < len(owners) {
+					select {
+					case next, ok := <-l.OwnedPackets():
+						if !ok {
+							break collectOwned
+						}
+						owners[count], frames[count] = next, next.Data
+						count++
+					default:
+						break collectOwned
+					}
+				}
+				if g.mesh.receiveBatch != nil {
+					g.mesh.receiveBatch(g.ctx, cfg.peer.Node.ID, frames[:count])
+				} else {
+					for _, raw := range frames[:count] {
+						g.mesh.receive(g.ctx, cfg.peer.Node.ID, bytes.Clone(raw))
+					}
+				}
+				packetbuf.ReleaseAll(owners[:count])
 			case raw, ok := <-l.Packets():
 				if !ok {
 					return
 				}
-				g.mesh.receive(g.ctx, cfg.peer.Node.ID, raw)
+				if g.mesh.receiveBatch == nil {
+					g.mesh.receive(g.ctx, cfg.peer.Node.ID, raw)
+					continue
+				}
+				var packets [32][]byte
+				packets[0] = raw
+				count := 1
+			collect:
+				for count < len(packets) {
+					select {
+					case next, open := <-l.Packets():
+						if !open {
+							break collect
+						}
+						packets[count] = next
+						count++
+					default:
+						break collect
+					}
+				}
+				g.mesh.receiveBatch(g.ctx, cfg.peer.Node.ID, packets[:count])
 			case <-g.ctx.Done():
 				return
 			}

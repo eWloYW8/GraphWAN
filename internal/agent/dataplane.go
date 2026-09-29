@@ -147,13 +147,13 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 		next.mesh = previous.mesh
 	} else {
 		var err error
-		next.mesh, err = mesh.New(r.ctx, r.identity, r.options.BindHost, snapshot.ListenPort, r.receive)
+		next.mesh, err = mesh.New(r.ctx, r.identity, r.options.BindHost, snapshot.ListenPort, r.receive, r.receiveBatch)
 		if err != nil {
 			return fmt.Errorf("listen for peers: %w", err)
 		}
 		newMesh = true
 	}
-	router, err := forwarding.New(snapshot, next.mesh.Send, r.deliver)
+	router, err := forwarding.New(snapshot, next.mesh.Send, r.deliver, r.deliverBatch)
 	if err != nil {
 		return err
 	}
@@ -226,6 +226,10 @@ func (r *DataPlane) Close() error {
 }
 func (r *DataPlane) readTunnel(network model.ID, device *runtimeTunnel) {
 	defer r.wg.Done()
+	if batch, ok := device.Device.(tunnel.BatchDevice); ok {
+		r.readTunnelBatch(network, device, batch)
+		return
+	}
 	buffer := make([]byte, packet.MaxPayload+1)
 	for {
 		n, err := device.Read(buffer)
@@ -270,6 +274,64 @@ func (r *DataPlane) deliver(ctx context.Context, network model.ID, raw []byte) e
 	}
 	if err == nil && n != len(raw) {
 		return io.ErrShortWrite
+	}
+	return err
+}
+
+func (r *DataPlane) readTunnelBatch(network model.ID, device *runtimeTunnel, batch tunnel.BatchDevice) {
+	buffers := make([][]byte, batch.BatchSize())
+	sizes := make([]int, len(buffers))
+	for i := range buffers {
+		buffers[i] = make([]byte, packet.MaxPayload+1)
+	}
+	for {
+		n, err := batch.ReadBatch(buffers, sizes)
+		if err == nil && n == 0 {
+			err = io.ErrNoProgress
+		}
+		if err != nil {
+			r.failTunnel(network, device, err)
+			return
+		}
+		state := r.state.Load()
+		if state == nil || state.devices[network] != device {
+			continue
+		}
+		for i := range n {
+			state.router.FromTunnel(r.ctx, network, buffers[i][:sizes[i]])
+		}
+	}
+}
+func (r *DataPlane) receiveBatch(ctx context.Context, remote model.ID, frames [][]byte) error {
+	state := r.state.Load()
+	if state == nil {
+		return errors.New("agent runtime is not configured")
+	}
+	return state.router.FromPeerBatch(ctx, remote, frames)
+}
+func (r *DataPlane) deliverBatch(ctx context.Context, network model.ID, packets [][]byte) error {
+	state := r.state.Load()
+	if state == nil {
+		return errors.New("agent runtime is not configured")
+	}
+	device := state.devices[network]
+	if device == nil {
+		return forwarding.ErrNetwork
+	}
+	if device.failure.Load() != nil {
+		return tunnel.ErrUnavailable
+	}
+	batch, ok := device.Device.(tunnel.BatchDevice)
+	if !ok {
+		var result error
+		for _, raw := range packets {
+			result = errors.Join(result, r.deliver(ctx, network, raw))
+		}
+		return result
+	}
+	err := batch.WriteBatch(packets)
+	if errors.Is(err, tunnel.ErrUnavailable) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrClosed) {
+		r.failTunnel(network, device, err)
 	}
 	return err
 }

@@ -137,3 +137,65 @@ func testUDPConnectionBound(t *testing.T, bind string, wildcard bool) {
 		peer.Close()
 	}
 }
+
+func TestUDPBatchPreservesDatagramsAndReplies(t *testing.T) {
+	for _, bind := range []string{"127.0.0.1:0", "[::1]:0"} {
+		t.Run(bind, func(t *testing.T) {
+			left, err := transport.ListenUDP(bind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer left.Close()
+			right, err := transport.ListenUDP(bind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer right.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			sender, err := left.Dial(right.LocalAddr().(*net.UDPAddr).AddrPort())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sender.Close()
+			messages := make([][]byte, 32)
+			for i := range messages {
+				messages[i] = bytes.Repeat([]byte{byte(i)}, 100+i*3)
+			}
+			if err := sender.SendBatch(ctx, messages); err != nil {
+				t.Fatal(err)
+			}
+			receiver, err := right.Accept(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer receiver.Close()
+			received := 0
+			for received < len(messages) {
+				batch, err := receiver.ReceiveBatch(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, raw := range batch {
+					if received >= len(messages) || !bytes.Equal(raw, messages[received]) {
+						t.Fatal("datagram boundary or order changed")
+					}
+					received++
+				}
+				if err := receiver.SendBatch(ctx, batch); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, want := range messages {
+				got, err := sender.Receive(ctx)
+				if err != nil || !bytes.Equal(got, want) {
+					t.Fatal("batch reply corrupted", err)
+				}
+			}
+			cancel()
+			if err := sender.SendBatch(ctx, messages); !errors.Is(err, context.Canceled) {
+				t.Fatal("batch ignored cancellation", err)
+			}
+		})
+	}
+}

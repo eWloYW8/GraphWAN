@@ -61,7 +61,7 @@ func (l *Link) sendSelection(kind byte, term [16]byte, sequence uint64) {
 
 func (e *Edge) advanceLocked(now time.Time) {
 	s := e.selection
-	if active := e.links[e.active]; active != nil && !active.Stats().Healthy {
+	if active := e.links[e.active]; active != nil && !active.healthy() {
 		e.activateLocked(nil, now)
 	}
 	if !s.leader {
@@ -92,7 +92,7 @@ func (e *Edge) HandleSelection(l *Link, message Selection) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	s := e.selection
-	if s == nil || e.links[l.ID()] != l || !l.Stats().Healthy {
+	if s == nil || e.links[l.ID()] != l || !l.healthy() {
 		return
 	}
 	now := time.Now()
@@ -130,7 +130,7 @@ func (e *Edge) HandleSelection(l *Link, message Selection) {
 		// Wait for all healthy channels from the previous incarnation to leave;
 		// delayed old datagrams cannot reset the new incarnation's sequence.
 		for id, term := range s.terms {
-			if term == s.term && e.links[id] != nil && e.links[id].Stats().Healthy {
+			if term == s.term && e.links[id] != nil && e.links[id].healthy() {
 				return
 			}
 		}

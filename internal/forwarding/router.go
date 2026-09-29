@@ -10,6 +10,7 @@ import (
 
 	"github.com/graphwan/graphwan/internal/model"
 	"github.com/graphwan/graphwan/internal/packet"
+	"github.com/graphwan/graphwan/internal/packetbuf"
 )
 
 var (
@@ -42,16 +43,20 @@ type table struct {
 // Link of the requested Edge; that choice must never alter the graph edge weight.
 // Callbacks must not retain packet buffers unless they copy them.
 type Router struct {
-	state   atomic.Pointer[table]
-	send    Send
-	deliver Deliver
+	state        atomic.Pointer[table]
+	send         Send
+	deliver      Deliver
+	deliverBatch func(context.Context, model.ID, [][]byte) error
 }
 
-func New(snapshot model.Snapshot, send Send, deliver Deliver) (*Router, error) {
+func New(snapshot model.Snapshot, send Send, deliver Deliver, batches ...func(context.Context, model.ID, [][]byte) error) (*Router, error) {
 	if send == nil || deliver == nil {
 		return nil, errors.New("forwarding callbacks are required")
 	}
 	router := &Router{send: send, deliver: deliver}
+	if len(batches) > 0 {
+		router.deliverBatch = batches[0]
+	}
 	if err := router.Configure(snapshot); err != nil {
 		return nil, err
 	}
@@ -116,17 +121,53 @@ func (r *Router) FromTunnel(ctx context.Context, networkID model.ID, raw []byte)
 		return ErrUnreachable
 	}
 	p := packet.Packet{Header: packet.Header{Network: networkID, Source: n.self.ID, Destination: destination, HopLimit: packet.DefaultHopLimit, Epoch: current.revision, Flow: info.Flow}, Payload: raw}
-	frame, err := p.MarshalBinary()
-	if err != nil {
-		return err
-	}
-	return r.send(ctx, networkID, nextHop, frame)
+	return r.sendPacket(ctx, networkID, nextHop, p)
 }
 
 // FromPeer must receive the Node ID authenticated by the peer Channel, never an
 // unauthenticated ID read from the packet itself. Transit Nodes are trusted hop
 // forwarders; the IP/Node directory check is admission, not end-to-end signing.
 func (r *Router) FromPeer(ctx context.Context, peerID model.ID, frame []byte) error {
+	return r.fromPeer(ctx, peerID, frame, r.deliver)
+}
+
+// FromPeerBatch validates every frame independently. Only admitted local
+// packets are batched; transit retains the normal hop-limit and routing checks.
+func (r *Router) FromPeerBatch(ctx context.Context, peerID model.ID, frames [][]byte) error {
+	var networkID model.ID
+	var packets [32][]byte
+	count := 0
+	var result error
+	flush := func() {
+		if count == 0 {
+			return
+		}
+		if r.deliverBatch != nil {
+			result = errors.Join(result, r.deliverBatch(ctx, networkID, packets[:count]))
+		} else {
+			for _, raw := range packets[:count] {
+				result = errors.Join(result, r.deliver(ctx, networkID, raw))
+			}
+		}
+		clear(packets[:count])
+		count = 0
+	}
+	deliver := func(_ context.Context, id model.ID, raw []byte) error {
+		if id != networkID || count == len(packets) {
+			flush()
+		}
+		networkID = id
+		packets[count] = raw
+		count++
+		return nil
+	}
+	for _, frame := range frames {
+		result = errors.Join(result, r.fromPeer(ctx, peerID, frame, deliver))
+	}
+	flush()
+	return result
+}
+func (r *Router) fromPeer(ctx context.Context, peerID model.ID, frame []byte, deliver Deliver) error {
 	p, err := packet.Parse(frame)
 	if err != nil {
 		return err
@@ -161,7 +202,7 @@ func (r *Router) FromPeer(ctx context.Context, peerID model.ID, frame []byte) er
 		return ErrDestination
 	}
 	if p.Header.Destination == n.self.ID {
-		return r.deliver(ctx, p.Header.Network, p.Payload)
+		return deliver(ctx, p.Header.Network, p.Payload)
 	}
 	if err := p.Forward(); err != nil {
 		return err
@@ -173,9 +214,15 @@ func (r *Router) FromPeer(ctx context.Context, peerID model.ID, frame []byte) er
 	if nextHop == peerID {
 		return fmt.Errorf("route would return packet to ingress neighbor")
 	}
-	outgoing, err := p.MarshalBinary()
+	return r.sendPacket(ctx, p.Header.Network, nextHop, p)
+}
+
+func (r *Router) sendPacket(ctx context.Context, network, next model.ID, p packet.Packet) error {
+	buffer := packetbuf.Get(packet.HeaderSize + len(p.Payload))
+	defer buffer.Release()
+	frame, err := p.AppendBinary(buffer.Data[:0])
 	if err != nil {
 		return err
 	}
-	return r.send(ctx, p.Header.Network, nextHop, outgoing)
+	return r.send(ctx, network, next, frame)
 }

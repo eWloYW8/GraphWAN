@@ -11,6 +11,7 @@ import (
 
 	"github.com/graphwan/graphwan/internal/model"
 	"github.com/graphwan/graphwan/internal/packet"
+	"github.com/graphwan/graphwan/internal/packetbuf"
 )
 
 const (
@@ -21,7 +22,9 @@ const (
 	acceptMessage  = 5
 	commitMessage  = 6
 	confirmMessage = 7
-	queueSize      = 128
+	// Leave room for multiple kernel GSO bursts while writers process bounded
+	// batches. The queue is still finite; control messages use a separate queue.
+	queueSize = 512
 )
 
 var ErrQueueFull = errors.New("link packet queue is full")
@@ -41,7 +44,12 @@ type Info struct {
 	CandidateID               string
 	Transport                 model.Transport
 }
-type Options struct{ Heartbeat, Timeout, WriteTimeout, RenewAfter time.Duration }
+type Options struct {
+	Heartbeat, Timeout, WriteTimeout, RenewAfter time.Duration
+	// OwnedPackets opts into explicit packet ownership. Consumers must release
+	// every buffer received from OwnedPackets; the legacy Packets API is unused.
+	OwnedPackets bool
+}
 
 func (o Options) defaults() Options {
 	if o.Heartbeat <= 0 {
@@ -74,6 +82,8 @@ type Link struct {
 	dataGeneration  atomic.Uint64
 	control         chan []byte
 	packets         chan []byte
+	ownedPackets    chan *packetbuf.Buffer
+	queueMu         sync.Mutex
 	mu              sync.Mutex
 	pending         map[uint64]time.Time
 	nextPing        uint64
@@ -98,18 +108,31 @@ func New(parent context.Context, channel Channel, info Info, options Options) (*
 	}
 	ctx, cancel := context.WithCancel(parent)
 	l := &Link{channel: channel, info: info, options: options, ctx: ctx, cancel: cancel, done: make(chan struct{}), data: make(chan queuedPacket, queueSize), selection: make(chan Selection, 8), control: make(chan []byte, 8), packets: make(chan []byte, queueSize), pending: map[uint64]time.Time{}}
+	if _, ok := channel.(interface {
+		ReceiveOwnedBatch(context.Context) ([]*packetbuf.Buffer, error)
+	}); ok && options.OwnedPackets {
+		l.ownedPackets = make(chan *packetbuf.Buffer, queueSize)
+	}
 	l.dataGeneration.Store(1)
 	l.wg.Add(3)
 	go l.readLoop()
 	go l.writeLoop()
 	go l.healthLoop()
-	go func() { l.wg.Wait(); close(l.packets); close(l.done) }()
+	go func() {
+		l.wg.Wait()
+		close(l.packets)
+		if l.ownedPackets != nil {
+			close(l.ownedPackets)
+		}
+		close(l.done)
+	}()
 	return l, nil
 }
 
 type queuedPacket struct {
 	generation uint64
 	raw        []byte
+	buffer     *packetbuf.Buffer
 }
 
 // Selection messages are delivered separately so overlay backpressure cannot
@@ -127,9 +150,23 @@ func (l *Link) Packets() <-chan []byte { return l.packets }
 func (l *Link) Done() <-chan struct{}  { return l.done }
 func (l *Link) Created() time.Time     { return l.channel.Created() }
 func (l *Link) RenewalDue() bool       { return time.Since(l.channel.Created()) >= l.options.RenewAfter }
-func (l *Link) stop()                  { l.stopOnce.Do(func() { l.cancel(); l.channel.Close() }) }
-func (l *Link) Close() error           { l.stop(); <-l.done; return nil }
+func (l *Link) stop() {
+	l.stopOnce.Do(func() { l.queueMu.Lock(); l.cancel(); l.queueMu.Unlock(); l.channel.Close() })
+}
+func (l *Link) Close() error {
+	l.stop()
+	<-l.done
+	if l.ownedPackets != nil {
+		for b := range l.ownedPackets {
+			b.Release()
+		}
+	}
+	return nil
+}
+func (l *Link) OwnedPackets() <-chan *packetbuf.Buffer { return l.ownedPackets }
 func (l *Link) Send(ctx context.Context, frame []byte) error {
+	l.queueMu.Lock()
+	defer l.queueMu.Unlock()
 	if len(frame) <= packet.HeaderSize || len(frame) > packet.MaxFrame {
 		return errors.New("invalid overlay frame size")
 	}
@@ -144,18 +181,26 @@ func (l *Link) Send(ctx context.Context, frame []byte) error {
 	if generation%2 == 0 {
 		return ErrUnavailable
 	}
-	message := make([]byte, len(frame)+1)
+	buffer := packetbuf.Get(len(frame) + 1)
+	message := buffer.Data
 	message[0] = dataMessage
 	copy(message[1:], frame)
 	select {
-	case l.data <- queuedPacket{generation: generation, raw: message}:
+	case l.data <- queuedPacket{generation: generation, raw: message, buffer: buffer}:
 		return nil
 	case <-l.ctx.Done():
+		buffer.Release()
 		return net.ErrClosed
 	default:
+		buffer.Release()
 		l.dropped.Add(1)
 		return ErrQueueFull
 	}
+}
+func (l *Link) healthy() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.ctx.Err() == nil && !l.lastPong.IsZero() && time.Since(l.lastPong) < l.options.Timeout
 }
 func (l *Link) Stats() model.LinkStatus {
 	l.mu.Lock()
@@ -168,10 +213,46 @@ func (l *Link) Stats() model.LinkStatus {
 	return model.LinkStatus{NetworkID: l.info.NetworkID, EdgeID: l.info.EdgeID, LinkID: l.ID(), CandidateID: l.info.CandidateID, Transport: l.info.Transport, Remote: l.channel.RemoteAddr().String(), Healthy: healthy, RTTMillis: float64(l.rtt) / float64(time.Millisecond), Loss: loss, RXBytes: l.rx.Load(), TXBytes: l.tx.Load()}
 }
 func (l *Link) readLoop() {
+	owned, owning := l.channel.(interface {
+		ReceiveOwnedBatch(context.Context) ([]*packetbuf.Buffer, error)
+	})
+	var ownedPending []*packetbuf.Buffer
+	var current *packetbuf.Buffer
+	owning = owning && l.ownedPackets != nil
+	batch, batching := l.channel.(interface {
+		ReceiveBatch(context.Context) ([][]byte, error)
+	})
+	var pending [][]byte
 	defer l.wg.Done()
+	defer func() { current.Release(); packetbuf.ReleaseAll(ownedPending) }()
 	defer l.stop()
 	for {
-		raw, err := l.channel.Receive(l.ctx)
+		var raw []byte
+		var err error
+		current.Release()
+		current = nil
+		if owning {
+			if len(ownedPending) == 0 {
+				ownedPending, err = owned.ReceiveOwnedBatch(l.ctx)
+			}
+			if err != nil || len(ownedPending) == 0 {
+				return
+			}
+			current, ownedPending[0] = ownedPending[0], nil
+			ownedPending = ownedPending[1:]
+			raw = current.Data
+		} else if batching {
+			if len(pending) == 0 {
+				pending, err = batch.ReceiveBatch(l.ctx)
+			}
+			if err != nil || len(pending) == 0 {
+				return
+			}
+			raw, pending[0] = pending[0], nil
+			pending = pending[1:]
+		} else {
+			raw, err = l.channel.Receive(l.ctx)
+		}
 		if err != nil {
 			return
 		}
@@ -184,10 +265,20 @@ func (l *Link) readLoop() {
 				return
 			}
 			l.rx.Add(uint64(len(raw) - 1))
-			select {
-			case l.packets <- raw[1:]:
-			default:
-				l.dropped.Add(1)
+			if current != nil {
+				current.Data = raw[1:]
+				select {
+				case l.ownedPackets <- current:
+					current = nil
+				default:
+					l.dropped.Add(1)
+				}
+			} else {
+				select {
+				case l.packets <- raw[1:]:
+				default:
+					l.dropped.Add(1)
+				}
 			}
 		case pingMessage:
 			if len(raw) != 9 {
@@ -238,8 +329,24 @@ func (l *Link) readLoop() {
 	}
 }
 func (l *Link) writeLoop() {
+	batch, batching := l.channel.(interface {
+		SendBatch(context.Context, [][]byte) error
+	})
+	var messages [32][]byte
+	var owners [32]*packetbuf.Buffer
 	defer l.wg.Done()
-	defer l.stop()
+	defer func() {
+		l.stop()
+		packetbuf.ReleaseAll(owners[:])
+		for {
+			select {
+			case data := <-l.data:
+				data.buffer.Release()
+			default:
+				return
+			}
+		}
+	}()
 	for {
 		var message []byte
 		var generation uint64
@@ -255,20 +362,53 @@ func (l *Link) writeLoop() {
 			case message = <-l.control:
 			case data := <-l.data:
 				message, generation = data.raw, data.generation
+				owners[0] = data.buffer
 			}
 		}
 		if message[0] == dataMessage && (generation%2 == 0 || generation != l.dataGeneration.Load()) {
 			l.dropped.Add(1)
+			owners[0].Release()
+			owners[0] = nil
 			continue
 		}
+		messages[0] = message
+		count := 1
+		if batching && message[0] == dataMessage {
+		drain:
+			for count < len(messages) {
+				select {
+				case data := <-l.data:
+					if data.generation%2 == 0 || data.generation != l.dataGeneration.Load() {
+						l.dropped.Add(1)
+						data.buffer.Release()
+						continue
+					}
+					messages[count] = data.raw
+					owners[count] = data.buffer
+					count++
+				default:
+					break drain
+				}
+			}
+		}
 		ctx, cancel := context.WithTimeout(l.ctx, l.options.WriteTimeout)
-		err := l.channel.Send(ctx, message)
+		var err error
+		if batching {
+			err = batch.SendBatch(ctx, messages[:count])
+		} else {
+			err = l.channel.Send(ctx, message)
+		}
 		cancel()
 		if err != nil {
 			return
 		}
-		if message[0] == dataMessage {
-			l.tx.Add(uint64(len(message) - 1))
+		for i, raw := range messages[:count] {
+			if raw[0] == dataMessage {
+				l.tx.Add(uint64(len(raw) - 1))
+			}
+			messages[i] = nil
+			owners[i].Release()
+			owners[i] = nil
 		}
 	}
 }

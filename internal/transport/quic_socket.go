@@ -15,18 +15,21 @@ import (
 // would change native UDP fragmentation behavior. QUIC uses 1200-byte packets.
 type quicSocket struct {
 	net.PacketConn
-	hub     *UDP
-	socket  *net.UDPConn
-	readMu  sync.Mutex
-	buffer  [MaxMessage + udpHeaderSize + 1]byte
-	control [256]byte
+	hub    *UDP
+	socket *net.UDPConn
+	readMu sync.Mutex
+	reader *udpPacketReader
 }
 
 func (s *quicSocket) ReadFrom(raw []byte) (int, net.Addr, error) {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
+	if s.reader == nil {
+		s.reader = newUDPPacketReader(s.socket)
+	}
 	for {
-		n, control, flags, remote, err := s.socket.ReadMsgUDPAddrPort(s.buffer[:], s.control[:])
+		packet, control, flags, remote, err := s.reader.read()
+		n := len(packet)
 		if udpReadTruncated(flags, err) {
 			continue
 		}
@@ -34,17 +37,17 @@ func (s *quicSocket) ReadFrom(raw []byte) (int, net.Addr, error) {
 			s.hub.stop()
 			return 0, nil, err
 		}
-		if n >= 4 && [4]byte(s.buffer[:4]) == udpMagic {
-			s.hub.receivePacket(s.buffer[:n], remote, udpReplyControl(s.control[:control], remote))
+		if n >= 4 && [4]byte(packet[:4]) == udpMagic {
+			s.hub.receivePacket(packet, remote, udpReplyControl(control, remote))
 			continue
 		}
-		if s.hub.receiveSTUN(s.buffer[:n], remote) {
+		if s.hub.receiveSTUN(packet, remote) {
 			continue
 		}
 		if n > len(raw) {
 			continue
 		}
-		return copy(raw, s.buffer[:n]), net.UDPAddrFromAddrPort(remote), nil
+		return copy(raw, packet), net.UDPAddrFromAddrPort(remote), nil
 	}
 }
 func (s *quicSocket) WriteTo(raw []byte, remote net.Addr) (int, error) {

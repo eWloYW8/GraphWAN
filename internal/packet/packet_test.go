@@ -51,12 +51,14 @@ func TestRoundTripAndForward(t *testing.T) {
 func TestRejectMalformed(t *testing.T) {
 	raw, _ := example().MarshalBinary()
 	for name, change := range map[string]func([]byte) []byte{
-		"short":     func(b []byte) []byte { return b[:20] },
-		"version":   func(b []byte) []byte { b[2] = 2; return b },
-		"reserved":  func(b []byte) []byte { b[6] = 1; return b },
-		"hop limit": func(b []byte) []byte { b[3] = 0; return b },
-		"length":    func(b []byte) []byte { b[5]++; return b },
-		"zero ID":   func(b []byte) []byte { clear(b[8:24]); return b },
+		"short":            func(b []byte) []byte { return b[:20] },
+		"version":          func(b []byte) []byte { b[2] = 2; return b },
+		"reserved":         func(b []byte) []byte { b[6] = 1; return b },
+		"hop limit":        func(b []byte) []byte { b[3] = 0; return b },
+		"length":           func(b []byte) []byte { b[5]++; return b },
+		"zero ID":          func(b []byte) []byte { clear(b[8:24]); return b },
+		"zero source":      func(b []byte) []byte { clear(b[24:40]); return b },
+		"zero destination": func(b []byte) []byte { clear(b[40:56]); return b },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := packet.Parse(change(bytes.Clone(raw))); err == nil {

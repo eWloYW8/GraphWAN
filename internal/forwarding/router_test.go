@@ -115,3 +115,62 @@ func TestForwardingAdmissionAndHopLimit(t *testing.T) {
 		t.Fatal("local TUN source spoof accepted")
 	}
 }
+
+func TestBatchPreservesAdmissionAndPacketOrder(t *testing.T) {
+	state := testutil.Topology()
+	config, err := routing.Compile(state, testutil.ID(11))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var received [][]byte
+	sent := 0
+	router, err := forwarding.New(config,
+		func(context.Context, model.ID, model.ID, []byte) error { sent++; return nil },
+		func(context.Context, model.ID, []byte) error { t.Fatal("single delivery used"); return nil },
+		func(_ context.Context, network model.ID, raw [][]byte) error {
+			if network != testutil.ID(1) || len(raw) > 32 {
+				t.Fatal("invalid delivery batch")
+			}
+			for _, p := range raw {
+				received = append(received, bytes.Clone(p))
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var frames [][]byte
+	for i := range 70 {
+		raw := ipPacket(1, 2)
+		raw[1] = byte(i)
+		p := packet.Packet{Header: packet.Header{Network: testutil.ID(1), Source: testutil.ID(20), Destination: testutil.ID(21), HopLimit: 32}, Payload: raw}
+		if i == 17 {
+			p.Payload = ipPacket(4, 2)
+		}
+		frame, err := p.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		frames = append(frames, frame)
+	}
+	if err := router.FromPeerBatch(context.Background(), testutil.ID(20), frames); !errors.Is(err, forwarding.ErrSource) {
+		t.Fatal("spoof not rejected", err)
+	}
+	if sent != 0 || len(received) != 69 {
+		t.Fatal("invalid packet reached delivery or valid packet lost", len(received))
+	}
+	index := 0
+	for i := range 70 {
+		if i == 17 {
+			continue
+		}
+		if received[index][1] != byte(i) {
+			t.Fatal("packet order changed")
+		}
+		index++
+	}
+	received = nil
+	if err := router.FromPeerBatch(context.Background(), testutil.ID(23), frames); !errors.Is(err, forwarding.ErrPeer) || len(received) != 0 {
+		t.Fatal("nonadjacent peer admitted", err)
+	}
+}

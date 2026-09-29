@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"github.com/graphwan/graphwan/internal/packetbuf"
 	"net"
 	"net/netip"
 	"runtime"
@@ -15,7 +16,7 @@ import (
 const (
 	udpHeaderSize = 20
 	maxPendingUDP = 512
-	udpQueueSize  = 64
+	udpQueueSize  = 256
 )
 
 var udpMagic = [4]byte{'G', 'W', 'D', 1}
@@ -29,25 +30,27 @@ type udpKey struct {
 // family. The same socket is used for STUN and hole punching; a NAT mapping must
 // never be discovered on a different socket than the one carrying peer traffic.
 type UDP struct {
-	sockets     []*net.UDPConn
-	mu          sync.Mutex
-	writeMu     sync.Mutex
-	peers       map[udpKey]*Datagram
-	pending     int // Only peers that have not passed the configured Noise handshake.
-	accept      chan *Datagram
-	done        chan struct{}
-	closeOnce   sync.Once
-	wg          sync.WaitGroup
-	closeQUIC   func() error
-	stunMu      sync.Mutex
-	stunPending map[[12]byte]*stunTransaction
+	sockets      []*net.UDPConn
+	batchSockets map[*net.UDPConn]*udpBatchSocket
+	mu           sync.Mutex
+	writeMu      sync.Mutex
+	peers        map[udpKey]*Datagram
+	pending      int // Only peers that have not passed the configured Noise handshake.
+	accept       chan *Datagram
+	done         chan struct{}
+	closeOnce    sync.Once
+	wg           sync.WaitGroup
+	closeQUIC    func() error
+	stunMu       sync.Mutex
+	stunPending  map[[12]byte]*stunTransaction
 }
 
 type Datagram struct {
 	replyControl  []byte
+	batchSend     *udpBatchSend
 	hub           *UDP
 	key           udpKey
-	incoming      chan []byte
+	incoming      chan *packetbuf.Buffer
 	done          chan struct{}
 	closeOnce     sync.Once
 	lastSeen      atomic.Int64
@@ -84,6 +87,10 @@ func newUDP(sockets []*net.UDPConn, read bool) (*UDP, error) {
 		}
 	}
 	hub := &UDP{sockets: sockets, peers: map[udpKey]*Datagram{}, accept: make(chan *Datagram, 64), done: make(chan struct{})}
+	hub.batchSockets = make(map[*net.UDPConn]*udpBatchSocket, len(sockets))
+	for _, socket := range sockets {
+		hub.batchSockets[socket] = newUDPBatchSocket(socket)
+	}
 	hub.wg.Add(1)
 	if read {
 		hub.wg.Add(len(sockets))
@@ -112,14 +119,14 @@ func (h *UDP) stop() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		for _, peer := range h.peers {
-			peer.closeOnce.Do(func() { close(peer.done) })
+			peer.closeOnce.Do(func() { close(peer.done); peer.drainIncoming() })
 		}
 		clear(h.peers)
 		h.pending = 0
 	})
 }
 func (h *UDP) newPeer(key udpKey, reply []byte) *Datagram {
-	peer := &Datagram{replyControl: reply, hub: h, key: key, incoming: make(chan []byte, udpQueueSize), done: make(chan struct{})}
+	peer := &Datagram{replyControl: reply, hub: h, key: key, incoming: make(chan *packetbuf.Buffer, udpQueueSize), done: make(chan struct{})}
 	peer.lastSeen.Store(time.Now().UnixNano())
 	h.peers[key] = peer
 	h.pending++
@@ -164,17 +171,16 @@ func (h *UDP) Accept(ctx context.Context) (*Datagram, error) {
 func (h *UDP) readLoop(socket *net.UDPConn) {
 	defer h.wg.Done()
 	defer h.stop()
-	buffer := make([]byte, MaxMessage+udpHeaderSize+1)
-	oob := make([]byte, 256)
+	reader := newUDPPacketReader(socket)
 	for {
-		n, control, flags, remote, err := socket.ReadMsgUDPAddrPort(buffer, oob)
+		raw, control, flags, remote, err := reader.read()
 		if udpReadTruncated(flags, err) {
 			continue
 		}
 		if err != nil {
 			return
 		}
-		h.receivePacket(buffer[:n], remote, udpReplyControl(oob[:control], remote))
+		h.receivePacket(raw, remote, udpReplyControl(control, remote))
 	}
 }
 
@@ -209,17 +215,22 @@ func (h *UDP) receivePacket(raw []byte, remote netip.AddrPort, reply []byte) {
 		default:
 			delete(h.peers, key)
 			h.pending--
-			peer.closeOnce.Do(func() { close(peer.done) })
+			peer.closeOnce.Do(func() { close(peer.done); peer.drainIncoming() })
 			h.mu.Unlock()
 			return
 		}
 	}
-	h.mu.Unlock()
-	payload := append([]byte{}, raw[udpHeaderSize:]...)
+	// Enqueue and close/drain share hub.mu, so ownership cannot arrive after
+	// a peer has drained its last queued packet.
+	defer h.mu.Unlock()
+	payload := packetbuf.Get(len(raw) - udpHeaderSize)
+	copy(payload.Data, raw[udpHeaderSize:])
 	select {
 	case <-peer.done:
+		payload.Release()
 	case peer.incoming <- payload:
 	default:
+		payload.Release()
 	}
 }
 
@@ -270,6 +281,7 @@ func (d *Datagram) Close() error {
 	defer d.hub.mu.Unlock()
 	d.closeOnce.Do(func() {
 		close(d.done)
+		d.drainIncoming()
 		if d.hub.peers[d.key] == d {
 			delete(d.hub.peers, d.key)
 			if !d.authenticated.Load() {
@@ -317,7 +329,17 @@ func (h *UDP) writeDatagramControl(ctx context.Context, raw []byte, remote netip
 	}
 	return nil
 }
-func (d *Datagram) Receive(ctx context.Context) ([]byte, error) {
+func (d *Datagram) drainIncoming() {
+	for {
+		select {
+		case b := <-d.incoming:
+			b.Release()
+		default:
+			return
+		}
+	}
+}
+func (d *Datagram) receiveOwned(ctx context.Context) (*packetbuf.Buffer, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -326,6 +348,43 @@ func (d *Datagram) Receive(ctx context.Context) ([]byte, error) {
 	case payload := <-d.incoming:
 		return payload, nil
 	}
+}
+func (d *Datagram) Receive(ctx context.Context) ([]byte, error) {
+	b, err := d.receiveOwned(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer b.Release()
+	return append([]byte(nil), b.Data...), nil
+}
+func (d *Datagram) ReceiveBatch(ctx context.Context) ([][]byte, error) {
+	batch, err := d.ReceiveOwnedBatch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer packetbuf.ReleaseAll(batch)
+	out := make([][]byte, len(batch))
+	for i, b := range batch {
+		out[i] = append([]byte(nil), b.Data...)
+	}
+	return out, nil
+}
+func (d *Datagram) ReceiveOwnedBatch(ctx context.Context) ([]*packetbuf.Buffer, error) {
+	first, err := d.receiveOwned(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*packetbuf.Buffer, 1, 32)
+	out[0] = first
+	for len(out) < cap(out) {
+		select {
+		case raw := <-d.incoming:
+			out = append(out, raw)
+		default:
+			return out, nil
+		}
+	}
+	return out, nil
 }
 
 func (d *Datagram) Unreliable() bool { return true }
