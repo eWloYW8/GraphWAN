@@ -19,9 +19,17 @@ restore the defaults. Public service availability and reachability vary by netwo
 These settings are persisted by the controller, delivered in that Agent's
 snapshot and cached locally for offline restart. They are not Agent CLI settings.
 
-Enable **UDP** and/or **TCP**, and **Hole punch** on each desired Edge. IPv4/IPv6
-direct methods are independent: a punch-only Edge can establish an authenticated peer connection
-without enabling either direct method. The controller sends observed endpoints
+STUN discovery is independent of the Edge's connection method. A fresh observed
+public endpoint is eligible for **IPv4 direct** or **IPv6 direct**, just like an
+interface or manual endpoint. Ordinary dialing can reach public listeners and
+accessible static/port mappings without enabling **Hole punch**. The observed
+port need not equal the local listening port. Address/port equality alone does
+not prove reachability; a successful authenticated connection establishes it.
+
+Enable **UDP** and/or **TCP**, and **Hole punch** for additional punching
+attempts. The direct-family switches are independent: a punch-only Edge can
+establish an authenticated peer connection with both direct methods disabled.
+The controller sends observed endpoints
 to adjacent peers through the existing revisioned configuration channel. Both
 Agents repeatedly send from their peer data sockets to the advertised endpoints,
 using the bounded candidate scheduler. UDP retransmits its Noise handshake; TCP
@@ -61,7 +69,8 @@ candidate's cryptographic session while the controller or STUN service is down.
 When all of that candidate's sessions fail, its retained observation is discarded.
 Cold offline recovery can try cached observations while still valid; discovering
 a changed remote mapping requires another exchange with the controller. Removing
-an Edge, revoking a peer, or disabling punching still closes its sessions.
+an Edge, revoking a peer, or disabling the session's direct/punch method still
+closes its sessions.
 
 ## STUN admission and limits
 

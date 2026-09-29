@@ -9,8 +9,8 @@ import (
 	"github.com/graphwan/graphwan/internal/model"
 )
 
-// Fresh observations authorize new punching. A healthy authenticated session is
-// stronger evidence than a STUN lease and lets that SAME candidate renew keys
+// Fresh observations authorize new direct or punch attempts. A healthy
+// authenticated session is stronger evidence than a STUN lease and lets that SAME candidate renew keys
 // during controller/STUN outages. Once all sessions for it fail, the retained
 // candidate is discarded; an expired mapping alone never authorizes a new dial.
 // DNS targets withdrawn by a successful refresh follow the same healthy-session
@@ -72,7 +72,7 @@ func (g *group) candidates(cfg *policy, outgoing bool) []link.Candidate {
 			}
 			continue
 		}
-		if !cfg.peer.Edge.Methods.HolePunch || candidate.Method != link.Punch || !slices.Contains(cfg.peer.Edge.Transports, candidate.Endpoint.Transport) {
+		if !observedMethodAllowed(cfg, candidate) {
 			continue
 		}
 		if link.CandidateID(cfg.peer.Edge.ID, initiator, candidate.Endpoint.ID, candidate.Family, candidate.Method) == id {

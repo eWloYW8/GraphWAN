@@ -91,16 +91,16 @@ func TestCandidatePolicyAndStableIdentity(t *testing.T) {
 	}
 }
 
-// Direct-family switches do not filter punching, and observed NAT leases never
-// become direct destinations merely because the corresponding family is enabled.
+// Address provenance does not select the connection method. Fresh observations
+// are eligible for direct dialing; punching remains independently configurable.
 func TestCandidateConnectionMethodAllowlist(t *testing.T) {
 	type expectation struct {
 		endpoint int
 		family   int
 		method   link.Method
 	}
-	direct4 := []expectation{{90, 4, link.Direct}, {92, 4, link.Direct}}
-	direct6 := []expectation{{91, 6, link.Direct}, {92, 6, link.Direct}}
+	direct4 := []expectation{{90, 4, link.Direct}, {92, 4, link.Direct}, {93, 4, link.Direct}}
+	direct6 := []expectation{{91, 6, link.Direct}, {92, 6, link.Direct}, {94, 6, link.Direct}}
 	punch := []expectation{{90, 4, link.Punch}, {91, 6, link.Punch}, {93, 4, link.Punch}, {94, 6, link.Punch}}
 	combine := func(groups ...[]expectation) []expectation {
 		var result []expectation
@@ -134,6 +134,8 @@ func TestCandidateConnectionMethodAllowlist(t *testing.T) {
 				{ID: testutil.ID(93), Source: model.Observed, Transport: model.UDP, URL: "udp://198.51.100.1:30000", ExpiresAt: time.Now().Add(time.Minute)},
 				{ID: testutil.ID(94), Source: model.Observed, Transport: model.TCP, URL: "tcp://[2001:db8::2]:30000", ExpiresAt: time.Now().Add(time.Minute)},
 				{ID: testutil.ID(95), Source: model.Manual, Transport: model.GRPC, URL: "grpc://unconfigured.example.test:443"},
+				{ID: testutil.ID(96), Source: model.Observed, Transport: model.UDP, URL: "udp://198.51.100.2:30000", ExpiresAt: time.Now().Add(-time.Minute)},
+				{ID: testutil.ID(97), Source: model.Observed, Transport: model.TCP, URL: "tcp://[2001:db8::3]:30000", ExpiresAt: time.Now().Add(-time.Minute)},
 			}}
 			for _, disabled := range []bool{false, true} {
 				peer.Edge.Enabled = !disabled

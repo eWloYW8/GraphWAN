@@ -91,7 +91,9 @@ func Candidates(local model.ID, peer model.Peer, now time.Time) []Candidate {
 		for _, family := range families {
 			direct := family == 4 && peer.Edge.Methods.IPv4Direct || family == 6 && peer.Edge.Methods.IPv6Direct
 			methods := []Method{}
-			if direct && endpoint.Source != model.Observed {
+			// STUN describes where an endpoint was observed, not whether it
+			// requires punching. Try ordinary dialing under the family policy.
+			if direct {
 				methods = append(methods, Direct)
 			}
 			if peer.Edge.Methods.HolePunch && (endpoint.Transport == model.UDP || endpoint.Transport == model.TCP) {

@@ -18,6 +18,22 @@ func endpointFingerprint(endpoint model.Endpoint) string {
 	return hex.EncodeToString(sum[:16])
 }
 
+// A healthy observed path can outlive its discovery lease, but never the
+// configured method. Endpoint provenance is independent of direct/punch policy.
+func observedMethodAllowed(cfg *policy, candidate link.Candidate) bool {
+	if candidate.Endpoint.Source != model.Observed || !slices.Contains(cfg.peer.Edge.Transports, candidate.Endpoint.Transport) {
+		return false
+	}
+	switch candidate.Method {
+	case link.Direct:
+		return candidate.Family == 4 && cfg.peer.Edge.Methods.IPv4Direct || candidate.Family == 6 && cfg.peer.Edge.Methods.IPv6Direct
+	case link.Punch:
+		return cfg.peer.Edge.Methods.HolePunch && (candidate.Endpoint.Transport == model.UDP || candidate.Endpoint.Transport == model.TCP)
+	default:
+		return false
+	}
+}
+
 // A configured endpoint authorizes its own live paths, including DNS answers
 // retained across refresh. A vanished STUN lease may renew only an already
 // healthy session; disabling its method/transport still revokes it.
@@ -25,7 +41,7 @@ func candidateConfigured(cfg *policy, candidate link.Candidate, healthy bool) bo
 	if !cfg.peer.Edge.Enabled || !slices.Contains(cfg.peer.Edge.Transports, candidate.Endpoint.Transport) {
 		return false
 	}
-	if candidate.Endpoint.Source == model.Observed && healthy && candidate.Method == link.Punch && cfg.peer.Edge.Methods.HolePunch {
+	if healthy && observedMethodAllowed(cfg, candidate) {
 		for _, initiator := range []model.ID{cfg.self, cfg.peer.Node.ID} {
 			if link.CandidateID(cfg.peer.Edge.ID, initiator, candidate.Endpoint.ID, candidate.Family, candidate.Method) == candidate.ID {
 				return true
