@@ -50,7 +50,13 @@ def main():
     parser.add_argument("--peer-link-local-v6", action="store_true", help="IPv6 link-local-only peer data with distinct NIC names; IPv4 controller")
     parser.add_argument("--punch-only", action="store_true", help="disable both direct methods and exercise TCP/UDP source-port punching without requiring NAT")
     parser.add_argument("--nat-nodes", type=int, choices=(1, 2, 3), default=3, help="with --nat, place the first N agents behind separate NATs; leave the rest public")
+    parser.add_argument("--nat-remap", action="store_true", help="replace live NAT mappings and require automatic rediscovery/reconnection")
+    parser.add_argument("--conntrack", default="/usr/sbin/conntrack", help="conntrack executable used only by --nat-remap")
     args = parser.parse_args()
+    if args.nat_remap and not args.nat:
+        parser.error("--nat-remap requires --nat")
+    if args.nat_remap and not Path(args.conntrack).is_file():
+        parser.error("--nat-remap requires conntrack (or --conntrack /path/to/conntrack)")
     if args.nat_nodes != 3 and not args.nat:
         parser.error("--nat-nodes requires --nat")
     if args.punch_only and args.transport not in ("auto", "udp", "tcp"):
@@ -69,6 +75,7 @@ def main():
         raise SystemExit("Run with sudo unshare --net; an isolated network namespace is required")
     controller_ip = "192.0.2.1" if args.underlay_family == 4 else "2001:db8:42::1"
     underlay_ips = [f"192.0.2.{11+i}" if args.underlay_family == 4 else f"2001:db8:42::{11+i}" for i in range(3)]
+    nat_ports = {kind: [base+i for i in range(3)] for kind, base in (("udp", 32752), ("tcp", 33752))}
     underlay_bits = 24 if args.underlay_family == 4 else 64
     if args.link_local:
         controller_ip = "169.254.42.1"
@@ -121,12 +128,12 @@ def main():
             namespaces = []
             routers = []
             for index in range(3):
-                holder = spawn(f"namespace-{index}", ["unshare", "--net", "sleep", "300"])
+                holder = spawn(f"namespace-{index}", ["unshare", "--net", "sleep", "900"])
                 eventually(lambda: os.readlink(f"/proc/{holder.pid}/ns/net") != os.readlink("/proc/self/ns/net"))
                 namespaces.append(holder)
                 gateway = holder
                 if args.nat and index < args.nat_nodes:
-                    gateway = spawn(f"nat-{index}", ["unshare", "--net", "sleep", "300"])
+                    gateway = spawn(f"nat-{index}", ["unshare", "--net", "sleep", "900"])
                     eventually(lambda: os.readlink(f"/proc/{gateway.pid}/ns/net") != os.readlink("/proc/self/ns/net"))
                     routers.append(gateway)
                 outside, inside = f"gwh{index}", f"gwn{index}"
@@ -182,8 +189,8 @@ def main():
                     command(*iptables, "-A", "FORWARD", "-j", "DROP")
                     # Fixed remapping proves that STUN must publish the mapped port,
                     # while conntrack admits replies only from contacted peers.
-                    command(*iptables, "-t", "nat", "-A", "POSTROUTING", "-o", "eth0", "-p", "udp", "--sport", "24752", "-j", "SNAT", "--to-source", f"192.0.2.{11+index}:{32752+index}")
-                    command(*iptables, "-t", "nat", "-A", "POSTROUTING", "-o", "eth0", "-p", "tcp", "--sport", "24752", "-j", "SNAT", "--to-source", f"192.0.2.{11+index}:{33752+index}")
+                    command(*iptables, "-t", "nat", "-A", "POSTROUTING", "-o", "eth0", "-p", "udp", "--sport", "24752", "-j", "SNAT", "--to-source", f"192.0.2.{11+index}:{nat_ports['udp'][index]}")
+                    command(*iptables, "-t", "nat", "-A", "POSTROUTING", "-o", "eth0", "-p", "tcp", "--sport", "24752", "-j", "SNAT", "--to-source", f"192.0.2.{11+index}:{nat_ports['tcp'][index]}")
                     command(*iptables, "-t", "nat", "-A", "POSTROUTING", "-o", "eth0", "-j", "MASQUERADE")
                     client_prefix = ["nsenter", "-t", str(holder.pid), "-n"]
                     command(*client_prefix, "ip", "link", "set", "lo", "up")
@@ -265,9 +272,9 @@ def main():
                                 if not any(e["source"] == "interface" and e["url"] == f"{protocol}://192.0.2.{11+index}:24752" for e in agent["endpoints"]):
                                     return False
                             continue
-                        expected = [f"udp://192.0.2.{11+index}:{32752+index}"]
+                        expected = [f"udp://192.0.2.{11+index}:{nat_ports['udp'][index]}"]
                         if args.transport == "tcp":
-                            expected.append(f"tcp://192.0.2.{11+index}:{33752+index}")
+                            expected.append(f"tcp://192.0.2.{11+index}:{nat_ports['tcp'][index]}")
                         for url in expected:
                             if not any(e["source"] == "observed" and e["url"] == url for e in agent["endpoints"]):
                                 return False
@@ -277,12 +284,12 @@ def main():
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
                     probe.bind(("192.0.2.1", 0))
                     for index in range(args.nat_nodes):
-                        probe.sendto(b"unsolicited", (f"192.0.2.{11+index}", 32752+index))
+                        probe.sendto(b"unsolicited", (f"192.0.2.{11+index}", nat_ports["udp"][index]))
                 if args.transport == "tcp":
                     for index in range(args.nat_nodes):
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                             probe.settimeout(0.1)
-                            assert probe.connect_ex((f"192.0.2.{11+index}", 33752+index)) != 0, "NAT allowed unsolicited TCP"
+                            assert probe.connect_ex((f"192.0.2.{11+index}", nat_ports["tcp"][index])) != 0, "NAT allowed unsolicited TCP"
                 def restricted():
                     for router in routers:
                         rules = command("nsenter", "-t", str(router.pid), "-n", "/usr/sbin/iptables", "-L", "INPUT", "-nvx").stdout
@@ -354,7 +361,8 @@ def main():
                                     backup_scoped.add(candidate_id)
                     assert len(expected) == 4 * len(transports), "fixture omitted a link or dialing direction"
                     expected_scoped[edge["id"]] = expected
-            if (args.punch_only or args.nat) and not args.peer_link_local_v6:
+            def punch_candidates():
+                result = {}
                 current = api("GET", "/state")
                 endpoints = {a["id"]: a["endpoints"] for a in current["agents"]}
                 for edge in network["edges"]:
@@ -365,13 +373,16 @@ def main():
                         for kind in transports:
                             port = 24752
                             if args.nat and index < args.nat_nodes:
-                                port = (32752 if kind == "udp" else 33752) + index
+                                port = nat_ports[kind][index]
                             url = f"{kind}://{host_port(underlay_ips[index], port)}"
                             endpoint = next(item for item in endpoints[recipient["agent_id"]] if item["url"] == url)
                             identity = f"{edge['id']}/{initiator['id']}/{endpoint['id']}/{peer_family}/punch"
                             expected.add(hashlib.sha256(identity.encode()).hexdigest()[:32])
                     assert len(expected) == 2 * len(transports), "fixture omitted a punch direction"
-                    expected_punch[edge["id"]] = expected
+                    result[edge["id"]] = expected
+                return result
+            if (args.punch_only or args.nat) and not args.peer_link_local_v6:
+                expected_punch = punch_candidates()
             def connected():
                 reports = api("GET", "/telemetry")
                 if len(reports) != 3:
@@ -434,6 +445,38 @@ def main():
                 return result.returncode == 0
             eventually(exchange)
             print(f"PASS: three native TUN agents, {transports} links, IPv{args.overlay_family} overlay/IPv{peer_family} peer underlay, MTU {args.mtu}/{args.underlay_mtu}, multi-hop ICMP and TCP", flush=True)
+            if args.nat_remap:
+                remapped_nodes = {node["id"] for node in nodes[:args.nat_nodes]}
+                affected_edges = {edge["id"] for edge in network["edges"] if edge["a"] in remapped_nodes or edge["b"] in remapped_nodes}
+                reports = api("GET", "/telemetry")
+                old_links = {link["link_id"] for report in reports for link in report["links"] or [] if link["healthy"] and link["edge_id"] in affected_edges}
+                unaffected_links = {link["link_id"] for report in reports for link in report["links"] or [] if link["healthy"] and link["edge_id"] not in affected_edges}
+                assert old_links, "fault injection has no healthy sessions to invalidate"
+                if args.nat_nodes == 1:
+                    assert unaffected_links, "fixture has no healthy unaffected public edge"
+                fault_started = time.monotonic()
+                original_pids = [process.pid for process in agents]
+                for index, router in enumerate(routers):
+                    prefix = ["nsenter", "-t", str(router.pid), "-n"]
+                    for rule, kind in enumerate(("udp", "tcp"), 1):
+                        nat_ports[kind][index] += 4000
+                        command(*prefix, "/usr/sbin/iptables", "-t", "nat", "-R", "POSTROUTING", str(rule), "-o", "eth0", "-p", kind, "--sport", "24752", "-j", "SNAT", "--to-source", f"192.0.2.{11+index}:{nat_ports[kind][index]}")
+                    command(*prefix, args.conntrack, "-F")
+                print("NAT fault injected: replaced TCP/UDP mapped ports and flushed router connection tracking", flush=True)
+                # The controller may reconnect after its NAT state is flushed;
+                # require old data sessions to actually disappear before recovery.
+                def old_sessions_gone():
+                    return not any(link["healthy"] and link["link_id"] in old_links for report in api("GET", "/telemetry") for link in report["links"] or [])
+                eventually(old_sessions_gone, timeout=40)
+                eventually(observed, timeout=90)
+                expected_punch = punch_candidates()
+                eventually(connected, timeout=90)
+                eventually(ping)
+                eventually(exchange)
+                assert [process.pid for process in agents] == original_pids and all(process.poll() is None for process in agents), "Agent restarted during NAT recovery"
+                healthy_links = {link["link_id"] for report in api("GET", "/telemetry") for link in report["links"] or [] if link["healthy"]}
+                assert unaffected_links <= healthy_links, "remapping replaced an unaffected public-peer session"
+                print(f"PASS: changed mapped ports rediscovered; both punch directions recover full-MTU traffic in {time.monotonic()-fault_started:.1f}s without Agent restart; unaffected sessions preserved", flush=True)
             if args.nat:
                 stop(stun)
                 eventually(ping)

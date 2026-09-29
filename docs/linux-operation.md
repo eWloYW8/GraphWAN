@@ -154,6 +154,7 @@ sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
 | IPv6 | IPv4 | TCP + UDP | 1280 / 1500 | Passed |
 | IPv6 | IPv4 restricted SNAT | UDP alone, TCP alone; punch-only | 9000 / 1280 | Passed |
 | IPv6 | Two IPv4 NAT peers + one public peer | UDP alone, TCP alone; punch-only | 9000 / 1280 | Passed |
+| IPv6 | One or three IPv4 NATs, ports changed during traffic | UDP alone, TCP alone; automatic rediscovery | 9000 / 1280 | Passed |
 | IPv4 | IPv6 global | TCP + UDP; punch-only | 9000 / 1280 | Passed |
 | IPv6 | IPv6 link-local, two NICs | TCP + UDP; punch-only | 9000 / 1280 | Passed |
 
@@ -162,7 +163,10 @@ Punch-only and mixed NAT reproduction commands are in [NAT operation](nat-operat
 Every row uses three actual Agents and TUN interfaces. Checks include a full-MTU
 ICMP/ICMPv6 packet, a 155,648-byte TCP echo, resource reports, controller outage,
 offline replacement of a deleted endpoint TUN, offline transit-Agent restart and
-owned-interface cleanup. NAT cases additionally stop STUN. The native adapter
+owned-interface cleanup. NAT cases additionally stop STUN. `--nat-remap` also
+requires the Linux `conntrack` utility and verifies automatic recovery after
+changing mapped ports; `--nat-nodes 1` checks preservation of the unaffected
+public-peer Edge. These fault injections stay within the isolated router namespaces. The native adapter
 integration test independently checks IPv4/IPv6 connected routes, exclusive
 ownership, bidirectional kernel UDP delivery and interrupting idle reads on close.
 

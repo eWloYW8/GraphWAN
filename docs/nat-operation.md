@@ -133,7 +133,7 @@ use `--overlay-family 6` to reproduce the latter. This does not require IPv6
 support in the underlying NAT. The fixture does not model IPv6 NAT or NAT64.
 Non-Linux native punching runs remain optional under the agreed Linux-only
 runtime acceptance scope; the implementation review below covers their socket
-setup. Dynamic NAT remapping/recovery acceptance remains open.
+setup. Live mapped-port change/recovery is verified on Linux below.
 When punching cannot connect, configure another permitted reachable endpoint; no
 controller relay is supplied.
 
@@ -214,3 +214,46 @@ This review supports the implementation's port-sharing design; it does not claim
 native execution or successful traversal of every OS/router combination. In
 particular, port reuse is not an ownership boundary between local processes and
 cannot force a NAT to preserve mappings or permit simultaneous open.
+
+
+## Live NAT mapping changes
+
+`--nat-remap` replaces the routers' live UDP and TCP SNAT ports after the first
+successful full-MTU exchange, then flushes connection tracking **inside each
+isolated router namespace**. This invalidates existing data flows and the
+persistent TCP STUN connection. The controller stays running; its connections
+may also reconnect after their NAT state is flushed. The fixture requires the
+old affected Link sessions to cease being healthy, new protocol-specific STUN
+endpoints to appear, and both dialing directions to establish exactly the newly
+expected punch candidates. It then repeats full-MTU ICMP and TCP echo without
+restarting any Agent. With `--nat-nodes 1`, the independent public-peer Edge must
+retain its original Link IDs.
+
+Install the Linux `conntrack` tool for this case, or pass its absolute executable
+path with `--conntrack`. The test invokes it only through `nsenter` targeting the
+freshly created router processes; host connection tracking is never changed.
+
+```sh
+for transport in udp tcp; do
+  for count in 1 3; do
+    sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
+      --transport "$transport" --nat --nat-nodes "$count" --nat-remap \
+      --restricted-agent --overlay-family 6 --mtu 9000 --underlay-mtu 1280
+  done
+done
+```
+
+All four combinations pass on Linux. After recovery they also pass STUN/controller
+outage, offline TUN repair, cached transit-Agent restart and cleanup. One recorded
+single-NAT run recovered UDP in 23.9 seconds and TCP in 44.0 seconds; these are
+observations, not a recovery-time guarantee. STUN probing runs every 20–25 seconds.
+A failed persistent TCP observation is closed before a subsequent round opens a
+fresh connection, so TCP recovery can require another discovery interval. The
+fixture permits up to ninety seconds for discovery and ninety for reconnection.
+Previously observed endpoints can remain advertised until their two-minute lease
+expires, but they cannot satisfy the new healthy-candidate checks.
+
+This proves online rediscovery after the tested mapping change. It does not make
+an undiscovered remote mapping recoverable while the controller is unavailable;
+peers still need an exchange of the new endpoint or another already reachable
+configured path. The earlier offline-cache checks use the freshly learned mapping.

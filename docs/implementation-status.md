@@ -64,7 +64,7 @@ checks are listed separately from outstanding implementation work.
 - [x] Windows UDP packet-info implementation and portable 32/64-bit ABI validation.
 - [x] STUN from the data socket and UDP punching through verified restricted NATs.
 - [x] Linux TCP hole punching, independent STUN mappings and pooled authenticated sessions.
-- [ ] Remaining Linux NAT cases and cross-platform TCP punching implementation review.
+- [x] Linux restricted/mixed NAT and live mapping recovery; cross-platform TCP punching implementation review.
 - [x] IPv4/IPv6 direct and punch allowlists, bounded scheduling/backoff.
 - [ ] All viable Links retained; one active Link, preferred/lowest RTT selection.
 - [x] Heartbeat, RTT/loss/traffic metrics, hysteresis and standby failover.
@@ -755,3 +755,26 @@ These checks are not required for completion under the agreed Linux validation s
 - Linux network CI now has twenty cases, adding scoped/global IPv6 punching
   and both mixed NAT transports. The pinned actionlint check passes locally;
   no hosted CI execution is claimed.
+
+
+- Live NAT remapping acceptance now passes for UDP and TCP with either three
+  NAT nodes or one NAT node plus two public nodes. The fixture changes both
+  protocol mappings, flushes the routers' connection tracking, requires old
+  affected sessions to disappear and newly observed candidate IDs to become
+  healthy in both directions, then verifies full-MTU multi-hop traffic without
+  Agent restart. The single-NAT case additionally preserves all unaffected
+  public-peer Link IDs. STUN/controller outage, offline TUN repair, cached transit
+  restart and cleanup also pass after the new mappings are learned.
+- These four Linux namespace runs use overlay MTU 9000, underlay MTU 1280 and
+  restricted Agent capabilities. No production fix was needed: observation
+  renewal, revisioned endpoint publication and the existing reconnect loop
+  handled the faults. Recorded single-NAT recovery was 23.9 s for UDP and 44.0 s
+  for TCP; the documented discovery interval explains the extra TCP round and
+  is not an availability guarantee. Offline discovery of unknown remote mappings
+  remains a stated protocol limitation, not a tested capability.
+- The Linux CI matrix adds full UDP and partial TCP remapping cases (22 cases
+  total), installs `conntrack` as a fixture dependency and passes pinned actionlint.
+  The test keeps router namespace holders alive through bounded recovery waits.
+  [NAT recovery reproduction](nat-operation.md#live-nat-mapping-changes) records
+  the fault and the assertions; prior entries listing this acceptance as open
+  are historical. Other outstanding implementation/acceptance items remain open.
