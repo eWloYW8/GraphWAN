@@ -23,7 +23,7 @@ func TestNativeFreeBSDInterfaceDiscovery(t *testing.T) {
 	if os.Geteuid() != 0 || os.Getenv("GRAPHWAN_TEST_VM") != "1" {
 		t.Skip("requires root in a disposable FreeBSD VM with GRAPHWAN_TEST_VM=1")
 	}
-	if got, want := unsafe.Sizeof(freeBSDCloneRequest{}), uintptr((unix.SIOCIFGCLONERS>>16)&0x1fff); got != want {
+	if got, want := unsafe.Sizeof(bsdCloneRequest{}), uintptr((unix.SIOCIFGCLONERS>>16)&0x1fff); got != want {
 		t.Fatalf("if_clonereq ABI size %d, ioctl encodes %d", got, want)
 	}
 	command := func(args ...string) string {
@@ -36,7 +36,7 @@ func TestNativeFreeBSDInterfaceDiscovery(t *testing.T) {
 		}
 		return strings.TrimSpace(string(out))
 	}
-	cloners, err := freeBSDCloners()
+	cloners, err := bsdCloners()
 	if err != nil || !cloners["tap"] || !cloners["tun"] {
 		t.Fatalf("kernel cloner list: %v, %v", cloners, err)
 	}

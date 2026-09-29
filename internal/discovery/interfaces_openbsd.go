@@ -1,4 +1,4 @@
-//go:build freebsd
+//go:build openbsd
 
 package discovery
 
@@ -11,8 +11,6 @@ import (
 )
 
 func physicalInterfaces(interfaces []net.Interface) (map[int]bool, error) {
-	// Fetch before cloners: a subsequently loaded virtual driver will be in
-	// the cloner table, and interfaces created after this snapshot are rejected.
 	raw, err := route.FetchRIB(unix.AF_UNSPEC, route.RIBTypeInterface, 0)
 	if err != nil {
 		return nil, fmt.Errorf("interface RIB: %w", err)
@@ -46,13 +44,7 @@ func physicalInterfaces(interfaces []net.Interface) (map[int]bool, error) {
 				kind = metric.Type
 			}
 		}
-		// sys/net/if_mib.h: IFDATA_DRIVERNAME=3. This is the same read-only
-		// sysctl used by libifconfig_get_orig_name, without invoking ifconfig.
-		original, err := unix.SysctlArgs("net.link.generic.ifdata", iface.Index, 3)
-		if err != nil {
-			return nil, fmt.Errorf("driver for interface %s: %w", iface.Name, err)
-		}
-		result[iface.Index] = freeBSDPhysical(kind, original, cloners)
+		result[iface.Index] = openBSDPhysical(kind, message.Name, cloners)
 	}
 	return result, nil
 }

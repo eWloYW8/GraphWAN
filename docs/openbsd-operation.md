@@ -77,21 +77,28 @@ GraphWAN does not lock the kernel's interface/routing configuration globally.
 ## Native tests
 
 Run only as root in a disposable OpenBSD VM; these tests create addresses and
-routes. With Python and Go installed in the guest:
+routes. The discovery test also needs a separate spare guest NIC, initially
+down and without global-unicast addresses or a description. Keep the management
+NIC configured separately. For example, an extra QEMU user network and virtio
+NIC (`-netdev user,id=discovery -device virtio-net-pci,netdev=discovery`) supplies
+`vio1` in the local fixture. With Python and Go installed in the guest:
 
 ```sh
-env GRAPHWAN_TEST_VM=1 python3 scripts/check.py native --logs /tmp/graphwan-native
+env GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vio1 \
+  python3 scripts/check.py native --logs /tmp/graphwan-native
 ```
 
-The script requires named TUN and Agent tests and rejects skipped subtests. A
+The script requires named TUN, Agent and discovery tests and rejects skipped subtests. A
 cross-compiled test bundle avoids needing either toolchain inside the guest:
 
 ```sh
 CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go test -c -tags integration -o tunnel.test ./internal/tunnel
 CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go test -c -tags integration -o agent.test ./internal/agent
+CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go test -c -tags integration -o discovery.test ./internal/discovery
 # Copy the binaries into the disposable guest and run there:
 env GRAPHWAN_TEST_VM=1 ./tunnel.test -test.v -test.run NativeOpenBSD -test.timeout=180s
 env GRAPHWAN_TEST_VM=1 ./agent.test -test.v -test.run NativeBSDConfigurationReconcile -test.timeout=180s
+env GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vio1 ./discovery.test -test.v -test.run NativeOpenBSDInterfaceDiscovery -test.timeout=90s
 ```
 
 Tests cover both IP families at MTUs 1280 and 9000, exact subnet routes,
@@ -109,6 +116,35 @@ shutdown cleanup. Linux race tests and vet pass; the shared routing tests reject
 foreign equal-prefix routes independently of enumeration order. Both Darwin
 architectures also cross-build after extracting the common BSD route reader.
 These are kernel/component checks, not three-host forwarding acceptance.
+
+## Physical-interface discovery
+
+Automatic endpoints use routing-interface metadata and the kernel cloner list,
+queried read-only through `SIOCIFGCLONERS`. The driver portion of the kernel
+interface name is checked against this list. Descriptions and interface groups
+are editable and never determine physical eligibility. OpenBSD's
+[kernel interface code](https://github.com/openbsd/src/blob/master/sys/net/if.c)
+defines the cloner enumeration and driver/unit naming used by this check.
+A changed interface identity rejects the scan instead of publishing a partial
+snapshot. Global-unicast addresses, including private IPv4 and ULA IPv6, are
+advertised only as TCP/UDP endpoints; down and loopback interfaces are excluded.
+
+Native tests on OpenBSD 7.9/amd64 keep one guest NIC configured and use a second,
+unconfigured NIC as `GRAPHWAN_TEST_INTERFACE`. They create TAP, TUN, bridge,
+veb, vport, pair and VLAN fixtures, then remove their driver groups and apply
+hardware-like descriptions. All seven remain excluded. The real guest NIC
+remains eligible with a tunnel-like description/group; description changes
+preserve endpoint IDs. IPv4/IPv6 address addition/removal and interface down/up
+withdraw or restore the expected endpoints while retaining unrelated NIC IDs.
+The test destroys only its own clone indexes and restores the spare NIC.
+Missing fixtures fail the required native gate after opt-in, rather than skip.
+
+The full discovery package passes three consecutive native runs on both
+OpenBSD 7.9/amd64 and FreeBSD 15.1-p3/amd64. Each has 93 test/subtest passes and
+no skips. The shared cloner ioctl request is checked against its ABI size on
+both kernels. Ethernet guest NICs have native evidence; Wi-Fi and MBIM cellular
+classification have portable unit coverage only. No scoped IPv6 link-local
+endpoint support or broader hardware acceptance is inferred from these tests.
 
 ## Recovery after process termination
 
@@ -156,7 +192,7 @@ the required native-result gate.
   unmarked TUNs. After independently confirming ownership and stopping the Agent,
   use `ifconfig tunN destroy` for the specific residual interface. Never delete
   other applications' TUNs.
-- Native physical-interface classification, scoped link-local endpoints,
+- Native Wi-Fi/MBIM hardware coverage, scoped link-local endpoints,
   multi-host forwarding/NAT, nonzero routing domains, other OpenBSD releases and
   other CPU architectures still need implementation or acceptance evidence.
 

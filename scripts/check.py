@@ -35,6 +35,7 @@ NATIVE = {
     "openbsd": {
         "tunnel": ["TestNativeOpenBSDTunnel", "TestNativeOpenBSDConfiguration", "TestNativeOpenBSDRouteConflict", "TestNativeOpenBSDOwnership", "TestNativeOpenBSDCrashRecovery", "TestNativeOpenBSDRecoveryOwnership", "TestNativeOpenBSDRecoveryWithoutOpen", "TestNativeOpenBSDRecoveryIncompleteRecord", "TestNativeOpenBSDRecoveryRecordProtection", "TestNativeOpenBSDRecoveryConcurrentClose"],
         "agent": ["TestNativeBSDConfigurationReconcile"],
+        "discovery": ["TestNativeOpenBSDInterfaceDiscovery"],
     },
 }
 OPT_IN = {"darwin": "GRAPHWAN_TEST_MACOS", "windows": "GRAPHWAN_TEST_WINDOWS", "freebsd": "GRAPHWAN_TEST_VM", "openbsd": "GRAPHWAN_TEST_VM"}

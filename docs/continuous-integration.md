@@ -71,8 +71,9 @@ running the same command. Windows requires an elevated terminal and
 `GRAPHWAN_TEST_WINDOWS=1`; use `python` if that is the installed command name.
 The script downloads the pinned, verified Wintun DLL into the test binary's
 temporary directory. See [Windows operation](windows-operation.md).
-OpenBSD can run the TUN/Agent `native` gate on a disposable root host with
-`GRAPHWAN_TEST_VM=1`; see [OpenBSD operation](openbsd-operation.md). Its complete
+OpenBSD can run the TUN/Agent/discovery `native` gate on a disposable root host
+with `GRAPHWAN_TEST_VM=1` and `GRAPHWAN_TEST_INTERFACE` naming a spare, down,
+unconfigured guest NIC; see [OpenBSD operation](openbsd-operation.md). Its complete
 transport and Mesh test binaries pass natively, including IPv6 wildcard listeners.
 No hosted OpenBSD job is enabled yet.
 

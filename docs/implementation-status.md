@@ -48,6 +48,7 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Authenticated ephemeral peer keys, cipher policy, replay protection/rekey.
 - [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
 - [x] FreeBSD kernel driver/type discovery with native renamed-interface and address-change tests.
+- [x] OpenBSD kernel type/cloner discovery with native clone exclusion and address-change tests.
 - [ ] Manual hostname/path endpoints and configurable listeners (default 24752), full platform acceptance.
 - [x] Per-address DNS Candidates across all six transports, refresh, preference and healthy rekey on Linux.
 - [x] Windows UDP packet-info implementation and portable 32/64-bit ABI validation.
@@ -415,7 +416,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   port failure, exhaustion, cancellation and release of failed TCP reservations.
   Production, discovery and Mesh tests cross-compile for Windows amd64/arm64/386,
   macOS arm64, FreeBSD amd64 and Linux arm64. Native Windows discovery, authoritative
-  BSD/macOS classification and IPv6 link-local scope mapping remain open, so the
+  NetBSD/DragonFly/macOS classification and IPv6 link-local scope mapping remain open, so the
   overall interface-discovery acceptance item is still unchecked. See
   [endpoint discovery and updates](endpoint-resolution.md).
 
@@ -441,7 +442,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   The Go 1.26.8 i386 discovery binary and a minimal Go hello program both crash
   under this VM's i386 compatibility mode; cause remains unresolved. Therefore
   32-bit native acceptance is explicitly not met despite successful cross-builds.
-  Other BSD/macOS discovery, broader hardware coverage, link-local scope mapping,
+  NetBSD/DragonFly/macOS discovery, broader hardware coverage, link-local scope mapping,
   multi-host and NAT acceptance remain open. Reproduction and limitations are in
   [FreeBSD operation](freebsd-operation.md).
 
@@ -496,7 +497,7 @@ Every feature below derives from the accepted proposal, including its suggestion
   without skips; the complete Mesh suite passes 66 tests/subtests, including
   IPv6 DNS/punch and live policy edits across all six transports. Required socket
   gates now include dual-family TCP, QUIC, TCP/UDP STUN, cleanup and peer bounds.
-  Pre-marker creation-window cleanup, authoritative interface discovery and
+  Pre-marker creation-window cleanup, broader physical hardware coverage and
   multi-host/NAT acceptance are still required. Other OpenBSD architectures have
   compile evidence only. See [OpenBSD operation](openbsd-operation.md).
   This listener change passes the uncached Linux full-repository race/vet gate
@@ -523,3 +524,18 @@ Every feature below derives from the accepted proposal, including its suggestion
   uncached full race tests and vet pass; all six OpenBSD integration targets
   build and pass vet. All 33 production targets cross-build with verified
   manifest sizes/hashes. Only OpenBSD amd64 has native recovery evidence.
+
+- OpenBSD physical discovery now uses kernel interface types and the registered
+  cloner list instead of name/MAC heuristics. Both OpenBSD 7.9/amd64 and FreeBSD
+  15.1-p3/amd64 pass three full native discovery runs (93 tests/subtests each,
+  zero skips) with the shared cloner-query implementation. OpenBSD fixtures
+  verify two guest NICs, seven clone classes, edited groups/descriptions, stable
+  IDs, IPv4/IPv6 address changes, down/up withdrawal and stale-identity rejection.
+  The required native gate now includes OpenBSD discovery and requires a spare
+  guest NIC. Wi-Fi/MBIM classification has unit coverage only; native hardware
+  coverage and link-local scope remain open. Reproduction is documented in
+  [OpenBSD operation](openbsd-operation.md#physical-interface-discovery).
+  Linux uncached full-repository race tests and vet pass. Discovery integration
+  binaries and vet pass for all ten Go-advertised FreeBSD/OpenBSD architecture
+  targets; all 33 production targets build and match their manifest sizes and
+  SHA-256 hashes. Native interface/address cleanup is verified on both VMs.

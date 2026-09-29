@@ -41,9 +41,22 @@ are excluded. Windows API calls are cross-compiled but still need native testing
 FreeBSD combines kernel interface types, original driver identities and registered
 cloners. Wi-Fi VAPs and jail epairs qualify; software overlays are excluded even
 after alias/group edits. Native tests cover guest NIC discovery and renamed
-epair/TUN/TAP/bridge fixtures with address changes. Other BSDs and macOS currently
-use name/MAC heuristics; authoritative classification there and IPv6 link-local
-scope mapping remain incomplete. See [FreeBSD operation](freebsd-operation.md).
+epair/TUN/TAP/bridge fixtures with address changes. See
+[FreeBSD operation](freebsd-operation.md).
+
+OpenBSD reads interface types from the routing interface snapshot and excludes
+all drivers listed by `SIOCIFGCLONERS`. It uses kernel driver-assigned names,
+not descriptions, editable groups or MAC-address presence. This rejects virtual
+Ethernet clones as well as TUN/TAP and bridges; Ethernet, Wi-Fi and OpenBSD's
+MBIM cellular type qualify. Native OpenBSD 7.9/amd64 tests use two guest NICs and
+seven clone drivers to verify exclusion, stable IDs, IPv4/IPv6 address updates
+and interface down/up behavior. Physical Wi-Fi/MBIM hardware has classification
+unit coverage but has not been tested natively. See
+[OpenBSD operation](openbsd-operation.md#physical-interface-discovery).
+
+NetBSD, DragonFly and macOS still use name/MAC heuristics. Authoritative
+classification there, native Windows acceptance and IPv6 link-local scope
+mapping remain incomplete.
 
 ## Live policy changes
 
