@@ -101,8 +101,14 @@ IP/port and authenticated Agent identity, allowing multiple Networks and fresh
 Noise sessions to share the same TCP four-tuple. Every stream uses the 32-bit
 length framing and ordinary Network/Edge Noise admission above. Admission also
 checks that a punch candidate arrived over this transport, not ordinary TCP.
-There are at most 64 physical sessions per Agent and 32 retained logical streams
-per session, an eight-stream accept backlog, and a 256 KiB window per stream.
+There are at most 64 physical sessions per Agent. Logical stream capacity starts
+at 32 per session and grows with the locally authorized TCP-punch topology for
+that peer. Its bound includes endpoint aliases, IPv6 egress scopes and headroom
+for concurrent handshakes, replacement keys and retiring streams. Peers cannot
+negotiate this allowance. Existing physical sessions retain their highest
+authorized allowance when policy shrinks, so retiring streams and healthy Links
+whose observed endpoints have expired can finish or renew. The accept backlog
+remains eight streams, with a 256 KiB window per stream.
 Writes time out after two seconds; unacknowledged stream opens and graceful stream
 closes expire after three seconds. Keepalives run every five seconds. Canceling a
 stream does not close unrelated streams. Disabling the last TCP punch Edge to an

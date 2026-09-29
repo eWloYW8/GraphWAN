@@ -121,6 +121,30 @@ func TestPunchMuxFixedPortAuthenticationAndIndependentStreams(t *testing.T) {
 		extra.Close()
 		t.Fatal("stream limit ignored")
 	}
+	// Authorized topology growth increases capacity without replacing the socket
+	// or disturbing existing streams. Later policy shrink preserves this session's
+	// allowance while old streams retire, but never removes its upper bound.
+	for _, mux := range []*PunchMux{ma, mb} {
+		mux.EnsureStreamCapacity(64)
+		mux.EnsureStreamCapacity(1)
+	}
+	for range 32 {
+		first, err := mb.Open(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := ma.Accept(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		opened = append(opened, [2]*PunchStream{first, second})
+	}
+	for _, mux := range []*PunchMux{ma, mb} {
+		if extra, err := mux.Open(ctx); err == nil {
+			extra.Close()
+			t.Fatal("grown stream limit ignored")
+		}
+	}
 	if err := opened[0][0].Send(ctx, []byte("still alive")); err != nil {
 		t.Fatal(err)
 	}

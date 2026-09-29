@@ -82,10 +82,17 @@ to trigger every attempt. Because simultaneous open does not reliably distinguis
 an application initiator from a responder, Agents exchange identity hints and
 choose their TLS roles by public-key order. Mutual TLS proves those identities
 before publishing a multiplexed physical connection. Each logical stream then
-performs the ordinary Network/Edge-bound Noise handshake. This allows two Networks
+performs the ordinary Network/Edge-bound Noise handshake. This allows multiple Networks
 and session-key rotation to share one TCP four-tuple; opening a new connection
 for every Link would conflict with the existing NAT mapping. See the
 [wire format and resource limits](peer-protocol.md).
+
+The logical stream allowance grows from locally authorized configuration, keeping
+space for each network's endpoint candidates and session-key replacement. Adding
+networks updates an existing physical session without reconnecting. Linux loopback
+regression coverage starts with one network, adds another 19, waits for all 40
+bidirectional candidates to renew their keys, then removes the extra networks.
+The original physical session remains in use throughout growth and renewal.
 
 Linux native tests below verify source-port reuse and peer SYNs through restricted
 NATs. Unix adapters set `SO_REUSEADDR`/`SO_REUSEPORT`; Windows sets `SO_REUSEADDR`.

@@ -21,10 +21,12 @@ const punchALPN = "graphwan.punch.v1"
 var punchMagic = [4]byte{'H', 'G', 'W', 1}
 
 type PunchMux struct {
-	session  *yamux.Session
-	identity ed25519.PublicKey
-	slots    chan struct{}
-	socket   net.Conn
+	session     *yamux.Session
+	identity    ed25519.PublicKey
+	streamMu    sync.Mutex
+	streamLimit int
+	streams     int
+	socket      net.Conn
 }
 
 // NewPunchMux works for active/passive AND simultaneous-open TCP sockets. Both
@@ -125,26 +127,42 @@ func NewPunchMux(ctx context.Context, conn net.Conn, identity ed25519.PublicKey,
 	if err != nil {
 		return nil, err
 	}
-	return &PunchMux{session: session, identity: remote, slots: make(chan struct{}, 32), socket: conn}, nil
+	return &PunchMux{session: session, identity: remote, streamLimit: 32, socket: conn}, nil
 }
 
 func (p *PunchMux) Identity() ed25519.PublicKey { return bytes.Clone(p.identity) }
 func (p *PunchMux) RemoteAddr() net.Addr        { return p.session.RemoteAddr() }
 func (p *PunchMux) Done() <-chan struct{}       { return p.session.CloseChan() }
 func (p *PunchMux) Close() error                { p.socket.Close(); return p.session.Close() }
+
+// EnsureStreamCapacity increases the bounded stream allowance for controller-
+// authorized topology. Only the owner may call it; peers cannot negotiate it.
+// Keep the high-water mark for this physical session: reducing policy can leave
+// closing streams and healthy expired-observation sessions awaiting renewal.
+func (p *PunchMux) EnsureStreamCapacity(limit int) {
+	p.streamMu.Lock()
+	p.streamLimit = max(p.streamLimit, limit)
+	p.streamMu.Unlock()
+}
+
 func (p *PunchMux) reserve(accept bool) error {
+	p.streamMu.Lock()
+	defer p.streamMu.Unlock()
 	if p.session.IsClosed() {
 		return net.ErrClosed
 	}
-	if count := p.session.NumStreams(); count > 32 || !accept && count == 32 {
+	count := p.session.NumStreams()
+	if p.streams >= p.streamLimit || count > p.streamLimit || !accept && count == p.streamLimit {
 		return errors.New("TCP punch stream limit reached")
 	}
-	select {
-	case p.slots <- struct{}{}:
-		return nil
-	default:
-		return errors.New("TCP punch stream limit reached")
-	}
+	p.streams++
+	return nil
+}
+
+func (p *PunchMux) release() {
+	p.streamMu.Lock()
+	p.streams--
+	p.streamMu.Unlock()
 }
 
 func (p *PunchMux) Open(ctx context.Context) (*PunchStream, error) {
@@ -169,7 +187,7 @@ func (p *PunchMux) Open(ctx context.Context) (*PunchStream, error) {
 			if stream != nil {
 				stream.Close()
 			}
-			<-p.slots
+			p.release()
 		}
 	}()
 	select {
@@ -177,7 +195,7 @@ func (p *PunchMux) Open(ctx context.Context) (*PunchStream, error) {
 		return nil, ctx.Err()
 	case result := <-result:
 		if result.err != nil {
-			<-p.slots
+			p.release()
 			return nil, result.err
 		}
 		return p.wrap(result.stream), nil
@@ -208,5 +226,5 @@ type PunchStream struct{ *Stream }
 
 func (*PunchStream) TCPPunch() bool { return true }
 func (p *PunchMux) wrap(stream *yamux.Stream) *PunchStream {
-	return &PunchStream{NewStream(&punchConn{Conn: stream, release: sync.OnceFunc(func() { <-p.slots })})}
+	return &PunchStream{NewStream(&punchConn{Conn: stream, release: sync.OnceFunc(p.release)})}
 }

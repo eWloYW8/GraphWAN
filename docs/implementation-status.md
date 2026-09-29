@@ -778,3 +778,25 @@ These checks are not required for completion under the agreed Linux validation s
   [NAT recovery reproduction](nat-operation.md#live-nat-mapping-changes) records
   the fault and the assertions; prior entries listing this acceptance as open
   are historical. Other outstanding implementation/acceptance items remain open.
+
+- TCP punch logical-stream capacity now grows with the authorized peer topology.
+  A Linux regression first reproduced the fixed 32-stream limit dropping the
+  shared physical session when expanding from one to twenty Networks. The fix
+  preserves that same session through all forty bidirectional candidates becoming
+  healthy, renewing their keys and agreeing on active Links, then removes the
+  extra Networks. Capacity includes endpoint aliases and IPv6 scope combinations;
+  the authenticated peer cannot raise its own allowance. Policy shrink retains
+  the physical session's high-water allowance for retiring/retained Links.
+- Transport coverage fills the default allowance, raises it while existing
+  streams remain open, verifies a lower requested allowance does not shrink it,
+  fills the raised allowance from the opposite direction, rejects further opens
+  from either side and exchanges data on an original stream. Mesh, transport and
+  Agent race suites and vet pass. The existing fixed physical-session limit is
+  unchanged; the full all-viable-Links acceptance item remains open.
+- Linux three-Agent TCP restricted-NAT/remapping and dual-NIC IPv6 link-local
+  punch-only E2E both pass after this change, with overlay/underlay MTU 9000/1280
+  and restricted Agent capabilities. NAT recovery took 43.9 s in this run;
+  controller/STUN outage, offline TUN repair, cached restart and cleanup pass.
+  Cross-builds and their SHA-256 manifests pass for Linux/386, Windows/amd64,
+  macOS/arm64 and FreeBSD/OpenBSD/NetBSD/DragonFly amd64. This adds Linux runtime
+  evidence and cross-compilation evidence only, with no new non-Linux native run.

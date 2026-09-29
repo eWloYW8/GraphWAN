@@ -10,6 +10,7 @@ import (
 	"github.com/graphwan/graphwan/internal/link"
 	"github.com/graphwan/graphwan/internal/model"
 	"github.com/graphwan/graphwan/internal/testutil"
+	"github.com/graphwan/graphwan/internal/transport"
 )
 
 func TestTCPPunchSharesPhysicalConnectionAcrossNetworksAndRekeys(t *testing.T) {
@@ -103,4 +104,92 @@ func TestTCPPunchSharesPhysicalConnectionAcrossNetworksAndRekeys(t *testing.T) {
 			t.Fatal("revoked punch connection retained")
 		}
 	}
+}
+
+func TestTCPPunchCapacityGrowsWithNetworksAndPreservesRekey(t *testing.T) {
+	ctx, meshes, state, _ := webMeshes(t)
+	t.Cleanup(func() {
+		if t.Failed() {
+			for i, m := range meshes {
+				t.Logf("mesh %d: %+v", i, m.Report())
+			}
+		}
+	})
+	for i, m := range meshes {
+		m.linkOptions = link.Options{Heartbeat: 50 * time.Millisecond, Timeout: 2 * time.Second, RenewAfter: 1500 * time.Millisecond}
+		state.Agents[i].Endpoints = []model.Endpoint{{ID: testutil.ID(200 + i), Source: model.Interface, Transport: model.TCP, URL: fmt.Sprintf("tcp://127.0.0.1:%d", m.Port())}}
+	}
+	state.Networks[0].Edges[0].Transports = []model.Transport{model.TCP}
+	state.Networks[0].Edges[0].Methods = model.ConnectionMethods{HolePunch: true}
+	applyWebState(t, state, meshes)
+	waitWeb(t, ctx, func() bool { return commonWeb(meshes, "") })
+	physical := make([]*transport.PunchMux, 2)
+	for i, m := range meshes {
+		m.mu.Lock()
+		for _, session := range m.punches {
+			physical[i] = session
+		}
+		m.mu.Unlock()
+		if physical[i] == nil {
+			t.Fatal("no initial physical session")
+		}
+	}
+	template := state.Clone().Networks[0]
+	for i := 1; i < 20; i++ {
+		network := state.Clone().Networks[0]
+		network.ID = testutil.ID(1000 + i*4)
+		network.CIDR = netip.MustParsePrefix(fmt.Sprintf("10.%d.0.0/24", i))
+		for j := range network.Nodes {
+			network.Nodes[j].ID = testutil.ID(1001 + i*4 + j)
+			network.Nodes[j].Address = netip.MustParseAddr(fmt.Sprintf("10.%d.0.%d", i, j+1))
+		}
+		network.Edges[0].ID = testutil.ID(1003 + i*4)
+		network.Edges[0].A, network.Edges[0].B = network.Nodes[0].ID, network.Nodes[1].ID
+		state.Networks = append(state.Networks, network)
+	}
+	applyWebState(t, state, meshes)
+	ready := func(previous map[string]bool) bool {
+		active := map[model.ID][]string{}
+		for _, m := range meshes {
+			candidates := map[string]bool{}
+			for _, stat := range m.Report() {
+				if stat.Healthy && !previous[stat.LinkID] {
+					candidates[stat.CandidateID] = true
+				}
+				if stat.Active && stat.Healthy {
+					active[stat.EdgeID] = append(active[stat.EdgeID], stat.LinkID)
+				}
+			}
+			if len(candidates) != 2*len(state.Networks) {
+				return false
+			}
+		}
+		for _, network := range state.Networks {
+			ids := active[network.Edges[0].ID]
+			if len(ids) != 2 || ids[0] != ids[1] {
+				return false
+			}
+		}
+		return true
+	}
+	waitWeb(t, ctx, func() bool { return ready(nil) })
+	old := map[string]bool{}
+	for _, stat := range meshes[0].Report() {
+		old[stat.LinkID] = true
+	}
+	waitWeb(t, ctx, func() bool { return ready(old) })
+	for i, m := range meshes {
+		m.mu.Lock()
+		same := len(m.punches) == 1
+		for _, session := range m.punches {
+			same = same && session == physical[i]
+		}
+		m.mu.Unlock()
+		if !same {
+			t.Fatal("network growth/rekey replaced the shared physical session")
+		}
+	}
+	state.Networks = []model.Network{template}
+	applyWebState(t, state, meshes)
+	waitWeb(t, ctx, func() bool { return ready(nil) })
 }

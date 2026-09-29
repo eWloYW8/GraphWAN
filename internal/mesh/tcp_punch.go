@@ -43,6 +43,42 @@ func (m *Mesh) allowsTCPPunch(identity ed25519.PublicKey) bool {
 	defer m.mu.Unlock()
 	return m.allowsTCPPunchLocked(identity)
 }
+
+// Budget one peer's multiplexed streams from locally authorized configuration,
+// never from remote stream requests or observed live stream counts. Endpoint
+// aliases and IPv6 egress scopes can produce distinct candidates on one socket.
+// Four slots per potential candidate cover current/replacement sessions plus
+// retiring generations; the fixed headroom covers bounded concurrent admission.
+func (m *Mesh) punchStreamCapacityLocked(identity ed25519.PublicKey) int {
+	budget := 16
+	maximum := int(^uint(0) >> 1)
+	count := func(endpoints []model.Endpoint) (tcp, scopes int) {
+		for _, endpoint := range endpoints {
+			if endpoint.Transport == model.TCP {
+				tcp++
+			}
+			if endpoint.Transport == model.UDP && endpoint.Source == model.Interface && (link.Candidate{Endpoint: endpoint}).NeedsScope() {
+				scopes++
+			}
+		}
+		return
+	}
+	for _, g := range m.groups {
+		cfg := g.policy.Load()
+		if !cfg.peer.Edge.Enabled || !cfg.peer.Edge.Methods.HolePunch || !slices.Contains(cfg.peer.Edge.Transports, model.TCP) || !bytes.Equal(cfg.peer.PublicKey, identity) {
+			continue
+		}
+		localTCP, localScopes := count(cfg.endpoints)
+		peerTCP, peerScopes := count(cfg.peer.Endpoints)
+		increment := 4 * max(2, (localTCP+peerTCP)*max(1, localScopes, peerScopes))
+		if increment > maximum-budget {
+			return maximum
+		}
+		budget += increment
+	}
+	return max(32, budget)
+}
+
 func punchAddress(addr net.Addr) (netip.AddrPort, error) {
 	value, err := netip.ParseAddrPort(addr.String())
 	if err != nil {
@@ -70,6 +106,7 @@ func (m *Mesh) installPunch(session *transport.PunchMux) bool {
 			return false
 		}
 	}
+	session.EnsureStreamCapacity(m.punchStreamCapacityLocked(session.Identity()))
 	m.punches[k] = session
 	m.wg.Add(1)
 	m.mu.Unlock()

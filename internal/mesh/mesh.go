@@ -191,6 +191,8 @@ func (m *Mesh) Apply(snapshot model.Snapshot) error {
 		if !m.allowsTCPPunchLocked(session.Identity()) {
 			delete(m.punches, k)
 			stalePunches = append(stalePunches, session)
+		} else {
+			session.EnsureStreamCapacity(m.punchStreamCapacityLocked(session.Identity()))
 		}
 	}
 	m.mu.Unlock()
