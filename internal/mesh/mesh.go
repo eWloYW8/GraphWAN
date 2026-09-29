@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"reflect"
 	"slices"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -72,13 +71,8 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 	if err != nil {
 		return nil, err
 	}
-	listener, err := transport.ListenTCP(parent, net.JoinHostPort(host, strconv.Itoa(int(port))))
+	listener, udp, quicHub, err := listenTransports(parent, identity, host, port, transport.ListenTCP)
 	if err != nil {
-		return nil, err
-	}
-	udp, quicHub, err := transport.ListenUDPQUIC(listener.Addr().String(), identity)
-	if err != nil {
-		listener.Close()
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
