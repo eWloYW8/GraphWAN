@@ -622,7 +622,10 @@ export default function Topology({
                   value={network.cipher}
                   onChange={(e) => change({ ...network, cipher: e.target.value })}
                 >
+                  <option value="aes-128-gcm">AES-128-GCM</option>
+                  <option value="aes-256-gcm">AES-256-GCM</option>
                   <option value="chacha20-poly1305">ChaCha20-Poly1305</option>
+                  <option value="xchacha20-poly1305">XChaCha20-Poly1305</option>
                 </select>
               </Field>
             </fieldset>

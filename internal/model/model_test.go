@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/routing"
 	"github.com/eWloYW8/GraphWAN/internal/testutil"
 )
 
@@ -106,5 +107,31 @@ func TestCloneIsIndependent(t *testing.T) {
 	c.Networks[0].Edges[0].Transports[0] = model.WSS
 	if s.Agents[0].PublicKey[0] == c.Agents[0].PublicKey[0] || s.Agents[0].Endpoints[0].URL == "changed" || s.Networks[0].Nodes[0].Name == "changed" || s.Networks[0].Edges[0].Transports[0] == model.WSS {
 		t.Fatal("clone aliases original")
+	}
+}
+
+func TestSupportedNetworkCipherSnapshots(t *testing.T) {
+	for _, suite := range []model.CipherSuite{model.AES128GCM, model.AES256GCM, model.ChaCha20Poly1305, model.XChaCha20Poly1305} {
+		t.Run(string(suite), func(t *testing.T) {
+			state := testutil.Topology()
+			state.Networks[0].Cipher = suite
+			if err := state.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := routing.Compile(state, state.Agents[0].ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.Networks[0].Cipher != suite {
+				t.Fatal("cipher lost during compilation")
+			}
+			if err := snapshot.Validate(state.Agents[0].ID); err != nil {
+				t.Fatal(err)
+			}
+			snapshot.Networks[0].Cipher = "unknown"
+			if err := snapshot.Validate(state.Agents[0].ID); err == nil {
+				t.Fatal("unknown snapshot cipher accepted")
+			}
+		})
 	}
 }

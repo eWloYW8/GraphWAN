@@ -27,6 +27,14 @@ var (
 type Send func(context.Context, model.ID, model.ID, []byte) error
 type Deliver func(context.Context, model.ID, []byte) error
 
+type BatchOptions struct {
+	Send    func(context.Context, model.ID, model.ID, [][]byte) error
+	Deliver func(context.Context, model.ID, [][]byte) error
+	// SendOwned takes ownership of every buffer even on error; it must not
+	// retain the caller's slice. It takes precedence over Send.
+	SendOwned func(context.Context, model.ID, model.ID, []*packetbuf.Buffer) error
+}
+
 type node struct {
 	id      model.ID
 	address netip.Addr
@@ -54,19 +62,23 @@ type table struct {
 // Link of the requested Edge; that choice must never alter the graph edge weight.
 // Callbacks must not retain packet buffers unless they copy them.
 type Router struct {
-	state        atomic.Pointer[table]
-	send         Send
-	deliver      Deliver
-	deliverBatch func(context.Context, model.ID, [][]byte) error
+	state          atomic.Pointer[table]
+	send           Send
+	deliver        Deliver
+	deliverBatch   func(context.Context, model.ID, [][]byte) error
+	sendBatch      func(context.Context, model.ID, model.ID, [][]byte) error
+	sendOwnedBatch func(context.Context, model.ID, model.ID, []*packetbuf.Buffer) error
 }
 
-func New(snapshot model.Snapshot, send Send, deliver Deliver, batches ...func(context.Context, model.ID, [][]byte) error) (*Router, error) {
+func New(snapshot model.Snapshot, send Send, deliver Deliver, batches ...BatchOptions) (*Router, error) {
 	if send == nil || deliver == nil {
 		return nil, errors.New("forwarding callbacks are required")
 	}
 	router := &Router{send: send, deliver: deliver}
 	if len(batches) > 0 {
-		router.deliverBatch = batches[0]
+		router.deliverBatch = batches[0].Deliver
+		router.sendBatch = batches[0].Send
+		router.sendOwnedBatch = batches[0].SendOwned
 	}
 	if err := router.Configure(snapshot); err != nil {
 		return nil, err
@@ -116,41 +128,101 @@ func (r *Router) Configure(snapshot model.Snapshot) error {
 }
 
 func (r *Router) FromTunnel(ctx context.Context, networkID model.ID, raw []byte) error {
-	current := r.state.Load()
-	n := current.networks[networkID]
+	n := r.state.Load().networks[networkID]
 	if n == nil {
 		return ErrNetwork
 	}
+	buffer, nextHop, err := r.encapsulate(ctx, n, raw)
+	if err != nil || buffer == nil {
+		return err
+	}
+	defer buffer.Release()
+	return r.send(ctx, networkID, nextHop, buffer.Data)
+}
+
+// FromTunnelBatch preserves immediately available TUN bursts across routing and
+// enqueue. Only consecutive frames for the same next hop are grouped. Invalid
+// packets are dropped independently, and callbacks borrow storage until return.
+func (r *Router) FromTunnelBatch(ctx context.Context, networkID model.ID, packets [][]byte) error {
+	n := r.state.Load().networks[networkID]
+	if n == nil {
+		return ErrNetwork
+	}
+	var owners [packetbuf.BatchSize]*packetbuf.Buffer
+	var frames [packetbuf.BatchSize][]byte
+	var nextHop model.ID
+	count := 0
+	var result error
+	flush := func() {
+		if count == 0 {
+			return
+		}
+		if r.sendOwnedBatch != nil {
+			result = errors.Join(result, r.sendOwnedBatch(ctx, networkID, nextHop, owners[:count]))
+		} else if r.sendBatch != nil {
+			result = errors.Join(result, r.sendBatch(ctx, networkID, nextHop, frames[:count]))
+		} else {
+			for _, frame := range frames[:count] {
+				result = errors.Join(result, r.send(ctx, networkID, nextHop, frame))
+			}
+		}
+		if r.sendOwnedBatch == nil {
+			packetbuf.ReleaseAll(owners[:count])
+		}
+		clear(owners[:count])
+		clear(frames[:count])
+		count = 0
+	}
+	for _, raw := range packets {
+		buffer, hop, err := r.encapsulate(ctx, n, raw)
+		if err != nil {
+			result = errors.Join(result, err)
+			continue
+		}
+		if buffer == nil {
+			continue
+		}
+		if count == len(frames) || hop != nextHop {
+			flush()
+		}
+		nextHop = hop
+		owners[count], frames[count] = buffer, buffer.Data
+		count++
+	}
+	flush()
+	return result
+}
+
+func (r *Router) encapsulate(ctx context.Context, n *network, raw []byte) (*packetbuf.Buffer, model.ID, error) {
 	if len(raw) > n.mtu {
-		return ErrMTU
+		return nil, "", ErrMTU
 	}
 	info, err := packet.InspectIP(raw)
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 	if info.Source != n.self.Address {
-		return ErrSource
+		return nil, "", ErrSource
 	}
 	destination, ok := n.byAddress[info.Destination]
 	if !ok {
-		return ErrDestination
+		return nil, "", ErrDestination
 	}
 	if destination.id == n.self.ID {
-		return r.deliver(ctx, networkID, raw)
+		return nil, "", r.deliver(ctx, n.id, raw)
 	}
 	nextHop, ok := n.routes[destination.id]
 	if !ok {
-		return ErrUnreachable
+		return nil, "", ErrUnreachable
 	}
-	buffer := packetbuf.Get(packet.HeaderSize + len(raw))
-	defer buffer.Release()
+	buffer := packetbuf.GetHeadroom(packet.HeaderSize+len(raw), 1)
 	frame := buffer.Data
 	copy(frame, n.header[:])
 	binary.BigEndian.PutUint16(frame[4:6], uint16(len(raw)))
 	copy(frame[40:56], destination.wire[:])
 	binary.BigEndian.PutUint64(frame[64:72], info.Flow)
 	copy(frame[packet.HeaderSize:], raw)
-	return r.send(ctx, networkID, nextHop, frame)
+	return buffer, nextHop, nil
 }
 
 // FromPeer must receive the Node ID authenticated by the peer Channel, never an
@@ -164,7 +236,7 @@ func (r *Router) FromPeer(ctx context.Context, peerID model.ID, frame []byte) er
 // packets are batched; transit retains the normal hop-limit and routing checks.
 func (r *Router) FromPeerBatch(ctx context.Context, peerID model.ID, frames [][]byte) error {
 	var networkID model.ID
-	var packets [32][]byte
+	var packets [packetbuf.BatchSize][]byte
 	count := 0
 	var result error
 	flush := func() {

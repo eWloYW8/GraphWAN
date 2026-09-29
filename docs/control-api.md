@@ -44,7 +44,9 @@ An Agent can be a member of many networks, once each, without overlapping CIDRs.
 Edges have `id`, `a`, `b`, positive `weight`, `enabled`, `transports`,
 `methods: {ipv4_direct, ipv6_direct, hole_punch}`, and optional
 `preferred_candidate`. Transports are `udp`, `tcp`, `quic`, `ws`, `wss`, `grpc`.
-The current cipher suite is `chacha20-poly1305`.
+Supported cipher suites are `aes-128-gcm`, `aes-256-gcm`,
+`chacha20-poly1305` (default), and `xchacha20-poly1305`. A cipher change
+replaces the affected peer sessions; peers must support the configured suite.
 
 Validation permits at most 10,000 Nodes and 100,000 Edges per Network, 64 total
 endpoints per Agent (manual plus discovered), and four STUN services per Agent.

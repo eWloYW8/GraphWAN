@@ -48,7 +48,7 @@ func runAdmin(ctx context.Context, args []string, out io.Writer) error {
 		fs.StringVar(&name, "name", "", "network name (required)")
 		fs.StringVar(&cidr, "cidr", "", "canonical IPv4 or IPv6 subnet (required)")
 		fs.IntVar(&mtu, "mtu", model.DefaultMTU, "overlay MTU")
-		fs.StringVar(&cipher, "cipher", string(model.ChaCha20Poly1305), "network cipher suite")
+		fs.StringVar(&cipher, "cipher", string(model.ChaCha20Poly1305), "network cipher suite: aes-128-gcm, aes-256-gcm, chacha20-poly1305, xchacha20-poly1305")
 	}
 	if command == "node list" || command == "edge add" {
 		fs.StringVar(&network, "network", "", "network ID (required for edge add; optional for node list)")

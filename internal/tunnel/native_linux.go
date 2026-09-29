@@ -5,6 +5,7 @@ package tunnel
 import (
 	"errors"
 	"fmt"
+	"github.com/eWloYW8/GraphWAN/internal/packetbuf"
 	"io"
 	"net"
 	"os"
@@ -22,7 +23,7 @@ type native struct {
 	readSizes           []int
 	readNext, readCount int
 	writeMu             sync.Mutex
-	writeBuffers        [32][]byte
+	writeBuffers        [packetbuf.BatchSize][]byte
 	config              Config
 	once                sync.Once
 	closeError          error

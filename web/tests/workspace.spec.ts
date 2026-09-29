@@ -534,3 +534,24 @@ test('live view: agreeing paths, report-time rates, preference editing and conne
   await expect(agentRow).toContainText('Unavailable')
   await expect(agentRow).not.toContainText('48.0 MB')
 })
+
+test('network encryption choices persist through the real controller', async ({ page }) => {
+  await login(page)
+  await page.getByRole('button', { name: 'Create network', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Network name').fill('Cipher choices')
+  await dialog.getByRole('button', { name: 'Create network', exact: true }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Cipher choices', exact: true, level: 1 }),
+  ).toBeVisible()
+  for (const suite of ['aes-128-gcm', 'aes-256-gcm', 'xchacha20-poly1305', 'chacha20-poly1305']) {
+    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    const select = page.getByLabel('Encryption')
+    await expect(select.locator('option')).toHaveCount(4)
+    await select.selectOption(suite)
+    await page.getByRole('button', { name: 'Save changes' }).click()
+    await expect(page.getByRole('status')).toContainText('configuration saved')
+    const state = await currentState(page.request)
+    expect(state.networks.find((n) => n.name === 'Cipher choices')?.cipher).toBe(suite)
+  }
+})

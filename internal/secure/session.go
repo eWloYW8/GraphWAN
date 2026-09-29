@@ -39,6 +39,7 @@ type Session struct {
 	highest     uint64
 	seen        [ReplayWindow]uint64
 	batchAD     [4][]byte
+	sealAD      [2][]byte
 	batchNonces [128]uint64
 }
 
@@ -76,6 +77,56 @@ func (s *Session) SealAppend(dst, plaintext []byte) ([]byte, error) {
 	binary.BigEndian.PutUint64(dst[offset:], s.sequence)
 	copy(s.sendAD[len(s.binding):], dst[offset:])
 	return s.send.Encrypt(dst, s.sequence, s.sendAD, plaintext), nil
+}
+
+// SealBatchAppend appends an independently authenticated message to each dst
+// entry. Destinations (including their spare capacity) and plaintexts must not
+// overlap. A batch reserves unique nonces under one lock; output order and wire
+// format are identical to sequential SealAppend calls.
+func (s *Session) SealBatchAppend(dst, plaintexts [][]byte) error {
+	if len(plaintexts) == 0 || len(plaintexts) > 128 || len(dst) != len(plaintexts) {
+		return errors.New("invalid encrypted batch size")
+	}
+	bytes := 0
+	for _, plaintext := range plaintexts {
+		if len(plaintext) == 0 || len(plaintext) > MaxPlaintext {
+			return errors.New("invalid encrypted message size")
+		}
+		bytes += len(plaintext)
+	}
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+	if s.sequence >= MaxMessages-1 || uint64(len(plaintexts)) > MaxMessages-1-s.sequence || time.Since(s.created) >= MaxSessionAge {
+		return ErrRekey
+	}
+	first := s.sequence + 1
+	s.sequence += uint64(len(plaintexts))
+	seal := func(worker, start, end int) {
+		if s.sealAD[worker] == nil {
+			s.sealAD[worker] = make([]byte, len(s.binding)+8)
+			copy(s.sealAD[worker], s.binding)
+		}
+		ad := s.sealAD[worker]
+		for i := start; i < end; i++ {
+			nonce := first + uint64(i)
+			offset := len(dst[i])
+			out := append(dst[i], make([]byte, 8)...)
+			binary.BigEndian.PutUint64(out[offset:], nonce)
+			binary.BigEndian.PutUint64(ad[len(s.binding):], nonce)
+			dst[i] = s.send.Encrypt(out, nonce, ad, plaintexts[i])
+		}
+	}
+	if len(plaintexts) >= 8 && bytes >= 32*1024 && runtime.GOMAXPROCS(0) > 1 {
+		var wg sync.WaitGroup
+		wg.Add(1)
+		mid := len(plaintexts) / 2
+		go func() { defer wg.Done(); seal(1, mid, len(plaintexts)) }()
+		seal(0, 0, mid)
+		wg.Wait()
+	} else {
+		seal(0, 0, len(plaintexts))
+	}
+	return nil
 }
 
 // Open accepts bounded out-of-order delivery. Replay state advances only after

@@ -68,16 +68,18 @@ func (o Options) defaults() Options {
 }
 
 type Link struct {
-	channel   Channel
-	info      Info
-	options   Options
-	ctx       context.Context
-	cancel    context.CancelFunc
-	stopOnce  sync.Once
-	wg        sync.WaitGroup
-	done      chan struct{}
-	data      chan queuedPacket
-	selection chan Selection
+	channel             Channel
+	info                Info
+	options             Options
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	stopOnce            sync.Once
+	wg                  sync.WaitGroup
+	done                chan struct{}
+	data                [queueSize]queuedPacket
+	dataHead, dataCount int
+	dataReady           chan struct{}
+	selection           chan Selection
 	// Odd generations permit data; changing generations invalidates queued data.
 	dataGeneration  atomic.Uint64
 	control         chan []byte
@@ -107,7 +109,7 @@ func New(parent context.Context, channel Channel, info Info, options Options) (*
 		}
 	}
 	ctx, cancel := context.WithCancel(parent)
-	l := &Link{channel: channel, info: info, options: options, ctx: ctx, cancel: cancel, done: make(chan struct{}), data: make(chan queuedPacket, queueSize), selection: make(chan Selection, 8), control: make(chan []byte, 8), packets: make(chan []byte, queueSize), pending: map[uint64]time.Time{}}
+	l := &Link{channel: channel, info: info, options: options, ctx: ctx, cancel: cancel, done: make(chan struct{}), dataReady: make(chan struct{}, 1), selection: make(chan Selection, 8), control: make(chan []byte, 8), packets: make(chan []byte, queueSize), pending: map[uint64]time.Time{}}
 	if _, ok := channel.(interface {
 		ReceiveOwnedBatch(context.Context) ([]*packetbuf.Buffer, error)
 	}); ok && options.OwnedPackets {
@@ -165,37 +167,96 @@ func (l *Link) ReadOwnedBatch(ctx context.Context, dst []*packetbuf.Buffer) (int
 	return l.ownedPackets.Read(ctx, dst)
 }
 func (l *Link) Send(ctx context.Context, frame []byte) error {
+	return l.SendBatch(ctx, [][]byte{frame})
+}
+
+// SendBatch copies and publishes a burst under one lock, preventing the writer
+// from breaking a producer's burst into tiny batches. Capacity remains packets.
+func (l *Link) SendBatch(ctx context.Context, frames [][]byte) error {
+	return l.enqueue(ctx, frames, nil)
+}
+
+// SendOwnedBatch consumes every buffer, including on cancellation or overflow.
+func (l *Link) SendOwnedBatch(ctx context.Context, buffers []*packetbuf.Buffer) error {
+	if len(buffers) > 128 {
+		packetbuf.ReleaseAll(buffers)
+		return errors.New("invalid overlay batch size")
+	}
+	var frames [128][]byte
+	for i, b := range buffers {
+		if b != nil {
+			frames[i] = b.Data
+		}
+	}
+	return l.enqueue(ctx, frames[:len(buffers)], buffers)
+}
+
+func (l *Link) enqueue(ctx context.Context, frames [][]byte, owners []*packetbuf.Buffer) error {
+	accepted := 0
+	defer func() {
+		if owners != nil {
+			packetbuf.ReleaseAll(owners[accepted:])
+		}
+	}()
+	if len(frames) == 0 || len(frames) > 128 {
+		return errors.New("invalid overlay batch size")
+	}
+	for _, frame := range frames {
+		if len(frame) <= packet.HeaderSize || len(frame) > packet.MaxFrame {
+			return errors.New("invalid overlay frame size")
+		}
+	}
 	l.queueMu.Lock()
 	defer l.queueMu.Unlock()
-	if len(frame) <= packet.HeaderSize || len(frame) > packet.MaxFrame {
-		return errors.New("invalid overlay frame size")
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-l.ctx.Done():
+	if l.ctx.Err() != nil {
 		return net.ErrClosed
-	default:
 	}
 	generation := l.dataGeneration.Load()
 	if generation%2 == 0 {
 		return ErrUnavailable
 	}
-	buffer := packetbuf.Get(len(frame) + 1)
-	message := buffer.Data
-	message[0] = dataMessage
-	copy(message[1:], frame)
-	select {
-	case l.data <- queuedPacket{generation: generation, raw: message, buffer: buffer}:
-		return nil
-	case <-l.ctx.Done():
-		buffer.Release()
-		return net.ErrClosed
-	default:
-		buffer.Release()
-		l.dropped.Add(1)
+	accepted = min(len(frames), len(l.data)-l.dataCount)
+	for i, frame := range frames[:accepted] {
+		var buffer *packetbuf.Buffer
+		if owners != nil && owners[i].PrependByte(dataMessage) {
+			buffer = owners[i]
+		} else {
+			buffer = packetbuf.Get(len(frame) + 1)
+			buffer.Data[0] = dataMessage
+			copy(buffer.Data[1:], frame)
+			if owners != nil {
+				owners[i].Release()
+			}
+		}
+		l.data[(l.dataHead+l.dataCount)%len(l.data)] = queuedPacket{generation: generation, raw: buffer.Data, buffer: buffer}
+		l.dataCount++
+	}
+	if l.dataCount > 0 {
+		l.notifyData()
+	}
+	if accepted != len(frames) {
+		l.dropped.Add(uint64(len(frames) - accepted))
 		return ErrQueueFull
 	}
+	return nil
+}
+func (l *Link) notifyData() {
+	select {
+	case l.dataReady <- struct{}{}:
+	default:
+	}
+}
+
+// takeData is called with queueMu held, which also fences shutdown and enqueue.
+func (l *Link) takeData() queuedPacket {
+	data := l.data[l.dataHead]
+	l.data[l.dataHead] = queuedPacket{}
+	l.dataHead = (l.dataHead + 1) % len(l.data)
+	l.dataCount--
+	return data
 }
 func (l *Link) healthy() bool {
 	l.mu.Lock()
@@ -218,7 +279,7 @@ func (l *Link) readLoop() {
 	})
 	var ownedPending []*packetbuf.Buffer
 	var current *packetbuf.Buffer
-	var ready [32]*packetbuf.Buffer
+	var ready [packetbuf.BatchSize]*packetbuf.Buffer
 	count := 0
 	flush := func() {
 		if count == 0 {
@@ -342,71 +403,63 @@ func (l *Link) writeLoop() {
 	batch, batching := l.channel.(interface {
 		SendBatch(context.Context, [][]byte) error
 	})
-	var messages [32][]byte
-	var owners [32]*packetbuf.Buffer
+	var messages [packetbuf.BatchSize][]byte
+	var owners [packetbuf.BatchSize]*packetbuf.Buffer
 	defer l.wg.Done()
 	defer func() {
 		l.stop()
 		packetbuf.ReleaseAll(owners[:])
-		for {
-			select {
-			case data := <-l.data:
-				data.buffer.Release()
-			default:
-				return
-			}
+		l.queueMu.Lock()
+		defer l.queueMu.Unlock()
+		for l.dataCount > 0 {
+			l.takeData().buffer.Release()
 		}
 	}()
 	for {
-		var message []byte
-		var generation uint64
-		// Heartbeats have priority over queued user traffic.
+		count := 0
+		// Control traffic has priority at every bounded batch boundary.
 		select {
-		case message = <-l.control:
+		case messages[0] = <-l.control:
+			count = 1
 		default:
 		}
-		if message == nil {
+		if count == 0 {
 			select {
 			case <-l.ctx.Done():
 				return
-			case message = <-l.control:
-			case data := <-l.data:
-				message, generation = data.raw, data.generation
-				owners[0] = data.buffer
-			}
-		}
-		if message[0] == dataMessage && (generation%2 == 0 || generation != l.dataGeneration.Load()) {
-			l.dropped.Add(1)
-			owners[0].Release()
-			owners[0] = nil
-			continue
-		}
-		messages[0] = message
-		count := 1
-		if batching && message[0] == dataMessage {
-		drain:
-			for count < len(messages) {
-				select {
-				case data := <-l.data:
+			case messages[0] = <-l.control:
+				count = 1
+			case <-l.dataReady:
+				l.queueMu.Lock()
+				limit := 1
+				if batching {
+					limit = len(messages)
+				}
+				for l.dataCount > 0 && count < limit {
+					data := l.takeData()
 					if data.generation%2 == 0 || data.generation != l.dataGeneration.Load() {
 						l.dropped.Add(1)
 						data.buffer.Release()
 						continue
 					}
-					messages[count] = data.raw
-					owners[count] = data.buffer
+					messages[count], owners[count] = data.raw, data.buffer
 					count++
-				default:
-					break drain
 				}
+				if l.dataCount > 0 {
+					l.notifyData()
+				}
+				l.queueMu.Unlock()
 			}
+		}
+		if count == 0 {
+			continue
 		}
 		ctx, cancel := context.WithTimeout(l.ctx, l.options.WriteTimeout)
 		var err error
 		if batching {
 			err = batch.SendBatch(ctx, messages[:count])
 		} else {
-			err = l.channel.Send(ctx, message)
+			err = l.channel.Send(ctx, messages[0])
 		}
 		cancel()
 		if err != nil {

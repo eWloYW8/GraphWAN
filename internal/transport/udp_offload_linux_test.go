@@ -86,7 +86,7 @@ func TestUDPGSOPreparePreservesDatagrams(t *testing.T) {
 					t.Fatal("oversized super-packet")
 				}
 				parts := messageSegments(t, m)
-				if len(parts) > 64 {
+				if len(parts) > maxUDPGSOSegments {
 					t.Fatal("too many segments")
 				}
 				actual = append(actual, parts...)

@@ -41,6 +41,7 @@ def main():
     parser.add_argument("--binary", required=True)
     parser.add_argument("--transport", choices=("auto", "udp", "tcp", "ws", "wss", "grpc", "quic"), default="auto",
                         help="auto/udp/tcp use discovered endpoints; other transports require manual endpoints")
+    parser.add_argument("--cipher", choices=("aes-128-gcm", "aes-256-gcm", "chacha20-poly1305", "xchacha20-poly1305"), default="chacha20-poly1305", help="network authenticated encryption suite")
     parser.add_argument("--mtu", type=int, default=1280, help="overlay TUN MTU")
     parser.add_argument("--underlay-mtu", type=int, default=1500, help="isolated bridge/veth MTU")
     parser.add_argument("--overlay-family", type=int, choices=(4, 6), default=4, help="virtual network address family")
@@ -321,7 +322,7 @@ def main():
                             raise
                     eventually(configure_endpoint)
             nodes = [{"id": uuid.uuid4().hex, "agent_id": by_name[f"node-{i}"]["id"], "name": f"node-{i}", "address": overlay_ips[i]} for i in range(3)]
-            network = {"name": "native three-node test", "cidr": overlay_cidr, "nodes": nodes, "edges": [{"id": uuid.uuid4().hex, "a": nodes[i]["id"], "b": nodes[i+1]["id"], "weight": 10, "enabled": True, "transports": transports, "methods": {"ipv4_direct": peer_family == 4, "ipv6_direct": peer_family == 6, "hole_punch": False}} for i in range(2)]}
+            network = {"name": "native three-node test", "cipher": args.cipher, "cidr": overlay_cidr, "nodes": nodes, "edges": [{"id": uuid.uuid4().hex, "a": nodes[i]["id"], "b": nodes[i+1]["id"], "weight": 10, "enabled": True, "transports": transports, "methods": {"ipv4_direct": peer_family == 4, "ipv6_direct": peer_family == 6, "hole_punch": False}} for i in range(2)]}
             network["mtu"] = args.mtu
             if args.nat or args.punch_only:
                 for edge in network["edges"]:

@@ -45,7 +45,7 @@ func NewHandshake(config Config) (*Handshake, error) {
 			return nil, err
 		}
 	}
-	if config.Local == config.Peer || !config.Transport.Valid() || config.Cipher != model.ChaCha20Poly1305 {
+	if config.Local == config.Peer || !config.Transport.Valid() || !config.Cipher.Valid() {
 		return nil, errors.New("invalid peer handshake policy")
 	}
 	if len(config.Identity) != ed25519.PrivateKeySize || len(config.PeerIdentity) != ed25519.PublicKeySize {
@@ -63,7 +63,9 @@ func NewHandshake(config Config) (*Handshake, error) {
 	if err != nil {
 		return nil, err
 	}
-	state, err := noise.NewHandshakeState(noise.Config{CipherSuite: noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2s), Pattern: noise.HandshakeXX, Initiator: config.Initiator, Prologue: prologue, StaticKeypair: static})
+	// Noise hashes the complete cipher-suite name into the transcript, binding
+	// the configured algorithm without adding an unauthenticated negotiation.
+	state, err := noise.NewHandshakeState(noise.Config{CipherSuite: noise.NewCipherSuite(noise.DH25519, cipherFunction(config.Cipher), noise.HashBLAKE2s), Pattern: noise.HandshakeXX, Initiator: config.Initiator, Prologue: prologue, StaticKeypair: static})
 	if err != nil {
 		return nil, err
 	}

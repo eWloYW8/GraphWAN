@@ -12,7 +12,25 @@ of Ed25519 identities. Incoming Hello metadata selects an existing policy. It
 cannot create an Edge, register an identity or choose a weaker cipher. The
 listener checks that the declared transport matches the listener's transport.
 
-Each connection performs `Noise_XX_25519_ChaChaPoly_BLAKE2s` using `flynn/noise`.
+Each connection performs `Noise_XX_25519_<cipher>_BLAKE2s` using `flynn/noise`.
+The controller's Network policy selects exactly one suite; there is no peer-led
+fallback or cipher downgrade. Noise binds its cipher name into the handshake
+transcript. The default ChaCha20-Poly1305 handshake remains wire-compatible.
+
+| Network cipher | Noise cipher name | Key bytes | Nonce encoding |
+| --- | --- | ---: | --- |
+| `aes-128-gcm` | `AES128GCM` | First 16 of the 32 derived bytes | 4 zero bytes + big-endian uint64 |
+| `aes-256-gcm` | `AESGCM` | 32 | 4 zero bytes + big-endian uint64 |
+| `chacha20-poly1305` | `ChaChaPoly` | 32 | 4 zero bytes + little-endian uint64 |
+| `xchacha20-poly1305` | `XChaChaPoly` | 32 | 16 zero bytes + little-endian uint64 |
+
+`AES128GCM` and `XChaChaPoly` are GraphWAN CipherFunc extensions, not cipher
+names defined by the base Noise specification. Their distinct names separate
+handshake transcripts and key derivation. Implementations use Go's `crypto/aes`,
+`crypto/cipher`, and `golang.org/x/crypto/chacha20poly1305`; the extended nonce
+uses a unique per-key sequence rather than random nonces. Upgrade all Agents
+in a Network before selecting a newly supported suite.
+
 The Noise static key and ephemeral key are newly generated for that connection.
 The encrypted second and third handshake payloads contain Ed25519 signatures
 binding the temporary static key to the configured identity, initiator/responder
@@ -67,11 +85,11 @@ global-address candidate identities and introductions are unchanged.
 
 ## Encrypted messages
 
-The wire ciphertext is an 8-byte big-endian sequence followed by ChaCha20-Poly1305
+The wire ciphertext is an 8-byte big-endian sequence followed by the configured AEAD
 ciphertext and its 16-byte authentication tag. The transcript binding and sequence
 are authenticated associated data. Sequence values start at one and are never
-reused, including after a failed transport send. The Noise cipher defines nonce
-encoding for ChaCha20-Poly1305. A 1024-message replay window permits reordering.
+reused, including after a failed transport send. The table above defines nonce
+encoding for each suite. A 1024-message replay window permits reordering.
 Unauthenticated messages never move the window. Keys/nonces are never persisted;
 reconnection always requires a fresh handshake.
 

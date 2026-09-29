@@ -236,6 +236,18 @@ func (m *Mesh) Send(ctx context.Context, network, remote model.ID, frame []byte)
 	}
 	return g.edge.Send(ctx, frame)
 }
+
+// SendOwnedBatch consumes frames on both successful enqueue and policy errors.
+func (m *Mesh) SendOwnedBatch(ctx context.Context, network, remote model.ID, frames []*packetbuf.Buffer) error {
+	m.mu.Lock()
+	g := m.groups[key{network, remote}]
+	m.mu.Unlock()
+	if g == nil {
+		packetbuf.ReleaseAll(frames)
+		return link.ErrUnavailable
+	}
+	return g.edge.SendOwnedBatch(ctx, frames)
+}
 func (m *Mesh) Report() []model.LinkStatus {
 	m.mu.Lock()
 	groups := make([]*group, 0, len(m.groups))
@@ -489,8 +501,8 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 			g.mu.Unlock()
 		}()
 
-		var owners [32]*packetbuf.Buffer
-		var frames [32][]byte
+		var owners [packetbuf.BatchSize]*packetbuf.Buffer
+		var frames [packetbuf.BatchSize][]byte
 		for {
 			count, err := l.ReadOwnedBatch(g.ctx, owners[:])
 			if err != nil {

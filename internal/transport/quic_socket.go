@@ -2,6 +2,7 @@ package transport
 
 import (
 	"crypto/rand"
+	"github.com/eWloYW8/GraphWAN/internal/packetbuf"
 	"net"
 	"sync"
 	"time"
@@ -19,7 +20,7 @@ type quicSocket struct {
 	socket      *net.UDPConn
 	readMu      sync.Mutex
 	reader      *udpPacketReader
-	packets     [32]udpPacket
+	packets     [packetbuf.BatchSize]udpPacket
 	next, count int
 }
 
@@ -39,7 +40,7 @@ func (s *quicSocket) ReadFrom(raw []byte) (int, net.Addr, error) {
 				s.hub.stop()
 				return 0, nil, err
 			}
-			var native [32]udpPacket
+			var native [packetbuf.BatchSize]udpPacket
 			nativeCount, quicCount := 0, 0
 			for _, p := range s.packets[:n] {
 				if udpReadTruncated(p.flags, nil) {

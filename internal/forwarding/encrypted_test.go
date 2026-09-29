@@ -20,11 +20,17 @@ import (
 )
 
 func TestEncryptedThreeNodeForwarding(t *testing.T) {
+	for _, suite := range []model.CipherSuite{model.AES128GCM, model.AES256GCM, model.ChaCha20Poly1305, model.XChaCha20Poly1305} {
+		t.Run(string(suite), func(t *testing.T) { encryptedThreeNodeForwarding(t, suite) })
+	}
+}
+func encryptedThreeNodeForwarding(t *testing.T, suite model.CipherSuite) {
 	for _, kind := range []model.Transport{model.TCP, model.UDP} {
 		t.Run(string(kind), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			state := testutil.Topology()
+			state.Networks[0].Cipher = suite
 			configs := map[model.ID]model.Snapshot{}
 			keys := map[model.ID]ed25519.PrivateKey{}
 			for i := range 3 {
@@ -48,7 +54,7 @@ func TestEncryptedThreeNodeForwarding(t *testing.T) {
 			}()
 			for i := range 2 {
 				a, b := testutil.ID(20+i), testutil.ID(21+i)
-				policyA := secure.Config{Network: testutil.ID(1), Edge: testutil.ID(40 + i), Local: a, Peer: b, Transport: kind, Cipher: model.ChaCha20Poly1305, Identity: keys[a], PeerIdentity: keys[b].Public().(ed25519.PublicKey)}
+				policyA := secure.Config{Network: testutil.ID(1), Edge: testutil.ID(40 + i), Local: a, Peer: b, Transport: kind, Cipher: suite, Identity: keys[a], PeerIdentity: keys[b].Public().(ed25519.PublicKey)}
 				policyB := policyA
 				policyB.Local, policyB.Peer = b, a
 				policyB.Identity = keys[b]

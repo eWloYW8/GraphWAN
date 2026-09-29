@@ -71,7 +71,14 @@ func establish(t *testing.T, a, b Config) (*Session, *Session) {
 	return as, bs
 }
 func TestAuthenticatedSessions(t *testing.T) {
+	for _, suite := range supportedTestCiphers {
+		t.Run(string(suite), func(t *testing.T) { runTestAuthenticatedSessions(t, suite) })
+	}
+}
+
+func runTestAuthenticatedSessions(t *testing.T, suite model.CipherSuite) {
 	a, b := configs(t)
+	a.Cipher, b.Cipher = suite, suite
 	as, bs := establish(t, a, b)
 	payload := []byte("overlay packet")
 	encrypted, err := as.Seal(payload)
@@ -298,7 +305,14 @@ func TestSealAppendPrefixAndReuse(t *testing.T) {
 }
 
 func TestOpenInPlaceAuthenticationAndReplay(t *testing.T) {
+	for _, suite := range supportedTestCiphers {
+		t.Run(string(suite), func(t *testing.T) { runTestOpenInPlaceAuthenticationAndReplay(t, suite) })
+	}
+}
+
+func runTestOpenInPlaceAuthenticationAndReplay(t *testing.T, suite model.CipherSuite) {
 	a, b := configs(t)
+	a.Cipher, b.Cipher = suite, suite
 	sender, receiver := establish(t, a, b)
 	plaintext := bytes.Repeat([]byte("secure"), 200)
 	frame, err := sender.Seal(plaintext)
@@ -324,9 +338,16 @@ func TestOpenInPlaceAuthenticationAndReplay(t *testing.T) {
 }
 
 func TestBatchAuthenticationMatchesSequentialReplayWindow(t *testing.T) {
+	for _, suite := range supportedTestCiphers {
+		t.Run(string(suite), func(t *testing.T) { runTestBatchAuthenticationMatchesSequentialReplayWindow(t, suite) })
+	}
+}
+
+func runTestBatchAuthenticationMatchesSequentialReplayWindow(t *testing.T, suite model.CipherSuite) {
 	for _, jump := range []bool{false, true} {
 		t.Run(fmt.Sprint(jump), func(t *testing.T) {
 			a, b := configs(t)
+			a.Cipher, b.Cipher = suite, suite
 			sender, receiver := establish(t, a, b)
 			reference := newSession(receiver.id, bytes.Clone(receiver.binding), receiver.send, receiver.receive)
 			early, err := sender.Seal(bytes.Repeat([]byte{77}, 1280))
@@ -367,7 +388,14 @@ func TestBatchAuthenticationMatchesSequentialReplayWindow(t *testing.T) {
 }
 
 func TestConcurrentBatchDuplicateAcceptedOnce(t *testing.T) {
+	for _, suite := range supportedTestCiphers {
+		t.Run(string(suite), func(t *testing.T) { runTestConcurrentBatchDuplicateAcceptedOnce(t, suite) })
+	}
+}
+
+func runTestConcurrentBatchDuplicateAcceptedOnce(t *testing.T, suite model.CipherSuite) {
 	a, b := configs(t)
+	a.Cipher, b.Cipher = suite, suite
 	sender, receiver := establish(t, a, b)
 	var batches [2][][]byte
 	for range 32 {

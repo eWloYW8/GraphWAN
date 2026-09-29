@@ -57,7 +57,7 @@ func (s Snapshot) Validate(agentID ID) error {
 			}
 		}
 		prefixes = append(prefixes, n.CIDR)
-		if n.MTU < DefaultMTU || n.MTU > MaxMTU || n.Cipher != ChaCha20Poly1305 {
+		if n.MTU < DefaultMTU || n.MTU > MaxMTU || !n.Cipher.Valid() {
 			return fmt.Errorf("invalid MTU or cipher")
 		}
 		if n.Self.AgentID != agentID {

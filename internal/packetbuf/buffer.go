@@ -3,14 +3,18 @@ package packetbuf
 
 import "sync"
 
+// BatchSize bounds immediately available bursts without waiting for more packets.
+const BatchSize = 128
+
 // Buffer has one owner. Data may be resliced (for example after in-place
 // decryption); Release always returns the original allocation. Neither the
 // Buffer nor any view of its Data may be used after ownership is transferred or
 // Release is called. Release must be called exactly once, including on drops.
 type Buffer struct {
-	Data    []byte
-	storage []byte
-	pool    *sync.Pool
+	Data     []byte
+	storage  []byte
+	pool     *sync.Pool
+	headroom int
 }
 
 var small, large sync.Pool
@@ -31,10 +35,37 @@ func Get(size int) *Buffer {
 	case size <= 16384:
 		b = large.Get().(*Buffer)
 	default:
-		return &Buffer{Data: make([]byte, size)} // Do not retain exceptional jumbo allocations.
+		data := make([]byte, size)
+		return &Buffer{Data: data, storage: data} // Do not retain exceptional jumbo allocations.
 	}
 	b.Data = b.storage[:size]
+	b.headroom = 0
 	return b
+}
+
+// GetHeadroom reserves prefix space for a later framing layer. The payload has
+// the requested size, and the reservation is valid until Data is resliced.
+func GetHeadroom(size, headroom int) *Buffer {
+	if size < 0 || headroom < 0 || size+headroom < size {
+		panic("invalid packet headroom")
+	}
+	b := Get(size + headroom)
+	b.Data = b.Data[headroom:]
+	b.headroom = headroom
+	return b
+}
+
+// PrependByte uses reserved space only while Data is still the original view.
+// Other buffers can use the caller's ordinary copy fallback.
+func (b *Buffer) PrependByte(value byte) bool {
+	if b.headroom == 0 || b.headroom >= len(b.storage) || len(b.Data) == 0 || &b.Data[0] != &b.storage[b.headroom] {
+		return false
+	}
+	end := b.headroom + len(b.Data)
+	b.headroom--
+	b.Data = b.storage[b.headroom:end]
+	b.Data[0] = value
+	return true
 }
 
 // Wrap transfers ownership of an existing allocation, without copying it. Such

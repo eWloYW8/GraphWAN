@@ -97,7 +97,21 @@ type Edge struct {
 
 type CipherSuite string
 
-const ChaCha20Poly1305 CipherSuite = "chacha20-poly1305"
+const (
+	AES128GCM         CipherSuite = "aes-128-gcm"
+	AES256GCM         CipherSuite = "aes-256-gcm"
+	ChaCha20Poly1305  CipherSuite = "chacha20-poly1305"
+	XChaCha20Poly1305 CipherSuite = "xchacha20-poly1305"
+)
+
+func (c CipherSuite) Valid() bool {
+	switch c {
+	case AES128GCM, AES256GCM, ChaCha20Poly1305, XChaCha20Poly1305:
+		return true
+	default:
+		return false
+	}
+}
 
 type Network struct {
 	ID     ID           `json:"id"`

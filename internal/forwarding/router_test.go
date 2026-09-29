@@ -127,15 +127,15 @@ func TestBatchPreservesAdmissionAndPacketOrder(t *testing.T) {
 	router, err := forwarding.New(config,
 		func(context.Context, model.ID, model.ID, []byte) error { sent++; return nil },
 		func(context.Context, model.ID, []byte) error { t.Fatal("single delivery used"); return nil },
-		func(_ context.Context, network model.ID, raw [][]byte) error {
-			if network != testutil.ID(1) || len(raw) > 32 {
+		forwarding.BatchOptions{Deliver: func(_ context.Context, network model.ID, raw [][]byte) error {
+			if network != testutil.ID(1) || len(raw) > 128 {
 				t.Fatal("invalid delivery batch")
 			}
 			for _, p := range raw {
 				received = append(received, bytes.Clone(p))
 			}
 			return nil
-		})
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,5 +216,70 @@ func TestCachedHeaderMatchesCanonicalEncoder(t *testing.T) {
 	want, _ := original.MarshalBinary()
 	if !bytes.Equal(sent, want) {
 		t.Fatal("transit changed fields other than hop limit")
+	}
+}
+
+func TestTunnelBatchMatchesIndividualRouting(t *testing.T) {
+	config, err := routing.Compile(testutil.Topology(), testutil.ID(11))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type sentFrame struct {
+		next model.ID
+		raw  []byte
+	}
+	var individual, batched []sentFrame
+	var individualLocal, batchLocal int
+	makeSend := func(dst *[]sentFrame) forwarding.Send {
+		return func(_ context.Context, _, next model.ID, raw []byte) error {
+			*dst = append(*dst, sentFrame{next, bytes.Clone(raw)})
+			return nil
+		}
+	}
+	one, err := forwarding.New(config, makeSend(&individual), func(context.Context, model.ID, []byte) error { individualLocal++; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	many, err := forwarding.New(config, func(context.Context, model.ID, model.ID, []byte) error { t.Fatal("single send used"); return nil }, func(context.Context, model.ID, []byte) error { batchLocal++; return nil }, forwarding.BatchOptions{Send: func(ctx context.Context, network, next model.ID, frames [][]byte) error {
+		if len(frames) == 0 || len(frames) > 128 {
+			t.Fatal("invalid batch size", len(frames))
+		}
+		for _, raw := range frames {
+			makeSend(&batched)(ctx, network, next, raw)
+		}
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packets [][]byte
+	for i := 0; i < 100; i++ {
+		dest := byte(3)
+		if i%11 == 0 {
+			dest = 1
+		}
+		if i%13 == 0 {
+			dest = 2
+		}
+		if i%17 == 0 {
+			dest = 5
+		}
+		raw := ipPacket(2, dest)
+		if i%19 == 0 {
+			raw = ipPacket(1, dest)
+		}
+		packets = append(packets, raw)
+		_ = one.FromTunnel(t.Context(), testutil.ID(1), raw)
+	}
+	if err := many.FromTunnelBatch(t.Context(), testutil.ID(1), packets); !errors.Is(err, forwarding.ErrSource) || !errors.Is(err, forwarding.ErrUnreachable) {
+		t.Fatal("lost per-packet validation errors", err)
+	}
+	if len(individual) != len(batched) || individualLocal != batchLocal {
+		t.Fatal("batch changed admission/delivery counts")
+	}
+	for i, want := range individual {
+		if batched[i].next != want.next || !bytes.Equal(batched[i].raw, want.raw) {
+			t.Fatalf("frame %d changed", i)
+		}
 	}
 }

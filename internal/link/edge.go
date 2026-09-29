@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eWloYW8/GraphWAN/internal/model"
+	"github.com/eWloYW8/GraphWAN/internal/packetbuf"
 )
 
 type Edge struct {
@@ -45,8 +46,28 @@ func (e *Edge) Remove(id string) {
 	}
 }
 func (e *Edge) Send(ctx context.Context, frame []byte) error {
+	return e.SendBatch(ctx, [][]byte{frame})
+}
+func (e *Edge) SendBatch(ctx context.Context, frames [][]byte) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	selected := e.sendLinkLocked()
+	if selected == nil {
+		return ErrUnavailable
+	}
+	return selected.SendBatch(ctx, frames)
+}
+func (e *Edge) SendOwnedBatch(ctx context.Context, frames []*packetbuf.Buffer) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	selected := e.sendLinkLocked()
+	if selected == nil {
+		packetbuf.ReleaseAll(frames)
+		return ErrUnavailable
+	}
+	return selected.SendOwnedBatch(ctx, frames)
+}
+func (e *Edge) sendLinkLocked() *Link {
 	// Coordinated selection is maintained by Tick and authenticated control
 	// messages. A data packet must not scan or format every standby Link.
 	selected := e.links[e.active]
@@ -55,11 +76,9 @@ func (e *Edge) Send(ctx context.Context, frame []byte) error {
 	} else if selected != nil && !selected.healthy() {
 		selected = nil
 	}
-	if selected == nil {
-		return ErrUnavailable
-	}
-	return selected.Send(ctx, frame)
+	return selected
 }
+
 func (e *Edge) Report() []model.LinkStatus {
 	e.mu.Lock()
 	defer e.mu.Unlock()

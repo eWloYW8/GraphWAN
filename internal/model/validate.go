@@ -205,7 +205,7 @@ func (s State) Validate() error {
 		if n.MTU < DefaultMTU || n.MTU > MaxMTU {
 			return fmt.Errorf("network %s: MTU must be %d–%d", n.ID, DefaultMTU, MaxMTU)
 		}
-		if n.Cipher != ChaCha20Poly1305 {
+		if !n.Cipher.Valid() {
 			return fmt.Errorf("network %s: unsupported cipher", n.ID)
 		}
 		if len(n.Nodes) > MaxNodes || len(n.Edges) > MaxEdges {

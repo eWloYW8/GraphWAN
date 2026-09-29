@@ -32,7 +32,7 @@ remain available through the UI/API.
 
 | Command | Options and JSON result |
 | --- | --- |
-| `network create` | Required `--name`, `--cidr`; optional `--mtu` (1280–9000, default 1280), `--cipher` (currently `chacha20-poly1305`). Returns `{revision, network}` with a new ID and empty Nodes/Edges. |
+| `network create` | Required `--name`, `--cidr`; optional `--mtu` (1280–9000, default 1280), `--cipher` (`aes-128-gcm`, `aes-256-gcm`, `chacha20-poly1305` [default], or `xchacha20-poly1305`). Returns `{revision, network}` with a new ID and empty Nodes/Edges. |
 | `network list` | Returns `{revision, networks}` with complete desired Network configurations and their IDs. |
 | `node list` | Optional `--network`; returns `{revision, nodes}`. Each Node includes `network_id`, `network_name`, `id`, `agent_id`, `name`, `address` and `position`. Without a filter, lists all memberships. An unknown Network is an error. |
 | `edge add` | Required `--network`, `--a`, `--b`; optional `--weight` (1–4294967295, default 1), `--transports` (default `udp,tcp`), `--enabled` (true), `--ipv4-direct` (true), `--ipv6-direct` (true), `--hole-punch` (true), `--preferred-candidate` (empty). Returns `{revision, edge}`. |

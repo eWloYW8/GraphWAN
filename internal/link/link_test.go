@@ -304,3 +304,166 @@ func TestOwnedQueueDropAndCloseReleaseBuffers(t *testing.T) {
 	}
 	packetbuf.ReleaseAll(held)
 }
+
+type recordingBatchChannel struct {
+	*testChannel
+	batches chan [][]byte
+}
+
+func (c *recordingBatchChannel) SendBatch(ctx context.Context, frames [][]byte) error {
+	var data [][]byte
+	for _, raw := range frames {
+		if err := c.Send(ctx, raw); err != nil {
+			return err
+		}
+		if raw[0] == dataMessage {
+			data = append(data, append([]byte(nil), raw...))
+		}
+	}
+	if len(data) > 0 {
+		select {
+		case c.batches <- data:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+func TestSendBatchPublishesWholeBurstAndWraps(t *testing.T) {
+	c := &recordingBatchChannel{testChannel: &testChannel{id: "batch", incoming: make(chan []byte, 256), done: make(chan struct{}), echo: true}, batches: make(chan [][]byte, 1)}
+	l, err := New(t.Context(), c, Info{NetworkID: testutil.ID(1), EdgeID: testutil.ID(2), PeerID: testutil.ID(3), CandidateID: "batch", Transport: model.UDP}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	frames := make([][]byte, 32)
+	for round := 0; round < 40; round++ {
+		for i := range frames {
+			frames[i] = make([]byte, 100)
+			frames[i][0] = byte(round)
+			frames[i][1] = byte(i)
+		}
+		if err := l.SendBatch(t.Context(), frames); err != nil {
+			t.Fatal(err)
+		}
+		for _, raw := range frames {
+			clear(raw)
+		}
+		select {
+		case got := <-c.batches:
+			if len(got) != len(frames) {
+				t.Fatal("producer burst fragmented", len(got))
+			}
+			for i, raw := range got {
+				if raw[1] != byte(round) || raw[2] != byte(i) {
+					t.Fatal("batch storage was not copied or order changed")
+				}
+			}
+		case <-time.After(time.Second):
+			t.Fatal("writer stalled")
+		}
+	}
+}
+func TestSendBatchOverflowBoundsAndClose(t *testing.T) {
+	c := &gatedChannel{testChannel: &testChannel{id: "batch-bound", incoming: make(chan []byte, 256), done: make(chan struct{}), echo: true}, gate: make(chan struct{}), entered: make(chan struct{}, 1), delivered: make(chan []byte, queueSize+2)}
+	l, err := New(t.Context(), c, Info{NetworkID: testutil.ID(1), EdgeID: testutil.ID(2), PeerID: testutil.ID(3), CandidateID: "batch", Transport: model.UDP}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	raw := make([]byte, 100)
+	if err := l.Send(t.Context(), raw); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-c.entered:
+	case <-time.After(time.Second):
+		t.Fatal("writer did not block")
+	}
+	frames := make([][]byte, 100)
+	for i := range frames {
+		frames[i] = raw
+	}
+	for range 5 {
+		if err := l.SendBatch(t.Context(), frames); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := l.SendBatch(t.Context(), frames); !errors.Is(err, ErrQueueFull) {
+		t.Fatal(err)
+	}
+	if l.dropped.Load() != 88 {
+		t.Fatal("partial overflow count", l.dropped.Load())
+	}
+	l.queueMu.Lock()
+	count := l.dataCount
+	l.queueMu.Unlock()
+	if count != queueSize {
+		t.Fatal("queue grew beyond bound", count)
+	}
+	l.Close()
+	if err := l.SendBatch(t.Context(), frames); !errors.Is(err, net.ErrClosed) {
+		t.Fatal("enqueue after close", err)
+	}
+	l.queueMu.Lock()
+	defer l.queueMu.Unlock()
+	for _, entry := range l.data {
+		if entry.buffer != nil {
+			t.Fatal("close retained queued storage")
+		}
+	}
+}
+
+func TestOwnedSendCancellationAndZeroCopyQueue(t *testing.T) {
+	c := &gatedChannel{testChannel: &testChannel{id: "owned-send", incoming: make(chan []byte, 256), done: make(chan struct{}), echo: true}, gate: make(chan struct{}), entered: make(chan struct{}, 1), delivered: make(chan []byte, 4)}
+	l, err := New(t.Context(), c, Info{NetworkID: testutil.ID(1), EdgeID: testutil.ID(2), PeerID: testutil.ID(3), CandidateID: "owned", Transport: model.UDP}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if err := l.Send(t.Context(), make([]byte, 100)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-c.entered:
+	case <-time.After(time.Second):
+		t.Fatal("writer did not block")
+	}
+	original := packetbuf.GetHeadroom(100, 1)
+	original.Data[0] = 42
+	payloadPointer := &original.Data[0]
+	if err := l.SendOwnedBatch(t.Context(), []*packetbuf.Buffer{original}); err != nil {
+		t.Fatal(err)
+	}
+	l.queueMu.Lock()
+	queued := l.data[l.dataHead].buffer
+	if queued != original || &queued.Data[1] != payloadPointer || queued.Data[0] != dataMessage || queued.Data[1] != 42 {
+		t.Error("reserved frame was copied or corrupted")
+	}
+	l.queueMu.Unlock()
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	rejected := packetbuf.Wrap(make([]byte, 100))
+	if err := l.SendOwnedBatch(canceled, []*packetbuf.Buffer{rejected}); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if rejected.Data != nil {
+		t.Fatal("canceled owned frame retained")
+	}
+	close(c.gate)
+	for range 2 {
+		select {
+		case <-c.delivered:
+		case <-time.After(time.Second):
+			t.Fatal("writer stalled")
+		}
+	}
+	l.Close()
+	rejected = packetbuf.Wrap(make([]byte, 100))
+	if err := l.SendOwnedBatch(t.Context(), []*packetbuf.Buffer{rejected}); !errors.Is(err, net.ErrClosed) {
+		t.Fatal(err)
+	}
+	if rejected.Data != nil {
+		t.Fatal("closed link retained owned frame")
+	}
+}

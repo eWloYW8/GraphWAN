@@ -180,7 +180,7 @@ func (h *UDP) readLoop(socket *net.UDPConn) {
 	defer h.wg.Done()
 	defer h.stop()
 	reader := newUDPPacketReader(socket)
-	var packets [32]udpPacket
+	var packets [packetbuf.BatchSize]udpPacket
 	for {
 		n, err := reader.readBatch(packets[:])
 		if udpReadTruncated(0, err) {
@@ -212,7 +212,7 @@ func (h *UDP) receivePackets(packets []udpPacket) {
 		return
 	default:
 	}
-	var pending [32]*packetbuf.Buffer
+	var pending [packetbuf.BatchSize]*packetbuf.Buffer
 	var previous *Datagram
 	count := 0
 	flush := func() {
@@ -380,7 +380,7 @@ func (d *Datagram) ReceiveBatch(ctx context.Context) ([][]byte, error) {
 	return out, nil
 }
 func (d *Datagram) ReceiveOwnedBatch(ctx context.Context) ([]*packetbuf.Buffer, error) {
-	out := make([]*packetbuf.Buffer, 32)
+	out := make([]*packetbuf.Buffer, packetbuf.BatchSize)
 	n, err := d.incoming.Read(ctx, out)
 	return out[:n], err
 }

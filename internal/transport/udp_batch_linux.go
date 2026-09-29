@@ -17,6 +17,9 @@ import (
 
 const maxUDPSuperPacket = 65507 // Also safe for an IPv4 path.
 
+// Bound work per kernel aggregate separately from the larger userspace batch.
+const maxUDPGSOSegments = 32
+
 type udpBatchWriter interface {
 	WriteBatch([]ipv6.Message, int) (int, error)
 }
@@ -69,7 +72,7 @@ type udpBatchSend struct {
 
 // prepare preserves every original datagram, including its token. Scatter/gather
 // avoids concatenating payloads in userspace. GSO allows only equal-size segments
-// followed by at most one smaller final segment, at most 64 per super-packet.
+// followed by at most one smaller final segment, at most 32 per super-packet.
 func (b *udpBatchSend) prepare(payloads [][]byte, reply []byte, gso bool) []ipv6.Message {
 	count := 0
 	for start := 0; start < len(payloads); {
@@ -77,7 +80,7 @@ func (b *udpBatchSend) prepare(payloads [][]byte, reply []byte, gso bool) []ipv6
 		size := udpHeaderSize + len(payloads[start])
 		total := size
 		if gso {
-			for end < len(payloads) && end-start < 64 {
+			for end < len(payloads) && end-start < maxUDPGSOSegments {
 				next := udpHeaderSize + len(payloads[end])
 				if next > size || total+next > maxUDPSuperPacket {
 					break

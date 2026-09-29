@@ -153,7 +153,7 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 		}
 		newMesh = true
 	}
-	router, err := forwarding.New(snapshot, next.mesh.Send, r.deliver, r.deliverBatch)
+	router, err := forwarding.New(snapshot, next.mesh.Send, r.deliver, forwarding.BatchOptions{Deliver: r.deliverBatch, SendOwned: next.mesh.SendOwnedBatch})
 	if err != nil {
 		return err
 	}
@@ -281,6 +281,7 @@ func (r *DataPlane) deliver(ctx context.Context, network model.ID, raw []byte) e
 func (r *DataPlane) readTunnelBatch(network model.ID, device *runtimeTunnel, batch tunnel.BatchDevice) {
 	buffers := make([][]byte, batch.BatchSize())
 	sizes := make([]int, len(buffers))
+	packets := make([][]byte, len(buffers))
 	for i := range buffers {
 		buffers[i] = make([]byte, packet.MaxPayload+1)
 	}
@@ -298,8 +299,10 @@ func (r *DataPlane) readTunnelBatch(network model.ID, device *runtimeTunnel, bat
 			continue
 		}
 		for i := range n {
-			state.router.FromTunnel(r.ctx, network, buffers[i][:sizes[i]])
+			packets[i] = buffers[i][:sizes[i]]
 		}
+		state.router.FromTunnelBatch(r.ctx, network, packets[:n])
+		clear(packets[:n])
 	}
 }
 func (r *DataPlane) receiveBatch(ctx context.Context, remote model.ID, frames [][]byte) error {

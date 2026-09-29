@@ -290,17 +290,17 @@ func (c *Channel) SendBatch(ctx context.Context, payloads [][]byte) error {
 	if cap(c.sendBuffer) < needed {
 		c.sendBuffer = make([]byte, needed)
 	}
-	c.sendBuffer = c.sendBuffer[:0]
+	c.sendBuffer = c.sendBuffer[:needed]
 	var messages [128][]byte
+	offset := 0
 	for i, payload := range payloads {
-		offset := len(c.sendBuffer)
-		c.sendBuffer = append(c.sendBuffer, dataKind)
-		var err error
-		c.sendBuffer, err = c.session.SealAppend(c.sendBuffer, payload)
-		if err != nil {
-			return err
-		}
-		messages[i] = c.sendBuffer[offset:]
+		end := offset + 1 + secure.Overhead + len(payload)
+		c.sendBuffer[offset] = dataKind
+		messages[i] = c.sendBuffer[offset : offset+1 : end]
+		offset = end
+	}
+	if err := c.session.SealBatchAppend(messages[:len(payloads)], payloads); err != nil {
+		return err
 	}
 	if batch, ok := c.conn.(interface {
 		SendBatch(context.Context, [][]byte) error
