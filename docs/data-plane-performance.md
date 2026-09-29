@@ -68,6 +68,22 @@ These are shares of process CPU, not elapsed-time shares. Binary receive-ID
 validation subsequently avoids rescanning canonical hex strings, while still
 rejecting the reserved zero ID.
 
+The deployed release (`5d16c3f3005e`, without the profiling hook) also passed
+longer runs: 20 seconds after 2 seconds of warmup, CPU sampled over 25 seconds.
+
+| Direction and outer transport | Received throughput | Local Agent CPU | opi5 Agent CPU |
+| --- | ---: | ---: | ---: |
+| Local → opi5, TCP/IPv4 | 722.4 Mbps | 35.5% | 186.9% |
+| opi5 → local, TCP/IPv4 | 779.5 Mbps | 35.4% | 135.8% |
+| Local → opi5, UDP/IPv4 | 639.7 Mbps | 88.8% | 204.8% |
+| Local → opi5, restored automatic selection (UDP/IPv4) | 689.0 Mbps | 51.8% | 193.7% |
+
+The UDP run had 1,550 inner-TCP retransmissions versus 91 in the forward TCP
+run. UDP batching does not remove queue loss or kernel per-datagram work. These
+single-run results establish a substantial improvement, not gigabit line rate
+or a universal advantage for one transport. The temporary candidate preference
+was restored to automatic selection after these comparisons.
+
 ## Reproduce and validate
 
 Record the active transport/address from both Agents' telemetry before and after
