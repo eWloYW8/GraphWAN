@@ -31,6 +31,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] FreeBSD native IPv4/IPv6 TUN, full-MTU kernel I/O and live MTU reconciliation.
 - [x] FreeBSD live address/prefix/MTU edits, multi-Network rollback and applied-state recovery.
 - [ ] FreeBSD multi-host/NAT acceptance and older kernels.
+- [x] macOS utun adapter code and Intel/Apple Silicon cross-builds.
+- [ ] Native macOS utun/route/reconfiguration, multi-host and NAT acceptance.
 - [x] Local recovery from fatal TUN I/O, independent runtime health and Linux offline recovery.
 - [x] Actual multi-hop IP forwarding and network/source admission enforcement.
 - [x] Native Linux IPv4/IPv6 overlays and underlays, all six IPv6 transports and mixed families.
@@ -310,3 +312,17 @@ Every feature below derives from the accepted proposal, including its suggestion
   FreeBSD Agent/TUN suites pass. Core cross-builds pass for the five FreeBSD
   architectures listed above, macOS/arm64, Windows/amd64 and Linux/arm64.
   Broader platform acceptance stays open.
+
+- macOS adapter implementation: AF_SYSTEM utun allocation, address-family packet
+  framing, bounded command configuration, subnet-route ownership checks and
+  address/prefix/MTU rollback are implemented. Linux race tests cover route
+  conflicts, scoped/foreign/reject routes, failures before/after route mutation,
+  old-route recovery and unavailable-device reporting when rollback fails.
+  Production binaries and integration-test binaries cross-build for Darwin amd64
+  and arm64. Full Linux Go race tests/vet and native Linux TUN tests pass, along
+  with ten race-enabled repetitions of the tunnel/route tests. The shared native
+  test refactor passes the FreeBSD TUN suite and actual Agent reconciliation in
+  the FreeBSD VM. Native macOS test cases are written for both kernel I/O and actual Agent
+  reconciliation, but have not been executed on macOS. This is implementation
+  and compile-time evidence only; the native macOS acceptance item remains open.
+  See [macOS operation and pending native checks](macos-operation.md).

@@ -70,9 +70,10 @@ remains in progress. See the acceptance tracker.
   Its absence does not cancel the runtime, peer reconnection or cached startup.
 
 FreeBSD has a [native adapter and separate verification guide](freebsd-operation.md).
-Windows, macOS and other BSD adapters remain incomplete and currently return an
-explicit unsupported-TUN error when configured with a Network. This is an
-implementation gap, not the final platform support policy.
+The [macOS utun adapter](macos-operation.md) is implemented and cross-built, with
+native verification still pending. Windows and other BSD adapters remain
+incomplete and currently return an explicit unsupported-TUN error when configured
+with a Network. This is an implementation gap, not the final platform support policy.
 
 ## Reproduce native verification
 

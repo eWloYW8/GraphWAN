@@ -5,11 +5,12 @@ package tunnel_test
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/graphwan/graphwan/internal/tunnel"
 	"net"
 	"net/netip"
 	"testing"
 	"time"
+
+	"github.com/graphwan/graphwan/internal/tunnel"
 )
 
 func checkNativeTunnel(t *testing.T, config tunnel.Config, remote netip.Addr) {
@@ -152,8 +153,16 @@ func checkConfiguredNativeTunnel(t *testing.T, device tunnel.Device, config tunn
 	case <-time.After(time.Second):
 		t.Fatal("close left TUN read blocked")
 	}
-	if _, err := net.InterfaceByName(config.Name); err == nil {
-		t.Fatal("owned interface survived close")
+	// Darwin detaches utun asynchronously after the final descriptor closes.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := net.InterfaceByName(config.Name); err != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("owned interface survived close")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

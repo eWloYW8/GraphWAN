@@ -7,8 +7,10 @@ weighted multi-hop routing and peer-to-peer data transport.
 `proposal.md`. The Linux CLI now supports authenticated TCP/UDP/QUIC/WS/WSS/gRPC multi-hop networking;
 the embedded React management UI supports topology editing and live status.
 FreeBSD now has a native TUN adapter with verified kernel IPv4/IPv6 packet I/O
-and live address/prefix/MTU updates. Its multi-host acceptance, other platform adapters and the
-remaining acceptance items are still in progress.
+and live address/prefix/MTU updates. A macOS utun adapter is implemented and
+cross-built for Intel and Apple Silicon; native macOS validation is pending.
+FreeBSD multi-host acceptance, other platform adapters and remaining acceptance
+items are still in progress.
 Progress and verification gaps are
 tracked in [the acceptance checklist](docs/implementation-status.md).
 
@@ -64,6 +66,8 @@ See [Linux operation and testing](docs/linux-operation.md) for behavior, current
 limits, and reproducible native tests.
 For the FreeBSD adapter, requirements and native checks, see
 [FreeBSD operation](docs/freebsd-operation.md).
+The macOS adapter and its unverified native test procedure are documented in
+[macOS operation](docs/macos-operation.md).
 
 ## Development
 

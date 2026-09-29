@@ -1,4 +1,4 @@
-//go:build freebsd && integration
+//go:build (freebsd || darwin) && integration
 
 package agent
 
@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -17,10 +18,15 @@ import (
 	"github.com/graphwan/graphwan/internal/tunnel"
 )
 
-func TestNativeFreeBSDConfigurationReconcile(t *testing.T) {
-	if os.Geteuid() != 0 || os.Getenv("GRAPHWAN_TEST_VM") != "1" {
-		t.Skip("requires disposable root FreeBSD VM")
+func TestNativeBSDConfigurationReconcile(t *testing.T) {
+	enabled := os.Getenv("GRAPHWAN_TEST_VM") == "1"
+	if runtime.GOOS == "darwin" {
+		enabled = os.Getenv("GRAPHWAN_TEST_MACOS") == "1"
 	}
+	if os.Geteuid() != 0 || !enabled {
+		t.Skip("requires explicit opt-in on a disposable root BSD/macOS test host")
+	}
+
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +66,7 @@ func TestNativeFreeBSDConfigurationReconcile(t *testing.T) {
 	rejected.Networks[1].Directory[0].Address = foreignConfig.Address.Addr()
 	rejected.Networks[1].MTU = 9000
 	if err := r.Apply(context.Background(), rejected); err == nil {
-		t.Fatal("duplicate IPv6 address accepted")
+		t.Fatal("conflicting IPv6 address/route accepted")
 	}
 	if r.state.Load() != before || r.Health() != nil {
 		t.Fatal("rejected update changed applied runtime")
@@ -71,7 +77,7 @@ func TestNativeFreeBSDConfigurationReconcile(t *testing.T) {
 		if err != nil || iface.MTU != network.MTU {
 			t.Fatalf("rollback MTU: %v %v", iface, err)
 		}
-		addresses, err := iface.Addrs()
+		addresses, err := managedNativeAddresses(iface)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +141,7 @@ func TestNativeFreeBSDConfigurationReconcile(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			addresses, err := iface.Addrs()
+			addresses, err := managedNativeAddresses(iface)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -157,4 +163,24 @@ func TestNativeFreeBSDConfigurationReconcile(t *testing.T) {
 			t.Fatal("Agent shutdown leaked TUN")
 		}
 	}
+}
+
+// utun may also have an automatic link-local IPv6 address. Reconciliation owns
+// the configured overlay address; the kernel's link-local address is independent.
+func managedNativeAddresses(iface *net.Interface) ([]netip.Prefix, error) {
+	addresses, err := iface.Addrs()
+	if err != nil {
+		return nil, err
+	}
+	var result []netip.Prefix
+	for _, address := range addresses {
+		prefix, err := netip.ParsePrefix(address.String())
+		if err != nil {
+			return nil, err
+		}
+		if !prefix.Addr().IsLinkLocalUnicast() {
+			result = append(result, prefix)
+		}
+	}
+	return result, nil
 }
