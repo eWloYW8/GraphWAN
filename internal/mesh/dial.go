@@ -19,6 +19,7 @@ import (
 
 type introduction struct {
 	Candidate string `json:"candidate"`
+	Target    string `json:"target,omitempty"`
 }
 
 func receiveIntroduction(ctx context.Context, channel *peer.Channel) (introduction, error) {
@@ -124,6 +125,10 @@ func (g *group) dial(candidate link.Candidate) error {
 	if err != nil {
 		return err
 	}
+	address, err := transport.EndpointDialAddress(candidate.Endpoint, candidate.Family, candidate.Target)
+	if err != nil {
+		return err
+	}
 	var raw transport.Conn
 	if candidate.Endpoint.Transport == model.TCP && candidate.Method == link.Punch {
 		conn, err := g.mesh.dialTCPPunch(ctx, candidate, g.policy.Load().peer.PublicKey)
@@ -133,42 +138,42 @@ func (g *group) dial(candidate link.Candidate) error {
 		raw = conn
 	} else if candidate.Endpoint.Transport == model.TCP {
 		dialer := net.Dialer{}
-		conn, err := dialer.DialContext(ctx, "tcp"+strconv.Itoa(candidate.Family), parsed.Host)
+		conn, err := dialer.DialContext(ctx, "tcp"+strconv.Itoa(candidate.Family), address)
 		if err != nil {
 			return err
 		}
 		raw = transport.NewStream(conn)
 	} else if candidate.Endpoint.Transport == model.WS || candidate.Endpoint.Transport == model.WSS {
-		conn, err := transport.DialWebSocket(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, nil)
+		conn, err := transport.DialWebSocketAt(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, nil, candidate.Target)
 		if err != nil {
 			return err
 		}
 		raw = conn
 	} else if candidate.Endpoint.Transport == model.GRPC {
-		conn, err := transport.DialGRPC(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, nil)
+		conn, err := transport.DialGRPCAt(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, nil, candidate.Target)
 		if err != nil {
 			return err
 		}
 		raw = conn
 	} else if candidate.Endpoint.Transport == model.QUIC {
-		conn, err := g.mesh.quic.Dial(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey)
+		conn, err := g.mesh.quic.DialAt(ctx, candidate.Endpoint, candidate.Family, g.policy.Load().peer.PublicKey, candidate.Target)
 		if err != nil {
 			return err
 		}
 		raw = conn
 	} else {
-		addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip"+strconv.Itoa(candidate.Family), parsed.Hostname())
-		if err != nil {
-			return err
+		target := candidate.Target
+		if !target.IsValid() {
+			target, err = netip.ParseAddr(parsed.Hostname())
 		}
-		if len(addresses) == 0 {
-			return errors.New("endpoint has no address for permitted family")
+		if err != nil || !target.IsValid() {
+			return errors.New("unresolved UDP candidate")
 		}
 		port, err := strconv.ParseUint(parsed.Port(), 10, 16)
 		if err != nil {
 			return err
 		}
-		conn, err := g.mesh.udp.Dial(netip.AddrPortFrom(addresses[0], uint16(port)))
+		conn, err := g.mesh.udp.Dial(netip.AddrPortFrom(target, uint16(port)))
 		if err != nil {
 			return err
 		}
@@ -178,8 +183,12 @@ func (g *group) dial(candidate link.Candidate) error {
 	if err != nil {
 		return err
 	}
-	intro, _ := json.Marshal(introduction{Candidate: candidate.ID})
-	if err := channel.Send(ctx, append([]byte{0}, intro...)); err != nil {
+	intro := introduction{Candidate: candidate.ID}
+	if candidate.Target.IsValid() {
+		intro.Target = candidate.Target.String()
+	}
+	encoded, _ := json.Marshal(intro)
+	if err := channel.Send(ctx, append([]byte{0}, encoded...)); err != nil {
 		channel.Close()
 		return err
 	}

@@ -111,6 +111,11 @@ func (h *QUICHub) Accept(ctx context.Context) (*QUIC, error) {
 	}
 }
 func (h *QUICHub) Dial(ctx context.Context, endpoint model.Endpoint, family int, identity ed25519.PublicKey) (*QUIC, error) {
+	return h.DialAt(ctx, endpoint, family, identity, netip.Addr{})
+}
+
+// DialAt pins a DNS answer while retaining the endpoint TLS hostname.
+func (h *QUICHub) DialAt(ctx context.Context, endpoint model.Endpoint, family int, identity ed25519.PublicKey, target netip.Addr) (*QUIC, error) {
 	if err := endpoint.Validate(); err != nil {
 		return nil, err
 	}
@@ -118,9 +123,16 @@ func (h *QUICHub) Dial(ctx context.Context, endpoint model.Endpoint, family int,
 		return nil, errors.New("invalid QUIC candidate")
 	}
 	u, _ := url.Parse(endpoint.URL)
-	addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip"+strconv.Itoa(family), u.Hostname())
-	if err != nil {
+	if _, err := EndpointDialAddress(endpoint, family, target); err != nil {
 		return nil, err
+	}
+	addresses := []netip.Addr{target}
+	var err error
+	if !target.IsValid() {
+		addresses, err = net.DefaultResolver.LookupNetIP(ctx, "ip"+strconv.Itoa(family), u.Hostname())
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(addresses) == 0 {
 		return nil, errors.New("endpoint has no address for permitted family")

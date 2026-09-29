@@ -1,6 +1,7 @@
 package link_test
 
 import (
+	"net/netip"
 	"slices"
 	"testing"
 	"time"
@@ -10,6 +11,35 @@ import (
 	"github.com/graphwan/graphwan/internal/routing"
 	"github.com/graphwan/graphwan/internal/testutil"
 )
+
+func TestResolvedCandidateIdentityAndAdmission(t *testing.T) {
+	endpoint := model.Endpoint{ID: testutil.ID(90), Source: model.Manual, Transport: model.WSS, URL: "wss://peer.example.test:443/path"}
+	base := link.Candidate{ID: link.CandidateID(testutil.ID(1), testutil.ID(2), endpoint.ID, 4, link.Direct), Endpoint: endpoint, Family: 4, Method: link.Direct}
+	one, err := link.ResolveCandidate(base, netip.MustParseAddr("192.0.2.1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := link.ResolveCandidate(base, netip.MustParseAddr("192.0.2.2"))
+	if err != nil || one.ID == two.ID || one.ID == base.ID || one.Endpoint != endpoint {
+		t.Fatal("DNS target identity or original endpoint lost")
+	}
+	repeated, err := link.ResolveCandidate(base, netip.MustParseAddr("::ffff:192.0.2.1"))
+	if err != nil || repeated.ID != one.ID || repeated.Target != one.Target {
+		t.Fatal("equivalent DNS answer changed identity")
+	}
+	for _, raw := range []string{"::1", "0.0.0.0", "224.0.0.1", "fe80::1%lo"} {
+		if _, err := link.ResolveCandidate(base, netip.MustParseAddr(raw)); err == nil {
+			t.Fatalf("invalid target admitted: %s", raw)
+		}
+	}
+	if _, err := link.ResolveCandidate(one, two.Target); err == nil {
+		t.Fatal("resolved candidate accepted a second override")
+	}
+	base.Endpoint.URL = "wss://192.0.2.1:443/path"
+	if _, err := link.ResolveCandidate(base, one.Target); err == nil {
+		t.Fatal("literal candidate accepted DNS introduction")
+	}
+}
 
 func TestCandidatePolicyAndStableIdentity(t *testing.T) {
 	snapshot, err := routing.Compile(testutil.Topology(), testutil.ID(10))

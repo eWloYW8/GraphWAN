@@ -59,6 +59,8 @@ supported. QUIC, WS/WSS and gRPC use explicit manual URLs; see
 [QUIC setup](docs/quic-operation.md), [WebSocket setup](docs/websocket-operation.md)
 and [gRPC setup](docs/grpc-operation.md).
 For STUN discovery and TCP/UDP hole punching, see [NAT setup](docs/nat-operation.md).
+Manual hostname behavior, multiple DNS addresses and TLS identity are documented
+in [endpoint resolution](docs/endpoint-resolution.md).
 The default peer listen port is 24752. No controller packet relay is
 used. Agents keep forwarding and can restart from cached configuration while the
 controller is unavailable.

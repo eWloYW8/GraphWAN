@@ -27,6 +27,11 @@ import (
 
 func webMeshes(t *testing.T) (context.Context, []*Mesh, *model.State, <-chan []byte) {
 	t.Helper()
+	return webMeshesOn(t, "127.0.0.1")
+}
+
+func webMeshesOn(t *testing.T, host string) (context.Context, []*Mesh, *model.State, <-chan []byte) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
 	state := testutil.Topology()
@@ -40,7 +45,7 @@ func webMeshes(t *testing.T) (context.Context, []*Mesh, *model.State, <-chan []b
 	for i := range 2 {
 		seed := make([]byte, ed25519.SeedSize)
 		seed[0] = byte(i + 1)
-		m, err := New(ctx, ed25519.NewKeyFromSeed(seed), "127.0.0.1", 0, func(ctx context.Context, _ model.ID, raw []byte) error {
+		m, err := New(ctx, ed25519.NewKeyFromSeed(seed), host, 0, func(ctx context.Context, _ model.ID, raw []byte) error {
 			select {
 			case delivered <- raw:
 				return nil

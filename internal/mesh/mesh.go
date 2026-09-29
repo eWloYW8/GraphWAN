@@ -36,6 +36,7 @@ type policy struct {
 	endpoints []model.Endpoint
 }
 type Mesh struct {
+	dns          *endpointDNS
 	identity     ed25519.PrivateKey
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -82,6 +83,7 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 	}
 	ctx, cancel := context.WithCancel(parent)
 	m := &Mesh{grpcSlots: make(chan struct{}, 512), sniffSlots: make(chan struct{}, 8), pending: map[net.Conn]bool{}, identity: bytes.Clone(identity), ctx: ctx, cancel: cancel, listener: listener, udp: udp, receive: receive, groups: map[key]*group{}, slots: make(chan struct{}, 8), acceptSlots: make(chan struct{}, 8)}
+	m.dns = newEndpointDNS()
 	m.quic = quicHub
 	m.tcp = listener
 	m.punches = map[punchKey]*transport.PunchMux{}
@@ -140,6 +142,7 @@ func (m *Mesh) Close() error {
 		g.close()
 	}
 	m.wg.Wait()
+	m.dns.wg.Wait()
 	return nil
 }
 
@@ -154,6 +157,17 @@ func (m *Mesh) Apply(snapshot model.Snapshot) error {
 		m.mu.Unlock()
 		return net.ErrClosed
 	}
+	hosts := map[string]bool{}
+	for _, network := range snapshot.Networks {
+		for _, peer := range network.Peers {
+			for _, endpoint := range peer.Endpoints {
+				if host := endpointHostname(endpoint.URL); host != "" {
+					hosts[host] = true
+				}
+			}
+		}
+	}
+	m.dns.configure(hosts)
 	old := m.groups
 	next := make(map[key]*group)
 	retired := []*group{}
@@ -327,6 +341,16 @@ func (m *Mesh) accept(conn transport.Conn, kind model.Transport) {
 		// The remote dialing direction must target an endpoint actually advertised
 		// by this Agent and allowed by this Edge's connection policy.
 		for _, c := range selected.candidates(cfg, false) {
+			if introduction.Target != "" {
+				address, err := netip.ParseAddr(introduction.Target)
+				if err != nil {
+					continue
+				}
+				c, err = link.ResolveCandidate(c, address)
+				if err != nil {
+					continue
+				}
+			}
 			if c.ID == introduction.Candidate && c.Endpoint.Transport == kind && candidateIngress(c, conn) {
 				copy := c
 				candidate = &copy
@@ -371,7 +395,7 @@ type group struct {
 	mu       sync.Mutex
 	links    map[string]*link.Link
 	attempts map[string]*attempt
-	observed map[string]link.Candidate
+	retained map[string]link.Candidate
 	wg       sync.WaitGroup
 }
 type attempt struct {
@@ -382,7 +406,7 @@ type attempt struct {
 
 func (m *Mesh) newGroup(cfg *policy) *group {
 	ctx, cancel := context.WithCancel(m.ctx)
-	g := &group{mesh: m, edge: link.NewCoordinatedEdge(cfg.self, cfg.peer.Node.ID, cfg.peer.Edge.PreferredCandidate), ctx: ctx, cancel: cancel, links: map[string]*link.Link{}, attempts: map[string]*attempt{}, observed: map[string]link.Candidate{}}
+	g := &group{mesh: m, edge: link.NewCoordinatedEdge(cfg.self, cfg.peer.Node.ID, cfg.peer.Edge.PreferredCandidate), ctx: ctx, cancel: cancel, links: map[string]*link.Link{}, attempts: map[string]*attempt{}, retained: map[string]link.Candidate{}}
 	g.policy.Store(cfg)
 	g.wg.Add(1)
 	go g.schedule()
@@ -416,8 +440,8 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 		return
 	}
 	g.links[l.ID()] = l
-	if candidate.Endpoint.Source == model.Observed {
-		g.observed[candidate.ID] = candidate
+	if candidate.Endpoint.Source == model.Observed || candidate.Target.IsValid() {
+		g.retained[candidate.ID] = candidate
 	}
 	g.edge.Add(l)
 	g.wg.Add(2)

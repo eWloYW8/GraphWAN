@@ -43,7 +43,9 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] QUIC datagrams, shared UDP listener and bounded message fragmentation.
 - [x] Authenticated ephemeral peer keys, cipher policy, replay protection/rekey.
 - [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
-- [ ] Manual hostname/path endpoints and configurable listeners (default 24752).
+- [ ] Manual hostname/path endpoints and configurable listeners (default 24752), full platform acceptance.
+- [x] Per-address DNS Candidates across all six transports, refresh, preference and healthy rekey on Linux.
+- [ ] Native Windows UDP reply-source selection for wildcard/multiple-address listeners.
 - [x] STUN from the data socket and UDP punching through verified restricted NATs.
 - [x] Linux TCP hole punching, independent STUN mappings and pooled authenticated sessions.
 - [ ] Remaining NAT cases and native TCP punching support on other platforms.
@@ -345,3 +347,22 @@ Every feature below derives from the accepted proposal, including its suggestion
   reconciliation are written but have not run on Windows. No Windows native or
   multi-host acceptance is claimed. See [Windows setup and pending native
   verification](windows-operation.md).
+
+- Manual DNS endpoints: every permitted address now has a distinct stable
+  Candidate, retry state and retained Link. Real Linux sockets verify all six
+  transports with two live addresses, exact preference, DNS refresh adding a
+  third address, rekey of a withdrawn healthy address, traffic and endpoint
+  removal. Additional tests cover IPv6-only direct policy, TCP/UDP punch methods,
+  an unreachable first UDP answer and rejection of inconsistent target
+  introductions. DNS fixture tests verify deduplication, family filtering,
+  bounded concurrency, cancellation, cache pruning, transient failures and
+  name-not-found. Real CA-trusted WSS/gRPC frontends verify original SNI,
+  certificate hostname, HTTP authority/port and path. Full Go race tests/vet and
+  six production cross-build targets pass. Native Linux three-Agent regressions
+  pass for IPv6 UDP/gRPC direct and IPv6 overlay over restricted IPv4 UDP NAT at
+  MTU 9000/1280, including outage continuity, offline recovery/restart and cleanup.
+  UDP wildcard replies now preserve the received destination via packet control
+  messages; standalone/shared-listener secondary IPv4 and IPv6 tests pass on
+  Linux. Windows ancillary support and native BSD/macOS behavior remain pending.
+  Native process regressions use literal IPs; DNS answer sets are controlled
+  component fixtures. See [endpoint resolution and evidence](endpoint-resolution.md).

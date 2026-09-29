@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -112,6 +113,11 @@ func (g *GRPC) Receive(ctx context.Context) ([]byte, error) {
 // pinned; a TLS proxy must pass ordinary PKI validation. The dial context bounds
 // establishment only; Close and per-operation contexts own the established RPC.
 func DialGRPC(ctx context.Context, endpoint model.Endpoint, family int, identity ed25519.PublicKey, roots *x509.CertPool) (*GRPC, error) {
+	return DialGRPCAt(ctx, endpoint, family, identity, roots, netip.Addr{})
+}
+
+// DialGRPCAt dials a particular DNS answer without changing TLS or HTTP identity.
+func DialGRPCAt(ctx context.Context, endpoint model.Endpoint, family int, identity ed25519.PublicKey, roots *x509.CertPool, target netip.Addr) (*GRPC, error) {
 	if err := endpoint.Validate(); err != nil {
 		return nil, err
 	}
@@ -119,13 +125,21 @@ func DialGRPC(ctx context.Context, endpoint model.Endpoint, family int, identity
 		return nil, errors.New("invalid gRPC candidate")
 	}
 	parsed, _ := url.Parse(endpoint.URL)
+	dialAddress, err := EndpointDialAddress(endpoint, family, target)
+	if err != nil {
+		return nil, err
+	}
 	tlsConfig := PeerClientTLS(parsed.Hostname(), identity, roots)
 	tlsConfig.NextProtos = []string{"h2"}
+	// grpc-go derives SNI from :authority. Keep the URL's port in HTTP/2
+	// authority; the verification callback still checks the original hostname.
+	tlsConfig.ServerName = ""
 	dialer := &net.Dialer{}
 	client, err := grpc.NewClient("passthrough:///"+parsed.Host,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		grpc.WithAuthority(parsed.Host),
 		grpc.WithContextDialer(func(ctx context.Context, address string) (net.Conn, error) {
-			return dialer.DialContext(ctx, "tcp"+strconv.Itoa(family), address)
+			return dialer.DialContext(ctx, "tcp"+strconv.Itoa(family), dialAddress)
 		}),
 		grpc.WithNoProxy(), grpc.WithDisableRetry(), grpc.WithDisableServiceConfig(),
 		grpc.WithMaxHeaderListSize(8192),

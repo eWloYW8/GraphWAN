@@ -13,12 +13,18 @@ import (
 // stronger evidence than a STUN lease and lets that SAME candidate renew keys
 // during controller/STUN outages. Once all sessions for it fail, the retained
 // candidate is discarded; an expired mapping alone never authorizes a new dial.
+// DNS targets withdrawn by a successful refresh follow the same healthy-session
+// retention rule, provided their configured endpoint and method remain allowed.
 func (g *group) candidates(cfg *policy, outgoing bool) []link.Candidate {
 	initiator, peer := cfg.self, cfg.peer
 	if !outgoing {
 		initiator, peer = cfg.peer.Node.ID, model.Peer{Edge: cfg.peer.Edge, Endpoints: cfg.endpoints}
 	}
-	result := link.Candidates(initiator, peer, time.Now())
+	bases := link.Candidates(initiator, peer, time.Now())
+	result := bases
+	if outgoing {
+		result = g.resolveCandidates(bases)
+	}
 	seen := map[string]bool{}
 	for _, candidate := range result {
 		seen[candidate.ID] = true
@@ -38,12 +44,29 @@ func (g *group) candidates(cfg *policy, outgoing bool) []link.Candidate {
 			alive[l.Info().CandidateID] = true
 		}
 	}
-	for id, candidate := range g.observed {
+	for id, candidate := range g.retained {
 		if !existing[id] {
-			delete(g.observed, id)
+			delete(g.retained, id)
 			continue
 		}
-		if !alive[id] || seen[id] || !cfg.peer.Edge.Methods.HolePunch || candidate.Method != link.Punch || !slices.Contains(cfg.peer.Edge.Transports, candidate.Endpoint.Transport) {
+		if !alive[id] || seen[id] {
+			continue
+		}
+		if candidate.Target.IsValid() {
+			// DNS withdrawal does not tear down a live authenticated session.
+			// Only its dialing side retains the old target for session renewal.
+			if outgoing {
+				for _, base := range bases {
+					resolved, err := link.ResolveCandidate(base, candidate.Target)
+					if err == nil && resolved.ID == id {
+						result = append(result, resolved)
+						break
+					}
+				}
+			}
+			continue
+		}
+		if !cfg.peer.Edge.Methods.HolePunch || candidate.Method != link.Punch || !slices.Contains(cfg.peer.Edge.Transports, candidate.Endpoint.Transport) {
 			continue
 		}
 		if link.CandidateID(cfg.peer.Edge.ID, initiator, candidate.Endpoint.ID, candidate.Family, candidate.Method) == id {

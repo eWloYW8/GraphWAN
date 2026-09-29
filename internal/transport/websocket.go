@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 
@@ -57,6 +58,11 @@ func WebSocketPath(u *url.URL) string {
 // configured IPv4/IPv6 candidate family at the actual socket dial. RootCAs nil
 // uses system roots for public TLS proxies; direct Agents use the identity pin.
 func DialWebSocket(ctx context.Context, endpoint model.Endpoint, family int, identity ed25519.PublicKey, roots *x509.CertPool) (*WebSocket, error) {
+	return DialWebSocketAt(ctx, endpoint, family, identity, roots, netip.Addr{})
+}
+
+// DialWebSocketAt dials a particular DNS answer without changing TLS or HTTP identity.
+func DialWebSocketAt(ctx context.Context, endpoint model.Endpoint, family int, identity ed25519.PublicKey, roots *x509.CertPool, target netip.Addr) (*WebSocket, error) {
 	if err := endpoint.Validate(); err != nil {
 		return nil, err
 	}
@@ -64,11 +70,15 @@ func DialWebSocket(ctx context.Context, endpoint model.Endpoint, family int, ide
 		return nil, errors.New("invalid WebSocket candidate")
 	}
 	parsed, _ := url.Parse(endpoint.URL)
+	dialAddress, err := EndpointDialAddress(endpoint, family, target)
+	if err != nil {
+		return nil, err
+	}
 	var socket net.Conn
 	dialer := &net.Dialer{}
 	t := &http.Transport{TLSClientConfig: PeerClientTLS(parsed.Hostname(), identity, roots), ForceAttemptHTTP2: false,
 		DialContext: func(ctx context.Context, _, address string) (net.Conn, error) {
-			conn, err := dialer.DialContext(ctx, "tcp"+strconv.Itoa(family), address)
+			conn, err := dialer.DialContext(ctx, "tcp"+strconv.Itoa(family), dialAddress)
 			if err == nil {
 				socket = conn
 			}

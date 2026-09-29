@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/netip"
 	"net/url"
 	"slices"
@@ -26,6 +27,31 @@ type Candidate struct {
 	Family   int            `json:"family"`
 	Method   Method         `json:"method"`
 	Priority int            `json:"priority"`
+	Target   netip.Addr     `json:"target,omitempty"`
+}
+
+// ResolveCandidate preserves the configured URL (including its TLS hostname)
+// while identifying one concrete DNS answer independently of answer order.
+// Literal endpoints already have a unique target and keep their original ID.
+func ResolveCandidate(base Candidate, address netip.Addr) (Candidate, error) {
+	u, err := url.Parse(base.Endpoint.URL)
+	if err != nil || base.Endpoint.Source != model.Manual || base.Target.IsValid() {
+		return Candidate{}, errors.New("invalid DNS candidate")
+	}
+	if _, err := netip.ParseAddr(u.Hostname()); err == nil {
+		return Candidate{}, errors.New("literal endpoint cannot override its address")
+	}
+	address = address.Unmap()
+	if !address.IsValid() || address.Zone() != "" || address.IsUnspecified() || address.IsMulticast() ||
+		(base.Family != 4 && base.Family != 6) || (address.Is4() != (base.Family == 4)) {
+		return Candidate{}, errors.New("DNS answer does not match candidate family")
+	}
+	sum := sha256.Sum256([]byte(base.ID + "/" + address.String()))
+	base.ID, base.Target = hex.EncodeToString(sum[:16]), address
+	if address.IsPrivate() || address.IsLinkLocalUnicast() {
+		base.Priority += 20
+	}
+	return base, nil
 }
 
 // CandidateID identifies a dialing direction and endpoint policy, independently
@@ -37,8 +63,8 @@ func CandidateID(edge, initiator model.ID, endpoint model.ID, family int, method
 }
 
 // Candidates enumerates every allowed remote endpoint/family/method combination.
-// DNS endpoints retain distinct v4/v6 candidates so family policy is enforced
-// when resolving/dialing, instead of depending on the resolver's first answer.
+// DNS endpoints retain distinct v4/v6 templates. The Mesh expands each template
+// with ResolveCandidate so every answer has its own retry/session lifecycle.
 func Candidates(local model.ID, peer model.Peer, now time.Time) []Candidate {
 	result := []Candidate{}
 	if !peer.Edge.Enabled {

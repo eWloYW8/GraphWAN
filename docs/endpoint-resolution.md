@@ -1,0 +1,103 @@
+# Manual endpoints and DNS
+
+An Agent advertises automatic TCP/UDP IP endpoints and administrator-provided
+manual URLs. All six transports accept manual hostnames with an explicit port:
+
+```text
+udp://edge.example.com:24752
+tcp://edge.example.com:24752
+quic://edge.example.com:24752
+ws://edge.example.com:24752/overlay
+wss://edge.example.com:443/overlay
+grpc://edge.example.com:443/overlay
+```
+
+Configure these on the destination Agent in the management UI. The edge must
+enable the chosen transport and connection method. WS/WSS and gRPC are only
+generated from manual endpoints; their paths identify the configured HTTP entry.
+QUIC also requires a manual endpoint. URLs do not create additional listeners:
+the Agent's configured listen port (24752 by default) is shared by its transports.
+An external hostname/port can instead route through an administrator-managed
+proxy or port forward. See [WebSocket](websocket-operation.md),
+[gRPC](grpc-operation.md), [QUIC](quic-operation.md) and [NAT](nat-operation.md).
+
+## Multiple addresses
+
+Each allowed DNS answer becomes a separate Candidate. Its identity includes the
+edge, dialing Node, endpoint, family, method and normalized target address.
+Duplicates and IPv4-mapped equivalents collapse to one address; answer ordering
+does not change identity. Unspecified, multicast and zone-qualified DNS answers
+are discarded. IPv4/IPv6 direct policy is checked before a target can dial;
+TCP/UDP punching uses separate candidates under the edge's punch policy.
+
+Every candidate has independent backoff and renewal. Eight Mesh-wide dial slots
+bound simultaneous attempts; an unreachable address cannot prevent another
+address from connecting. Successful Links are retained, subject to the existing
+transport connection limits. One common active Link is selected by both Agents.
+Use its Candidate in the edge preference selector to prefer that particular
+address. Literal-IP endpoints keep their existing Candidate IDs. Preferences for
+older hostname/family-only IDs fall back to automatic selection; select a new
+address-specific Candidate to restore an explicit preference.
+
+The Mesh shares hostname lookups across its Networks and Edges. It uses the Go
+system resolver, at most four concurrent lookups, a five-second lookup deadline
+and a thirty-second refresh interval. This is periodic refresh, not DNS TTL
+tracking. Temporary lookup failures retain the last successful answers. Successful
+empty answers or name-not-found responses withdraw targets from new probes.
+Already healthy authenticated Links remain up and can renew their keys even when
+their address is withdrawn. Once such a Link fails, its withdrawn target is no
+longer retried. Removing the endpoint or disabling its method closes its Links.
+Changing the endpoint URL also replaces that endpoint's runtime policy. Unused
+cache entries are removed, and Mesh shutdown cancels and joins pending lookups.
+
+## TLS and peer admission
+
+Only the socket destination changes when selecting a DNS answer. WSS and gRPC
+retain the original hostname for SNI and certificate validation, the URL's host
+and port for HTTP authority, and its configured path. QUIC retains its original
+TLS hostname as well. A TLS frontend with an independent certificate must pass
+normal CA/hostname validation. The encrypted peer handshake still authenticates
+the configured Agent behind it.
+
+The authenticated Link introduction includes the concrete DNS target. The
+receiving Agent reconstructs its Candidate ID against an advertised manual
+hostname endpoint, permitted family/method and actual ingress transport/path.
+It rejects an inconsistent hash, disabled family or attempt to override a literal
+endpoint. The responder does not perform a second DNS lookup: split-horizon DNS
+and reverse proxies can make its answer set different from the initiator's.
+The target is a path identifier, not evidence of peer identity; identity comes
+from the authenticated handshake. Address-specific introductions require both
+Agents to support this implementation. Older Agents do not recognize the new
+hostname Candidate IDs; upgrade both ends together.
+
+## UDP source addresses and verification
+
+A wildcard native UDP listener records the destination IP of the first incoming
+datagram and uses it as the reply source. This prevents a request to a secondary
+local address from receiving its response from the host's default address. The
+same behavior applies with or without a shared QUIC listener; socket sharing,
+STUN data-port reuse and IP fragmentation are preserved. The implementation uses
+`x/net` packet control messages. Windows ancillary-data support is not provided
+by that dependency; Windows currently retains kernel-selected reply sources.
+Native Windows wildcard/multiple-address acceptance remains open. BSD/macOS
+ancillary behavior also requires native verification.
+
+Real-socket Linux tests cover all six transports with two live DNS answers,
+address-specific preference, a third answer added on refresh, withdrawn healthy
+address retention and rekey, traffic, endpoint removal, IPv6-only direct policy,
+TCP/UDP punch methods, and an unreachable first UDP answer. The DNS responses are
+controlled test fixtures; peer sockets, TLS, handshakes and Link reconciliation
+are real. Separate tests check bounded lookup concurrency/cancellation, cache
+pruning, transient failures versus name-not-found, and invalid introductions.
+Actual CA-trusted WSS/gRPC frontends verify SNI, authority, path and message echo.
+UDP tests check secondary IPv4 and IPv6 reply sources on standalone/shared sockets.
+
+The full Linux race suite and vet pass. Native three-Agent tests additionally
+pass for IPv6 UDP direct, IPv6 gRPC direct and IPv6 overlay over restricted IPv4
+UDP NAT, all at overlay MTU 9000 and underlay MTU 1280. These verify forwarding,
+controller/STUN outage continuity where applicable, offline TUN recovery, cached
+transit-Agent restart and cleanup. Those process tests use literal IP endpoints;
+they are regression evidence for the transport changes, not native DNS fixtures.
+Production cross-builds pass for Windows amd64/arm64/386, macOS arm64, FreeBSD
+amd64 and Linux arm64. Broader platform and DNS failure scenarios remain in the
+[acceptance tracker](implementation-status.md).
