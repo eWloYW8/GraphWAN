@@ -148,8 +148,25 @@ test('real controller: enrollment, graph edits, conflict protection, agent setti
   await page.getByRole('button', { name: 'Move nodes', exact: true }).click()
   await page.getByLabel('Routing weight').fill('7')
   await page.getByLabel('NAT hole punching').check()
+  // Advance the global revision after the browser has captured If-Match, as
+  // automatic endpoint discovery can do while a network save is in flight.
+  let saveAttempts = 0
+  await page.route('**/api/v1/networks/*', async (route) => {
+    if (route.request().method() === 'PUT' && saveAttempts++ === 0) {
+      const before = await currentState(page.request)
+      const agent = before.agents[0]
+      const response = await page.request.patch(`/api/v1/agents/${agent.id}`, {
+        headers: { 'X-CSRF-Token': await csrf(page.request), 'If-Match': String(before.revision) },
+        data: { exclude_container_ips: !agent.exclude_container_ips },
+      })
+      expect(response.ok()).toBe(true)
+    }
+    await route.continue()
+  })
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByRole('status')).toContainText('configuration saved')
+  expect(saveAttempts).toBe(2)
+  await page.unroute('**/api/v1/networks/*')
   let state = await currentState(page.request)
   expect(state.networks[0].edges[0].weight).toBe(7)
   expect(state.networks[0].edges[0].methods.hole_punch).toBe(true)
@@ -240,8 +257,23 @@ test('real controller: enrollment, graph edits, conflict protection, agent setti
   await dialog.getByRole('button', { name: 'Add endpoint' }).click()
   await dialog.getByLabel('Endpoint 1 transport').selectOption('wss')
   await dialog.getByLabel('Endpoint 1 URL').fill('wss://paris.example.test:443/overlay')
+  let agentSaveAttempts = 0
+  await page.route('**/api/v1/agents/*', async (route) => {
+    if (route.request().method() === 'PATCH' && agentSaveAttempts++ === 0) {
+      const before = await currentState(page.request)
+      const other = before.agents.find((a) => a.name === 'Tokyo')!
+      const response = await page.request.patch(`/api/v1/agents/${other.id}`, {
+        headers: { 'X-CSRF-Token': await csrf(page.request), 'If-Match': String(before.revision) },
+        data: { exclude_container_ips: !other.exclude_container_ips },
+      })
+      expect(response.ok()).toBe(true)
+    }
+    await route.continue()
+  })
   await dialog.getByRole('button', { name: 'Save agent' }).click()
   await expect(dialog).not.toBeVisible()
+  expect(agentSaveAttempts).toBe(2)
+  await page.unroute('**/api/v1/agents/*')
   state = await currentState(page.request)
   expect(state.agents.find((a) => a.name === 'Paris')?.exclude_container_ips).toBe(true)
   expect(state.agents.find((a) => a.name === 'Paris')?.stun_servers).toEqual([

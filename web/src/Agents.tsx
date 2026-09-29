@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, Copy, Trash2, Server } from 'lucide-react'
 import { ResourceSummary } from './Resources'
 import { request, errorText } from './api'
+import { saveConfiguration } from './saveConfiguration'
 import { Badge, Field, Modal, ErrorBox } from './components'
 import {
   type Agent,
@@ -136,13 +137,23 @@ function AgentEditor({
     setBusy(true)
     setError('')
     try {
+      const options = {
+        method,
+        body,
+        csrf,
+        revision: state.revision,
+      }
       updated(
-        await request<State>(`/agents/${agent.id}`, {
-          method,
-          body,
-          csrf,
-          revision: state.revision,
-        }),
+        method === 'PATCH'
+          ? await saveConfiguration(
+              `/agents/${agent.id}`,
+              options,
+              (latest) =>
+                JSON.stringify(editable(latest.agents.find((a) => a.id === agent.id))) ===
+                JSON.stringify(editable(agent)),
+              updated,
+            )
+          : await request<State>(`/agents/${agent.id}`, options),
       )
       close()
     } catch (e) {

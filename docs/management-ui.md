@@ -77,9 +77,13 @@ Agent data forwarding stopped. The Agent continues independently of the controll
 Topology edits remain in browser memory until saved. Navigation or closing the
 page warns about unsaved topology changes. Changes to another network can safely
 advance the draft's revision. Changes to the same network preserve the draft and
-block saving; discard it to reload current configuration. A server-side 409 also
-preserves the draft and fetches current state. Validation errors are displayed and
-do not consume a revision. Agent editors reject intervening edits to that Agent.
+block saving; discard it to reload current configuration. If a server-side 409
+comes from an unrelated update (including automatic endpoint discovery), network
+and Agent saves fetch current state and retry with its revision, up to five
+attempts. The comparison always uses the original edit base; changes to the same
+network or editable Agent settings preserve the draft and stop the save. Agent
+discovered endpoints are excluded from that comparison because a settings save
+does not replace them. Validation errors are displayed and do not consume a revision.
 
 Sessions expire after 12 hours and are invalidated on controller restart. Logout
 closes the browser view and revokes existing event streams. Passwords, tokens and

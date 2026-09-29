@@ -14,6 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { request, APIError, errorText } from './api'
+import { saveConfiguration } from './saveConfiguration'
 import { Badge, Field, Modal, ErrorBox } from './components'
 import {
   type State,
@@ -248,12 +249,24 @@ export default function App() {
     method: string,
     body?: unknown,
     revision = state?.revision,
+    base?: Network,
   ) => {
     setBusy(true)
     setError('')
     setNotice('')
     try {
-      const next = await request<State>(path, { method, body, csrf: csrf!, revision })
+      const next = base
+        ? await saveConfiguration(
+            path,
+            { method, body, csrf: csrf!, revision: revision! },
+            (latest) =>
+              equal(
+                latest.networks.find((n) => n.id === base.id),
+                base,
+              ),
+            loadState,
+          )
+        : await request<State>(path, { method, body, csrf: csrf!, revision })
       loadState(next)
       return next
     } catch (e) {
@@ -471,6 +484,7 @@ export default function App() {
                               'PUT',
                               draft.network,
                               draft.revision,
+                              draft.base,
                             )
                             setDraft(undefined)
                             setNotice(
