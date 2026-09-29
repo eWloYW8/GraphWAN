@@ -15,22 +15,23 @@ import (
 // would change native UDP fragmentation behavior. QUIC uses 1200-byte packets.
 type quicSocket struct {
 	net.PacketConn
-	hub    *UDP
-	readMu sync.Mutex
-	buffer [MaxMessage + udpHeaderSize + 1]byte
+	hub     *UDP
+	readMu  sync.Mutex
+	buffer  [MaxMessage + udpHeaderSize + 1]byte
+	control [256]byte
 }
 
 func (s *quicSocket) ReadFrom(raw []byte) (int, net.Addr, error) {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
 	for {
-		n, remote, err := s.hub.socket.ReadFromUDPAddrPort(s.buffer[:])
+		n, control, _, remote, err := s.hub.socket.ReadMsgUDPAddrPort(s.buffer[:], s.control[:])
 		if err != nil {
 			s.hub.stop()
 			return 0, nil, err
 		}
 		if n >= 4 && [4]byte(s.buffer[:4]) == udpMagic {
-			s.hub.receivePacket(s.buffer[:n], remote)
+			s.hub.receivePacket(s.buffer[:n], remote, udpReplyControl(s.control[:control], remote))
 			continue
 		}
 		if s.hub.receiveSTUN(s.buffer[:n], remote) {

@@ -42,6 +42,7 @@ type UDP struct {
 }
 
 type Datagram struct {
+	replyControl  []byte
 	hub           *UDP
 	key           udpKey
 	incoming      chan []byte
@@ -65,6 +66,7 @@ func ListenUDP(address string) (*UDP, error) {
 func NewUDP(socket *net.UDPConn) *UDP { return newUDP(socket, true) }
 
 func newUDP(socket *net.UDPConn, read bool) *UDP {
+	enableUDPPacketInfo(socket)
 	hub := &UDP{socket: socket, peers: map[udpKey]*Datagram{}, accept: make(chan *Datagram, 64), done: make(chan struct{})}
 	hub.wg.Add(1)
 	if read {
@@ -95,8 +97,8 @@ func (h *UDP) stop() {
 		clear(h.peers)
 	})
 }
-func (h *UDP) newPeer(key udpKey) *Datagram {
-	peer := &Datagram{hub: h, key: key, incoming: make(chan []byte, udpQueueSize), done: make(chan struct{})}
+func (h *UDP) newPeer(key udpKey, reply []byte) *Datagram {
+	peer := &Datagram{replyControl: reply, hub: h, key: key, incoming: make(chan []byte, udpQueueSize), done: make(chan struct{})}
 	peer.lastSeen.Store(time.Now().UnixNano())
 	h.peers[key] = peer
 	return peer
@@ -118,7 +120,7 @@ func (h *UDP) Dial(remote netip.AddrPort) (*Datagram, error) {
 	if len(h.peers) >= maxUDPPeers {
 		return nil, errors.New("UDP peer limit reached")
 	}
-	return h.newPeer(key), nil
+	return h.newPeer(key, nil), nil
 }
 func (h *UDP) Accept(ctx context.Context) (*Datagram, error) {
 	for {
@@ -141,16 +143,17 @@ func (h *UDP) readLoop() {
 	defer h.wg.Done()
 	defer h.stop()
 	buffer := make([]byte, MaxMessage+udpHeaderSize+1)
+	oob := make([]byte, 256)
 	for {
-		n, remote, err := h.socket.ReadFromUDPAddrPort(buffer)
+		n, control, _, remote, err := h.socket.ReadMsgUDPAddrPort(buffer, oob)
 		if err != nil {
 			return
 		}
-		h.receivePacket(buffer[:n], remote)
+		h.receivePacket(buffer[:n], remote, udpReplyControl(oob[:control], remote))
 	}
 }
 
-func (h *UDP) receivePacket(raw []byte, remote netip.AddrPort) {
+func (h *UDP) receivePacket(raw []byte, remote netip.AddrPort, reply []byte) {
 	if h.receiveSTUN(raw, remote) {
 		return
 	}
@@ -175,7 +178,7 @@ func (h *UDP) receivePacket(raw []byte, remote netip.AddrPort) {
 			h.mu.Unlock()
 			return
 		}
-		peer = h.newPeer(key)
+		peer = h.newPeer(key, reply)
 		select {
 		case h.accept <- peer:
 		default:
@@ -252,10 +255,14 @@ func (d *Datagram) Send(ctx context.Context, payload []byte) error {
 	copy(raw, udpMagic[:])
 	copy(raw[4:20], d.key.token[:])
 	copy(raw[20:], payload)
-	return d.hub.writeDatagram(ctx, raw, d.key.remote)
+	return d.hub.writeDatagramControl(ctx, raw, d.key.remote, d.replyControl)
 }
 
 func (h *UDP) writeDatagram(ctx context.Context, raw []byte, remote netip.AddrPort) error {
+	return h.writeDatagramControl(ctx, raw, remote, nil)
+}
+
+func (h *UDP) writeDatagramControl(ctx context.Context, raw []byte, remote netip.AddrPort, control []byte) error {
 	h.writeMu.Lock()
 	defer h.writeMu.Unlock()
 	cleanup, err := deadline(ctx, h.socket.SetWriteDeadline)
@@ -263,7 +270,7 @@ func (h *UDP) writeDatagram(ctx context.Context, raw []byte, remote netip.AddrPo
 		return err
 	}
 	defer cleanup()
-	n, err := h.socket.WriteToUDPAddrPort(raw, remote)
+	n, _, err := h.socket.WriteMsgUDPAddrPort(raw, control, remote)
 	if err != nil {
 		return ctxError(ctx, err)
 	}
