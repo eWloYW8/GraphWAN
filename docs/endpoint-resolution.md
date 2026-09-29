@@ -67,8 +67,12 @@ macOS queries kernel interface type, family, subfamily and clone flags. Its
 classification policy is tested on Linux, and Intel/Apple Silicon adapters are
 cross-compiled; native macOS discovery is not claimed. See
 [macOS operation](macos-operation.md#physical-interface-discovery).
-DragonFly still uses name/MAC heuristics; authoritative classification there
-remains an outstanding implementation item.
+DragonFly combines routing-interface types with read-only driver queries. TAP and
+Netgraph Ethernet devices reject its hardware-address query; separate VLAN,
+bridge and LAGG queries exclude those software Ethernet drivers regardless of
+name/group edits. Linux policy tests and a DragonFly/amd64 cross-build cover this
+implementation; native DragonFly execution is unverified and optional. See
+[DragonFly operation](dragonfly-operation.md#physical-interface-discovery).
 
 ## Live listener changes
 

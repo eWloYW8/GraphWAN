@@ -54,11 +54,12 @@ checks are listed separately from outstanding implementation work.
 - [x] gRPC bidirectional streams through manual endpoints.
 - [x] QUIC datagrams, shared UDP listener and bounded message fragmentation.
 - [x] Authenticated ephemeral peer keys, cipher policy, replay protection/rekey.
-- [ ] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
+- [x] Physical interface discovery and changes; automatic TCP/UDP endpoints only.
 - [x] FreeBSD kernel driver/type discovery with native renamed-interface and address-change tests.
 - [x] OpenBSD kernel type/cloner discovery with native clone exclusion and address-change tests.
 - [x] NetBSD kernel type/cloner discovery with native clone exclusion and address-change tests.
 - [x] macOS kernel family/subfamily/clone discovery with Linux policy tests and Intel/Apple Silicon cross-builds.
+- [x] DragonFly routing types and read-only driver queries, Linux policy tests and amd64 cross-build.
 - [x] Manual hostname/path endpoints and configurable listeners (default 24752), Linux acceptance and cross-platform review.
 - [x] Per-address DNS Candidates across all six transports, refresh, preference and healthy rekey on Linux.
 - [x] Windows UDP packet-info implementation and portable 32/64-bit ABI validation.
@@ -925,3 +926,27 @@ These checks are not required for completion under the agreed Linux validation s
   offline TUN repair, cached transit restart and shutdown cleanup. No non-Linux
   native execution is claimed. Full Link-retention acceptance and the final
   project audit remain open.
+
+- DragonFly discovery now has a dedicated adapter using the routing-interface
+  snapshot and read-only ioctl contracts, replacing the name/MAC fallback.
+  Source review found that TAP and both Netgraph Ethernet implementations reject
+  `SIOCGHWADDR`, while ordinary Ethernet/Wi-Fi/guest NIC drivers support it.
+  VLAN, bridge and LAGG also support the hardware-address query, so their own GET
+  queries explicitly exclude them. Interface aliases and editable groups are not
+  classification inputs. Name/index/MAC changes and unexpected query errors fail
+  the scan instead of publishing uncertain endpoints.
+- Linux tests cover hardware aliases resembling virtual names, renamed TAP,
+  bridge/VLAN/LAGG, closed TAP, Netgraph, spoofed TUN type, unsupported types and
+  failure at every probe stage. Discovery/Agent race suites and repository vet
+  pass. The actual Linux namespace discovery fixture passes with renamed NIC and
+  TUN/TAP/bridge/dummy classification, IPv4/IPv6 global/link-local address changes
+  and interface down/up checks. It runs with `GRAPHWAN_TEST_NETNS=1` inside
+  `sudo unshare --net`; no host interface is modified.
+- DragonFly/amd64 production and discovery-test binaries cross-compile, target
+  vet passes, and the production size/SHA-256 manifest is verified. Compile-time
+  assertions check ioctl request sizes. The pinned kernel contracts, unknown-driver
+  behavior and optional native verification are documented in
+  [DragonFly operation](dragonfly-operation.md#physical-interface-discovery).
+  This completes physical-interface discovery under the agreed Linux execution
+  scope; previous entries calling DragonFly classification open are historical.
+  No DragonFly native execution or physical-hardware test is claimed.

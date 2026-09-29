@@ -10,13 +10,13 @@ FreeBSD now has a native TUN adapter with verified kernel IPv4/IPv6 packet I/O
 and live address/prefix/MTU updates. A macOS utun adapter is implemented and
 cross-built for Intel and Apple Silicon. Windows Wintun support and a verified
 DLL download script are implemented with amd64/arm64/386 cross-builds. DragonFly
-has a source-reviewed, cross-built TUN adapter. Interface-discovery refinements
-and other implementation items are still in progress.
+has source-reviewed, cross-built TUN and interface-discovery adapters. Remaining
+implementation and final acceptance items are tracked below.
 Runtime acceptance is required on Linux; other platforms are reviewed and
 cross-built. Complete native validation on those platforms is optional.
 OpenBSD now has native TUN, Agent configuration, IPv4/IPv6 transport and configured
-TUN crash-recovery tests. Creation-window cleanup review remains open;
-multi-host/NAT native checks are optional.
+TUN crash-recovery tests. Creation-window cleanup review is documented with its
+remaining interruption boundary; multi-host/NAT native checks are optional.
 Progress and verification gaps are
 tracked in [the acceptance checklist](docs/implementation-status.md).
 
