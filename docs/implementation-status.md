@@ -70,7 +70,7 @@ checks are listed separately from outstanding implementation work.
 - [x] Heartbeat, RTT/loss/traffic metrics, hysteresis and standby failover.
 - [x] Common active-Link agreement for implemented transports, including rekey.
 - [x] Controller outage continuity and autonomous peer reconnection.
-- [ ] MTU handling, bounded queues, malformed packet rejection and hop limit.
+- [x] MTU handling, bounded queues, malformed packet rejection and hop limit.
 
 ## Management UI
 
@@ -848,3 +848,28 @@ These checks are not required for completion under the agreed Linux validation s
   total); Python syntax and pinned actionlint pass. Discovery/operation docs now
   reflect implemented macOS metadata and IPv4/IPv6 link-local support instead of
   stale pre-implementation descriptions. Hosted CI execution is not claimed.
+
+
+- Packet-bound acceptance now includes IPv4/IPv6 exact-MTU and MTU+1 tests at
+  1280, 1500 and 9000 bytes for both local and authenticated-peer ingress, with
+  both local delivery and transit. Oversized packets cannot reach either callback;
+  subsequent valid traffic still succeeds. A deliberately oversized wire frame
+  verifies that a peer cannot bypass the global bound by omitting the encoder.
+- A mixed-revision fixture compiles individually valid graphs whose A→B, B→C and
+  C→A shortest paths form a three-node forwarding cycle. Traffic originates at a
+  fourth Node and targets a fifth; the actual Router callbacks terminate after
+  exactly 32 transmissions with `ErrHopLimit`, preserving the originating epoch.
+  This verifies convergence-loop containment rather than only decrementing a
+  standalone header or rejecting a packet sent back to its ingress neighbor.
+- A blocked outbound transport fills the Link's 128-frame queue with maximum-size
+  frames, checks overflow/cancellation and defensive copying of a reused buffer,
+  then drains in order and resumes transmission with correct byte accounting.
+  Existing receive-queue, standby-control, framing, malformed-message and QUIC
+  assembly tests remain part of the packet/forwarding/Link/transport/Agent race
+  gate, which passes along with vet. Five-second parser fuzz runs pass with
+  563,053 overlay-parser and 584,399 IP-inspector executions.
+- Existing real Linux TUN evidence covers all six transports at overlay/underlay
+  MTU 9000/1280, including the current listener-change acceptance. No production
+  code changed for this audit. The [packet contract](peer-protocol.md#packet-bounds-and-backpressure)
+  now states configured MTU, base-header validation, queue limits, host checksum
+  responsibilities and the lack of automatic path-MTU adaptation explicitly.

@@ -177,6 +177,43 @@ attestation against a compromised transit Node. Configuration replacement swaps
 an immutable routing table; packets already in flight may belong to an older
 epoch and are bounded by hop limits during convergence.
 
+### Packet bounds and backpressure
+
+The configured Network MTU applies to the **inner IP packet**, at both TUN and
+peer ingress, before either local delivery or transit. It defaults to 1280 and
+can be set from 1280 through 9000. The overlay adds an 80-byte header; peer crypto
+and transport framing add their own overhead. This setting does not estimate or
+automatically track path MTU. Stream transports segment their byte stream, native
+UDP relies on the host IP stack's fragmentation behavior, and QUIC splits peer
+messages into its bounded application fragments. Networks that discard outer
+fragments can require a smaller configured MTU or another transport.
+
+Packet parsing checks the wire version, reserved fields, nonzero IDs and hop
+limit, declared payload length and maximum frame length. Inner-IP inspection
+checks the version, base header size and exact IP length; the forwarding layer
+also enforces configured Node/address admission. Upper-layer checksums and full
+IPv6 extension-header semantics remain the receiving host stack's responsibility.
+New overlay packets start with hop limit 32. Transit decrements it; a packet with
+one remaining hop may be delivered at its destination but cannot transit again.
+Forwarding preserves the original routing epoch instead of resetting the hop
+budget when a packet crosses Agents with different applied revisions.
+
+Each Link has 128 queued outbound frames and 128 queued received frames, with
+separate eight-message probe and selection queues. Sending copies the caller's
+frame before enqueueing; a full outbound queue returns `ErrQueueFull`, and a full
+receive queue drops the arriving frame. Probes retain write priority and incoming
+control processing does not wait for TUN delivery. Stream writes have deadlines;
+transport failure closes that Link so the Edge can use a healthy standby. No
+unbounded application packet backlog or overlay data retransmission is added.
+
+Linux race tests exercise exact/oversized MTU packets at 1280, 1500 and 9000 for
+IPv4/IPv6 local delivery and transit, a three-node forwarding cycle assembled from
+different valid routing revisions, and outbound congestion/recovery with reused
+input buffers. Parser fuzz targets and malformed-transport tests complement
+these checks. [Native Linux scenarios](linux-operation.md#ipv4-and-ipv6-verification-matrix)
+verify actual TUN/transport traffic with overlay MTU 9000 over underlay MTU 1280;
+they do not establish automatic path-MTU adaptation or universal fragment delivery.
+
 ## Link control inside the authenticated channel
 
 After Ready, the dialer sends a type-0 plaintext message containing a JSON

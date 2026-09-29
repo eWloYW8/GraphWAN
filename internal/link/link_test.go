@@ -151,6 +151,64 @@ func TestQueueBoundAndInvalidMessages(t *testing.T) {
 		t.Fatal("invalid message did not close link")
 	}
 }
+
+func TestOutgoingQueueBoundOwnershipAndRecovery(t *testing.T) {
+	c := &gatedChannel{testChannel: &testChannel{id: "bounded", incoming: make(chan []byte, 256), done: make(chan struct{}), echo: true}, gate: make(chan struct{}), entered: make(chan struct{}, 1), delivered: make(chan []byte, queueSize+2)}
+	l, err := New(t.Context(), c, Info{NetworkID: testutil.ID(1), EdgeID: testutil.ID(2), PeerID: testutil.ID(3), CandidateID: "candidate", Transport: model.TCP}, Options{Heartbeat: 50 * time.Millisecond, Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	eventually(t, func() bool { return l.Stats().Healthy })
+	frame := make([]byte, packet.MaxFrame)
+	if err := l.Send(t.Context(), frame); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-c.entered:
+	case <-time.After(time.Second):
+		t.Fatal("writer did not enter blocked transport")
+	}
+	for i := 1; i <= queueSize; i++ {
+		binary.BigEndian.PutUint32(frame[:4], uint32(i))
+		if err := l.Send(t.Context(), frame); err != nil {
+			t.Fatal("queue rejected a frame below its bound", err)
+		}
+	}
+	clear(frame) // The forwarding loop reuses its input buffer after Send returns.
+	if err := l.Send(t.Context(), frame); !errors.Is(err, ErrQueueFull) {
+		t.Fatal("full outbound queue did not apply backpressure", err)
+	}
+	if l.dropped.Load() != 1 {
+		t.Fatal("overflow drop was not counted")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := l.Send(ctx, frame); !errors.Is(err, context.Canceled) {
+		t.Fatal("canceled send entered the congested queue", err)
+	}
+	close(c.gate)
+	for i := 0; i <= queueSize; i++ {
+		select {
+		case raw := <-c.delivered:
+			if len(raw) != packet.MaxFrame+1 || binary.BigEndian.Uint32(raw[1:5]) != uint32(i) {
+				t.Fatal("queue lost ordering or retained the caller's reused buffer")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("queue failed to drain after transport recovered")
+		}
+	}
+	if err := l.Send(t.Context(), frame); err != nil {
+		t.Fatal("drained queue did not recover", err)
+	}
+	select {
+	case <-c.delivered:
+	case <-time.After(time.Second):
+		t.Fatal("recovered queue did not transmit")
+	}
+	eventually(t, func() bool { return l.Stats().Healthy && l.Stats().TXBytes == uint64((queueSize+2)*packet.MaxFrame) })
+}
+
 func TestAutomaticSelectionHysteresis(t *testing.T) {
 	a := newTestLink(t, "a", "a", false)
 	b := newTestLink(t, "b", "b", false)
