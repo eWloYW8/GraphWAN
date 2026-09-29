@@ -45,11 +45,14 @@ def main():
     parser.add_argument("--underlay-family", type=int, choices=(4, 6), default=4, help="controller and peer underlay address family")
     parser.add_argument("--nat", action="store_true", help="place each agent behind a separate restricted NAT; requires --transport udp/tcp and iptables")
     parser.add_argument("--restricted-agent", action="store_true", help="run agents with the capability bounding set used by the systemd example")
+    parser.add_argument("--link-local", action="store_true", help="use only IPv4 link-local underlay addresses on the shared link")
     args = parser.parse_args()
     if args.nat and args.transport not in ("udp", "tcp"):
         parser.error("--nat verifies UDP or TCP punching")
     if args.nat and args.underlay_family != 4:
         parser.error("the NAT fixture currently models IPv4 SNAT; IPv6 overlay is supported")
+    if args.link_local and (args.nat or args.underlay_family != 4):
+        parser.error("--link-local requires IPv4 underlay without NAT")
     if not 1280 <= args.mtu <= 9000 or not 1280 <= args.underlay_mtu <= 9000:
         parser.error("MTUs must be between 1280 and 9000")
     if os.geteuid() != 0 or os.readlink("/proc/self/ns/net") == os.readlink("/proc/1/ns/net"):
@@ -57,6 +60,10 @@ def main():
     controller_ip = "192.0.2.1" if args.underlay_family == 4 else "2001:db8:42::1"
     underlay_ips = [f"192.0.2.{11+i}" if args.underlay_family == 4 else f"2001:db8:42::{11+i}" for i in range(3)]
     underlay_bits = 24 if args.underlay_family == 4 else 64
+    if args.link_local:
+        controller_ip = "169.254.42.1"
+        underlay_ips = [f"169.254.42.{11+i}" for i in range(3)]
+        underlay_bits = 16
     overlay_ips = [f"10.42.0.{i+1}" if args.overlay_family == 4 else f"fd42:6777::{i+1}" for i in range(3)]
     overlay_cidr = "10.42.0.0/24" if args.overlay_family == 4 else "fd42:6777::/64"
     def host_port(ip, port):
@@ -180,6 +187,12 @@ def main():
                 agent_commands.append(argv)
                 agents.append(spawn(f"agent-{index}", argv, dict(os.environ, GRAPHWAN_ENROLLMENT_TOKEN=token, HTTP_PROXY="", HTTPS_PROXY="", ALL_PROXY="")))
             state = eventually(lambda: (s if len(s["agents"]) == 3 and all(a["endpoints"] for a in s["agents"]) else None) if (s := api("GET", "/state")) else None)
+            if args.link_local:
+                for index, item in enumerate(sorted(state["agents"], key=lambda item: item["name"])):
+                    actual = {(endpoint["transport"], endpoint["url"]) for endpoint in item["endpoints"]}
+                    expected = {(kind, f"{kind}://{underlay_ips[index]}:24752") for kind in ("udp", "tcp")}
+                    assert actual == expected, f"unexpected link-local discovery: {actual}"
+                print("PASS: all automatic TCP/UDP endpoints use the link-local-only underlay", flush=True)
             if args.restricted_agent:
                 for process in agents:
                     status = dict(line.split(":", 1) for line in Path(f"/proc/{process.pid}/status").read_text().splitlines())

@@ -26,11 +26,11 @@ func TestInterfaceEndpointSnapshot(t *testing.T) {
 		if iface.Index != 1 && iface.Index != 5 {
 			t.Fatal("read addresses of excluded interface")
 		}
-		return []net.Addr{addressText("192.0.2.1/24"), addressText("fd42::1/64"), addressText("fe80::1/64"), addressText("127.0.0.1/8"), addressText("224.0.0.1/4"), addressText("broken"), addressText("192.0.2.1/32")}, nil
+		return []net.Addr{addressText("192.0.2.1/24"), addressText("fd42::1/64"), addressText("169.254.33.1/16"), addressText("fe80::1/64"), addressText("127.0.0.1/8"), addressText("224.0.0.1/4"), addressText("0.0.0.0/32"), addressText("255.255.255.255/32"), addressText("broken"), addressText("192.0.2.1/32")}, nil
 	}
 	physical := map[int]bool{1: true, 2: false, 3: true, 4: true, 5: true}
 	before, err := interfaceEndpoints([]byte("identity"), 24752, interfaces, physical, addresses)
-	if err != nil || len(before) != 4 {
+	if err != nil || len(before) != 6 {
 		t.Fatalf("endpoint snapshot: %v %v", before, err)
 	}
 	for _, endpoint := range before {

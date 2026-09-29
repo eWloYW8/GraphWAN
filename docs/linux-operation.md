@@ -47,7 +47,7 @@ remains in progress. See the acceptance tracker.
   routing state. Failed preparation closes new resources and retains existing
   interfaces and connections. Changing only graph weights preserves peer sessions.
 - Linux underlay discovery runs every five seconds. It includes device and veth
-  global-unicast addresses, excludes TUN/TAP/bridge devices, and advertises only
+  global-unicast and IPv4 link-local addresses, excludes TUN/TAP/bridge devices, and advertises only
   TCP/UDP endpoints using the configured Agent listen port (24752 by default).
 - Each Edge independently retries allowed candidates with jittered backoff.
   The Agent permits eight concurrent outgoing attempts and eight incoming
@@ -69,11 +69,12 @@ remains in progress. See the acceptance tracker.
 - The controller is used only for management, configuration and telemetry.
   Its absence does not cancel the runtime, peer reconnection or cached startup.
 
-FreeBSD has a [native adapter and separate verification guide](freebsd-operation.md).
-The [macOS utun adapter](macos-operation.md) is implemented and cross-built, with
-native verification still pending. Windows and other BSD adapters remain
-incomplete and currently return an explicit unsupported-TUN error when configured
-with a Network. This is an implementation gap, not the final platform support policy.
+Other implemented adapters are documented for [FreeBSD](freebsd-operation.md),
+[macOS](macos-operation.md), [Windows](windows-operation.md),
+[OpenBSD](openbsd-operation.md), [NetBSD](netbsd-operation.md) and
+[DragonFly](dragonfly-operation.md). Complete runtime acceptance is required on
+Linux; other platforms use source review and cross-builds, with any native test
+evidence recorded separately.
 
 ## Reproduce native verification
 
@@ -96,6 +97,7 @@ sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --trans
 sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport quic --mtu 9000 --underlay-mtu 1280
 sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport udp --nat
 sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport tcp --nat --mtu 9000 --underlay-mtu 1280
+sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --link-local --restricted-agent --overlay-family 6 --mtu 9000 --underlay-mtu 1280
 ```
 
 The process test needs Python 3.8+, `ip`, `unshare`, `nsenter`, `ping`, and `sleep`.
@@ -115,6 +117,19 @@ Agent's discovered addresses; QUIC/WS/WSS/gRPC scenarios configure explicit URLs
 Edges enable only the chosen direct address family, preventing a silent fallback.
 The IPv6 fixture uses `2001:db8:42::/64` for the isolated underlay and
 `fd42:6777::/64` for the overlay. Test addresses disable DAD to avoid setup delays.
+
+`--link-local` replaces every underlay/controller address with an address from
+`169.254.42.0/16`. It requires IPv4 underlay and cannot be combined with NAT. The
+three Agents share one Ethernet link and have no other unicast underlay addresses.
+The test requires exactly the discovered TCP/UDP link-local endpoints before
+creating the topology; automatic mode then requires both transports to become
+healthy. It verifies full-MTU IPv6 overlay traffic, controller outage, offline
+TUN repair, cached transit-Agent restart and shutdown cleanup. IPv4 link-local
+connectivity is intended for peers on the same link, not as a public/NAT endpoint.
+IPv6 link-local addresses still require mapping each peer's address to the local
+outgoing interface and remain excluded from automatic discovery until that feature
+is implemented. Unspecified, loopback, multicast and broadcast addresses remain
+excluded from automatic interface endpoints.
 
 | Overlay | Underlay | Transports | Overlay/underlay MTU | Result |
 | --- | --- | --- | --- | --- |

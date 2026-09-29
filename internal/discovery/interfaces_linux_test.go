@@ -37,6 +37,10 @@ func TestNativeInterfaceDiscovery(t *testing.T) {
 		if err := netlink.AddrAdd(link, address); err != nil {
 			t.Fatal(err)
 		}
+		linkLocal := &netlink.Addr{IPNet: &net.IPNet{IP: net.IPv4(169, 254, 33, byte(i+1)), Mask: net.CIDRMask(16, 32)}}
+		if err := netlink.AddrAdd(link, linkLocal); err != nil {
+			t.Fatal(err)
+		}
 		if err := netlink.LinkSetUp(link); err != nil {
 			t.Fatal(err)
 		}
@@ -76,16 +80,21 @@ func TestNativeInterfaceDiscovery(t *testing.T) {
 			}
 		}
 	}
-	check([]string{"198.18.33.1", "fd42:6766::1"})
+	check([]string{"198.18.33.1", "fd42:6766::1", "169.254.33.1"})
 	if err := netlink.AddrDel(links[0], v6); err != nil {
 		t.Fatal(err)
 	}
-	check([]string{"198.18.33.1"})
+	check([]string{"198.18.33.1", "169.254.33.1"})
 	if err := netlink.LinkSetDown(links[0]); err != nil {
 		t.Fatal(err)
 	}
 	check(nil)
 	if err := netlink.LinkSetUp(links[0]); err != nil {
+		t.Fatal(err)
+	}
+	check([]string{"198.18.33.1", "169.254.33.1"})
+	linkLocal, _ := netlink.ParseAddr("169.254.33.1/16")
+	if err := netlink.AddrDel(links[0], linkLocal); err != nil {
 		t.Fatal(err)
 	}
 	check([]string{"198.18.33.1"})

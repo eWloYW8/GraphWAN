@@ -29,7 +29,7 @@ Python 3.10 or newer is used for the check and build scripts.
 | --- | --- |
 | Backend | Ubuntu 24.04: Go formatting, module integrity, vet, uncached race tests, native kernel/Agent tests and systemd unit syntax |
 | Frontend | Locked install, formatting, TypeScript/Vite build, exact embedded-asset comparison, unit tests and Chromium integration/accessibility tests against a real controller |
-| Linux network | Thirteen isolated three-Agent scenarios: automatic TCP/UDP, all six IPv6 transports, mixed address families, and TCP/UDP NAT with IPv4/IPv6 overlays |
+| Linux network | Fourteen isolated three-Agent scenarios: automatic TCP/UDP, IPv4 link-local underlay, all six IPv6 transports, mixed address families, and TCP/UDP NAT with IPv4/IPv6 overlays |
 | Optional native platforms (manual) | Windows 2025, macOS 15 arm64/Intel, and FreeBSD 15.1 amd64 VM. FreeBSD covers: TUN lifecycle and reconfiguration, Agent reconciliation, interface discovery, maximum-size UDP/wildcard replies and the complete Mesh test package |
 | Cross-build | Every advertised architecture for the seven operating systems below, with binary sizes, SHA-256 hashes and distribution archives |
 

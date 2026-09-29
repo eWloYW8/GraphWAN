@@ -71,3 +71,12 @@ only compiled, not executed on Linux. Physical-interface discovery still uses
 the fallback name/MAC classification; authoritative classification of renamed
 software Ethernet interfaces remains an implementation item. This TUN adapter
 does not establish completion of that separate discovery feature.
+
+Discovery research against the same kernel revision found that
+[`IFDATA_GENERAL`](https://github.com/DragonFlyBSD/DragonFlyBSD/blob/d1f4fb943c73e2b61ddabff6aa48ce7551db72f4/sys/net/if_mib.c)
+returns the current interface name; the MIB has no FreeBSD-style
+`IFDATA_DRIVERNAME` query. Clone creation adds a driver-named group, but the
+interface ioctls also allow administrators to add and remove groups. Neither a
+name prefix nor group membership proves the original driver after those changes.
+Consequently, the outstanding classification item must not be marked complete
+merely by substituting group checks for the current fallback.

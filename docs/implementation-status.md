@@ -675,3 +675,21 @@ These checks are not required for completion under the agreed Linux validation s
   This completes the macOS classification implementation item; DragonFly
   classification and link-local scope mapping remain open. Details and pinned
   kernel references are in [macOS operation](macos-operation.md#physical-interface-discovery).
+
+- IPv4 link-local automatic endpoints are now included on eligible underlay
+  interfaces. The snapshot retains only TCP/UDP and still excludes loopback,
+  unspecified, multicast/broadcast and unsupported IPv6 link-local addresses.
+  Linux native discovery verifies link-local address add/remove and interface
+  down/up while rejecting TUN/TAP/bridge/dummy addresses. Race-enabled discovery,
+  Link and model tests pass, along with the native Linux gates and workflow lint.
+  A new isolated three-Agent scenario uses only 169.254.42.0/16 underlay addresses,
+  checks the exact automatic endpoint sets and both healthy TCP/UDP transports,
+  and passes IPv6 overlay MTU 9000 over underlay MTU 1280, controller outage,
+  offline TUN repair, cached transit restart and interface cleanup. Agents run
+  under the deployment capability policy. The default Linux CI matrix now has
+  fourteen scenarios. See [Linux operation](linux-operation.md).
+- DragonFly discovery investigation confirms the generic interface MIB exposes
+  the mutable current name, not FreeBSD's original-driver query, and cloned
+  interface groups can be edited. Group membership alone would not close the
+  outstanding classification requirement. The finding is recorded in the
+  [DragonFly guide](dragonfly-operation.md); no native platform validation was run.

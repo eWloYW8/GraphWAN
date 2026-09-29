@@ -50,7 +50,10 @@ func interfaceEndpoints(identity []byte, port uint16, interfaces []net.Interface
 				continue
 			}
 			ip := prefix.Addr().Unmap()
-			if !ip.IsGlobalUnicast() {
+			// IPv4 link-local addresses use ordinary on-link routes and need no
+			// zone identifier. IPv6 link-local endpoints need peer-local scope
+			// mapping before they can be advertised safely.
+			if !ip.IsGlobalUnicast() && !(ip.Is4() && ip.IsLinkLocalUnicast()) {
 				continue
 			}
 			for _, kind := range []model.Transport{model.UDP, model.TCP} {
