@@ -54,8 +54,9 @@ type Device interface {
 type Factory func(Config) (Device, error)
 
 // MTUSetter optionally updates a live device without creating a second interface
-// with the same address. On error, the previous MTU remains in effect. Calls may
-// race with Configuration and Close; the adapter must serialize those operations.
+// with the same address. On error, the previous MTU remains in effect unless
+// ErrUnavailable reports failed restoration. Calls may race with Configuration
+// and Close; the adapter must serialize those operations.
 type MTUSetter interface {
 	SetMTU(int) error
 }

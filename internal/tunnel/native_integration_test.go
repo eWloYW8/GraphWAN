@@ -1,4 +1,4 @@
-//go:build (linux || freebsd || darwin) && integration
+//go:build (linux || freebsd || darwin || windows) && integration
 
 package tunnel_test
 
@@ -35,9 +35,10 @@ func checkConfiguredNativeTunnel(t *testing.T, device tunnel.Device, config tunn
 		t.Fatal("attached to an existing interface")
 	}
 	iface, err := net.InterfaceByName(device.Name())
-	if err != nil || iface.MTU != config.MTU || iface.Flags&net.FlagUp == 0 {
+	if err != nil || iface.Flags&net.FlagUp == 0 {
 		t.Fatalf("interface configuration: %+v %v", iface, err)
 	}
+	checkNativeMTU(t, iface, config)
 	checkNativeRoute(t, iface, config)
 	outgoing, err := net.DialUDP(udp, &net.UDPAddr{IP: localIP}, &net.UDPAddr{IP: remoteIP, Port: 43210})
 	if err != nil {
@@ -153,8 +154,8 @@ func checkConfiguredNativeTunnel(t *testing.T, device tunnel.Device, config tunn
 	case <-time.After(time.Second):
 		t.Fatal("close left TUN read blocked")
 	}
-	// Darwin detaches utun asynchronously after the final descriptor closes.
-	deadline := time.Now().Add(2 * time.Second)
+	// Kernel interface removal can complete asynchronously after Close.
+	deadline := time.Now().Add(10 * time.Second)
 	for {
 		if _, err := net.InterfaceByName(config.Name); err != nil {
 			break

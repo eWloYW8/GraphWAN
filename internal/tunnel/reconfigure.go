@@ -10,7 +10,7 @@ import (
 // utility is killed at its deadline). Rollback reads the actual addresses and
 // restores only the two addresses involved, leaving unrelated aliases alone.
 type configOperations struct {
-	setMTU      func(int) error // A single atomic kernel operation.
+	setMTU      func(int) error // Atomic update or an all-or-restore transaction.
 	addresses   func() ([]netip.Prefix, error)
 	add, remove func(netip.Prefix) error
 }

@@ -33,6 +33,8 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [ ] FreeBSD multi-host/NAT acceptance and older kernels.
 - [x] macOS utun adapter code and Intel/Apple Silicon cross-builds.
 - [ ] Native macOS utun/route/reconfiguration, multi-host and NAT acceptance.
+- [x] Windows Wintun adapter code, pinned DLL retrieval and amd64/arm64/386 cross-builds.
+- [ ] Native Windows kernel/Agent, multi-host, discovery and NAT acceptance.
 - [x] Local recovery from fatal TUN I/O, independent runtime health and Linux offline recovery.
 - [x] Actual multi-hop IP forwarding and network/source admission enforcement.
 - [x] Native Linux IPv4/IPv6 overlays and underlays, all six IPv6 transports and mixed families.
@@ -326,3 +328,20 @@ Every feature below derives from the accepted proposal, including its suggestion
   reconciliation, but have not been executed on macOS. This is implementation
   and compile-time evidence only; the native macOS acceptance item remains open.
   See [macOS operation and pending native checks](macos-operation.md).
+
+- Windows adapter implementation: Wintun packet rings, restricted DLL loading and
+  ABI validation, case-insensitive alias reservation, owned-LUID address/routes,
+  per-family IP MTUs and live address/prefix/MTU rollback are implemented. Ten Linux
+  race-enabled tunnel test repetitions cover interrupted reads, concurrent writes
+  and Close, mapped-storage lifetime, congestion recovery and MTU rollback. Full
+  Go race tests/vet and the native Linux IPv4/IPv6 TUN test pass. Production and
+  native Agent/TUN test binaries cross-build for Windows amd64, arm64 and 386;
+  integration-tagged vet passes for each Windows architecture. Shared kernel-test
+  helpers also cross-compile for Darwin amd64/arm64 and FreeBSD amd64/arm64.
+  The pinned Wintun downloader succeeds against the official download and preserves
+  exact DLL/license bytes for all four archive architectures; PE machine checks
+  and corrupted-archive rejection pass. Native Windows tests for kernel packets,
+  routes, names, configuration migration, owned cleanup and actual Agent
+  reconciliation are written but have not run on Windows. No Windows native or
+  multi-host acceptance is claimed. See [Windows setup and pending native
+  verification](windows-operation.md).

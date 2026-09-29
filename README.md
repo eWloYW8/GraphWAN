@@ -8,9 +8,10 @@ weighted multi-hop routing and peer-to-peer data transport.
 the embedded React management UI supports topology editing and live status.
 FreeBSD now has a native TUN adapter with verified kernel IPv4/IPv6 packet I/O
 and live address/prefix/MTU updates. A macOS utun adapter is implemented and
-cross-built for Intel and Apple Silicon; native macOS validation is pending.
-FreeBSD multi-host acceptance, other platform adapters and remaining acceptance
-items are still in progress.
+cross-built for Intel and Apple Silicon. Windows Wintun support and a verified
+DLL download script are implemented with amd64/arm64/386 cross-builds. Native
+macOS/Windows validation, FreeBSD multi-host acceptance, remaining BSD adapters
+and other acceptance items are still in progress.
 Progress and verification gaps are
 tracked in [the acceptance checklist](docs/implementation-status.md).
 
@@ -68,6 +69,8 @@ For the FreeBSD adapter, requirements and native checks, see
 [FreeBSD operation](docs/freebsd-operation.md).
 The macOS adapter and its unverified native test procedure are documented in
 [macOS operation](docs/macos-operation.md).
+The Windows Wintun adapter, DLL setup and pending native checks are documented in
+[Windows operation](docs/windows-operation.md).
 
 ## Development
 
