@@ -46,6 +46,7 @@ checks are listed separately from outstanding implementation work.
 - [ ] NetBSD pre-marker interruption cleanup review.
 - [x] macOS utun adapter code and Intel/Apple Silicon cross-builds.
 - [x] Windows Wintun adapter code, pinned DLL retrieval and amd64/arm64/386 cross-builds.
+- [x] DragonFly autoclone TUN, dual-stack framing and live route/address/MTU reconciliation; source review and cross-build.
 - [x] Local recovery from fatal TUN I/O, independent runtime health and Linux offline recovery.
 - [x] Actual multi-hop IP forwarding and network/source admission enforcement.
 - [x] Native Linux IPv4/IPv6 overlays and underlays, all six IPv6 transports and mixed families.
@@ -644,3 +645,18 @@ These checks are not required for completion under the agreed Linux validation s
   matrix and retains distribution archives alongside cross-build artifacts.
   Unit syntax validation does not claim a real systemd installation test.
   See [deployment and upgrade instructions](deployment.md).
+
+- DragonFly/amd64 now has an implemented TUN adapter rather than an unsupported
+  stub. Source review against the pinned DragonFly kernel revision establishes
+  the autoclone ownership path, canonical-name close behavior, IPv4/IPv6 framing,
+  nonblocking reads and ioctl layouts. Live configuration reuses the tested
+  address/route rollback logic and checks descriptor name plus interface index.
+  MTU writes use SIOCSIFMTU because the descriptor-only setter would leave ND6's
+  maximum MTU stale. The final DragonFly binary and test binary cross-compile,
+  target vet passes, and the binary manifest's size/hash are verified. Related
+  FreeBSD/OpenBSD/NetBSD amd64 and Darwin arm64 binaries also cross-build with
+  verified manifests after extending the shared BSD build tags. Linux race tests
+  for TUN, Agent and discovery pass, along with repository vet. No DragonFly VM
+  was started or native execution claimed. Authoritative DragonFly physical
+  interface discovery remains separate outstanding work.
+  See [DragonFly operation and kernel references](dragonfly-operation.md).

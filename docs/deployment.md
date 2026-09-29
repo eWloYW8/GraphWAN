@@ -137,7 +137,8 @@ before removing it. No uninstaller silently deletes identities or controller dat
 
 Run the executable with the same CLI flags from an elevated terminal where TUN
 setup requires it. Use [macOS](macos-operation.md), [FreeBSD](freebsd-operation.md),
-[OpenBSD](openbsd-operation.md), [NetBSD](netbsd-operation.md) or
+[OpenBSD](openbsd-operation.md), [NetBSD](netbsd-operation.md),
+[DragonFly](dragonfly-operation.md) or
 [Windows](windows-operation.md) instructions for platform setup. The executable
 is not a Windows Service Control Manager service; do not use `sc create` directly
 against it. Non-systemd supervisors must preserve the private state directory,
