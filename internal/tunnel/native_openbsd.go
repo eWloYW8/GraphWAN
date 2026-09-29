@@ -39,7 +39,7 @@ type openBSDIfreq struct {
 type openBSDDevice struct {
 	*framedDevice
 	index int
-	lease *openBSDLease
+	lease *tunLease
 }
 
 func openBSDInterfaceIOCTL(fd int, operation uintptr, name string) error {
@@ -85,7 +85,7 @@ func Open(config Config) (_ Device, resultError error) {
 		return nil, errors.New("OpenBSD TUN configuration currently requires routing table 0")
 	}
 	if config.Name != "" {
-		if _, err := openBSDUnit(config.Name); err != nil {
+		if _, err := persistentTunUnit(config.Name); err != nil {
 			return nil, err
 		}
 	}
@@ -103,14 +103,14 @@ func Open(config Config) (_ Device, resultError error) {
 	}
 	defer unix.Close(control)
 	name := config.Name
-	var lease *openBSDLease
+	var lease *tunLease
 	for attempt := 0; attempt < 16; attempt++ {
 		if config.Name == "" {
 			var raw [2]byte
 			rand.Read(raw[:])
 			name = "tun" + strconv.Itoa(int(binary.BigEndian.Uint16(raw[:])))
 		}
-		lease, err = newOpenBSDLease(name)
+		lease, err = newTunLease(name)
 		if err != nil {
 			return nil, err
 		}
@@ -144,7 +144,7 @@ func Open(config Config) (_ Device, resultError error) {
 			}
 		}
 	}()
-	if _, err := openBSDDescription(name, openBSDMarker(lease.token, iface.Index)); err != nil {
+	if _, err := nativeInterfaceDescription(name, tunOwnershipMarker(lease.token, iface.Index)); err != nil {
 		return nil, err
 	}
 	// Only a few /dev/tunN nodes exist by default. Create a private device node
@@ -160,7 +160,7 @@ func Open(config Config) (_ Device, resultError error) {
 			resultError = errors.Join(resultError, os.RemoveAll(nodeDirectory))
 		}
 	}()
-	unit, _ := openBSDUnit(name)
+	unit, _ := persistentTunUnit(name)
 	path := filepath.Join(directory, "tun")
 	if err := unix.Mknod(path, unix.S_IFCHR|0600, int(unix.Mkdev(unix.Major(uint64(driver.Rdev)), unit))); err != nil {
 		return nil, err
@@ -264,8 +264,8 @@ func (d *openBSDDevice) checkOwnership() error {
 	if err != nil || iface.Index != d.index {
 		return fmt.Errorf("%w: owned TUN identity changed", ErrUnavailable)
 	}
-	description, err := openBSDDescription(d.config.Name, "")
-	if err != nil || description != openBSDMarker(d.lease.token, d.index) {
+	description, err := nativeInterfaceDescription(d.config.Name, "")
+	if err != nil || description != tunOwnershipMarker(d.lease.token, d.index) {
 		return fmt.Errorf("%w: owned TUN marker changed: %v", ErrUnavailable, err)
 	}
 	return nil

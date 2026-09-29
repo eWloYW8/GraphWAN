@@ -1,4 +1,4 @@
-//go:build openbsd && integration
+//go:build (openbsd || netbsd) && integration
 
 package tunnel_test
 
@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -27,10 +28,10 @@ import (
 
 const recoveryRegistry = "/var/run/graphwan-tun"
 
-func TestNativeOpenBSDCrashRecovery(t *testing.T) {
-	requireTestOpenBSD(t)
+func TestNativePersistentBSDCrashRecovery(t *testing.T) {
+	requireTestPersistentBSD(t)
 	if address := os.Getenv("GRAPHWAN_CRASH_CHILD_ADDRESS"); address != "" {
-		device, err := tunnel.Open(tunnel.Config{Address: netip.MustParsePrefix(address), MTU: 9000})
+		device, err := tunnel.Open(tunnel.Config{Address: netip.MustParsePrefix(address), MTU: persistentTestMTU()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -41,7 +42,7 @@ func TestNativeOpenBSDCrashRecovery(t *testing.T) {
 	}
 	for _, address := range []string{"10.240.45.1/24", "fd42:6795::1/64"} {
 		t.Run(address, func(t *testing.T) {
-			child, original, record := crashOpenBSDChild(t, address)
+			child, original, record := crashPersistentBSDChild(t, address)
 			// Another process must not recover a device whose record is still locked.
 			other, err := tunnel.Open(tunnel.Config{Address: netip.MustParsePrefix("10.240.46.1/24"), MTU: 1280})
 			if err != nil {
@@ -61,7 +62,7 @@ func TestNativeOpenBSDCrashRecovery(t *testing.T) {
 			if _, err := net.InterfaceByName(original.Name); err != nil {
 				t.Fatal("test did not leave a cloned TUN behind:", err)
 			}
-			config := tunnel.Config{Address: netip.MustParsePrefix(address), MTU: 9000}
+			config := tunnel.Config{Address: netip.MustParsePrefix(address), MTU: persistentTestMTU()}
 			device, err := tunnel.Open(config)
 			if err != nil {
 				t.Fatal("restart could not reuse the address/subnet:", err)
@@ -81,11 +82,11 @@ func TestNativeOpenBSDCrashRecovery(t *testing.T) {
 	}
 }
 
-func crashOpenBSDChild(t *testing.T, address string) (*exec.Cmd, *net.Interface, string) {
+func crashPersistentBSDChild(t *testing.T, address string) (*exec.Cmd, *net.Interface, string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	t.Cleanup(cancel)
-	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestNativeOpenBSDCrashRecovery$", "-test.v")
+	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestNativePersistentBSDCrashRecovery$", "-test.v")
 	child.Env = append(os.Environ(), "GRAPHWAN_CRASH_CHILD_ADDRESS="+address)
 	input, err := child.StdinPipe()
 	if err != nil {
@@ -134,7 +135,7 @@ func crashOpenBSDChild(t *testing.T, address string) (*exec.Cmd, *net.Interface,
 		t.Fatal(err)
 	}
 	for _, field := range strings.Fields(string(raw)) {
-		parts := strings.Split(field, ":")
+		parts := strings.Split(strings.Trim(field, "\""), ":")
 		if len(parts) == 3 && parts[0] == "graphwan" && parts[2] == strconv.Itoa(iface.Index) {
 			if _, err := os.Stat(filepath.Join(recoveryRegistry, parts[1])); err != nil {
 				t.Fatal(err)
@@ -147,11 +148,11 @@ func crashOpenBSDChild(t *testing.T, address string) (*exec.Cmd, *net.Interface,
 	return nil, nil, ""
 }
 
-func TestNativeOpenBSDRecoveryOwnership(t *testing.T) {
-	requireTestOpenBSD(t)
+func TestNativePersistentBSDRecoveryOwnership(t *testing.T) {
+	requireTestPersistentBSD(t)
 	for _, changed := range []string{"replacement", "description"} {
 		t.Run(changed, func(t *testing.T) {
-			child, original, token := crashOpenBSDChild(t, "10.240.47.1/24")
+			child, original, token := crashPersistentBSDChild(t, "10.240.47.1/24")
 			if err := child.Process.Kill(); err != nil {
 				t.Fatal(err)
 			}
@@ -166,8 +167,13 @@ func TestNativeOpenBSDRecoveryOwnership(t *testing.T) {
 				command("destroy")
 				command("create")
 				command("mtu", "1400")
-				// Even copying the old marker does not transfer the original kernel index.
-				command("description", "graphwan:"+token+":"+strconv.Itoa(original.Index))
+				// OpenBSD allocates a fresh index. NetBSD immediately reuses freed
+				// indices: an administrator copying both the name and the complete
+				// ownership marker transfers ownership there. Its ordinary unmarked
+				// replacement must still be preserved.
+				if runtime.GOOS == "openbsd" {
+					command("description", "graphwan:"+token+":"+strconv.Itoa(original.Index))
+				}
 				t.Cleanup(func() { command("destroy") })
 			} else {
 				command("description", "retained-by-administrator")
@@ -192,9 +198,9 @@ func TestNativeOpenBSDRecoveryOwnership(t *testing.T) {
 	}
 }
 
-func TestNativeOpenBSDRecoveryWithoutOpen(t *testing.T) {
-	requireTestOpenBSD(t)
-	child, original, token := crashOpenBSDChild(t, "10.240.49.1/24")
+func TestNativePersistentBSDRecoveryWithoutOpen(t *testing.T) {
+	requireTestPersistentBSD(t)
+	child, original, token := crashPersistentBSDChild(t, "10.240.49.1/24")
 	if err := child.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
@@ -219,8 +225,8 @@ func TestNativeOpenBSDRecoveryWithoutOpen(t *testing.T) {
 	}
 }
 
-func TestNativeOpenBSDRecoveryIncompleteRecord(t *testing.T) {
-	requireTestOpenBSD(t)
+func TestNativePersistentBSDRecoveryIncompleteRecord(t *testing.T) {
+	requireTestPersistentBSD(t)
 	// Model SIGKILL after the immutable record is created but before any kernel
 	// mutation. Empty records are complete records, not parse failures that can
 	// block every subsequent Agent startup.
@@ -246,8 +252,8 @@ func TestNativeOpenBSDRecoveryIncompleteRecord(t *testing.T) {
 	}
 }
 
-func TestNativeOpenBSDRecoveryRecordProtection(t *testing.T) {
-	requireTestOpenBSD(t)
+func TestNativePersistentBSDRecoveryRecordProtection(t *testing.T) {
+	requireTestPersistentBSD(t)
 	if err := os.MkdirAll(recoveryRegistry, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -303,8 +309,8 @@ func TestNativeOpenBSDRecoveryRecordProtection(t *testing.T) {
 	}
 }
 
-func TestNativeOpenBSDRecoveryConcurrentClose(t *testing.T) {
-	requireTestOpenBSD(t)
+func TestNativePersistentBSDRecoveryConcurrentClose(t *testing.T) {
+	requireTestPersistentBSD(t)
 	for range 30 {
 		device, err := tunnel.Open(tunnel.Config{Address: netip.MustParsePrefix("10.240.50.1/24"), MTU: 1280})
 		if err != nil {
@@ -318,4 +324,17 @@ func TestNativeOpenBSDRecoveryConcurrentClose(t *testing.T) {
 			t.Fatalf("close/recovery race: close=%v, recovery=%v", closeError, recoveryError)
 		}
 	}
+}
+
+func requireTestPersistentBSD(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() != 0 || os.Getenv("GRAPHWAN_TEST_VM") != "1" {
+		t.Skip("requires root in a disposable BSD VM with GRAPHWAN_TEST_VM=1")
+	}
+}
+func persistentTestMTU() int {
+	if runtime.GOOS == "netbsd" {
+		return 1500
+	}
+	return 9000
 }

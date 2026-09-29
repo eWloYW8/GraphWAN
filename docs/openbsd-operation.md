@@ -96,7 +96,7 @@ CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go test -c -tags integration -o tunnel.t
 CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go test -c -tags integration -o agent.test ./internal/agent
 CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go test -c -tags integration -o discovery.test ./internal/discovery
 # Copy the binaries into the disposable guest and run there:
-env GRAPHWAN_TEST_VM=1 ./tunnel.test -test.v -test.run NativeOpenBSD -test.timeout=180s
+env GRAPHWAN_TEST_VM=1 ./tunnel.test -test.v -test.run "NativeOpenBSD|NativePersistentBSD" -test.timeout=180s
 env GRAPHWAN_TEST_VM=1 ./agent.test -test.v -test.run NativeBSDConfigurationReconcile -test.timeout=180s
 env GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vio1 ./discovery.test -test.v -test.run NativeOpenBSDInterfaceDiscovery -test.timeout=90s
 ```

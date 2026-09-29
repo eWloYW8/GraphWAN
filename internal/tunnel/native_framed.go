@@ -1,4 +1,4 @@
-//go:build freebsd || darwin || openbsd
+//go:build freebsd || darwin || openbsd || netbsd
 
 package tunnel
 

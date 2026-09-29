@@ -78,6 +78,8 @@ The Windows Wintun adapter, DLL setup and pending native checks are documented i
 [Windows operation](docs/windows-operation.md).
 The OpenBSD adapter, native checks and known transport limitations are documented
 in [OpenBSD operation](docs/openbsd-operation.md).
+For NetBSD native TUN/configuration/recovery checks and its MTU and ownership
+constraints, see [NetBSD operation](docs/netbsd-operation.md).
 
 ## Development
 

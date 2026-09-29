@@ -1,4 +1,4 @@
-//go:build (freebsd || darwin || openbsd) && integration
+//go:build (freebsd || darwin || openbsd || netbsd) && integration
 
 package agent
 
@@ -48,6 +48,10 @@ func TestNativeBSDConfigurationReconcile(t *testing.T) {
 	if err := r.Apply(context.Background(), config); err != nil {
 		t.Fatal(err)
 	}
+	maximumMTU := 9000
+	if runtime.GOOS == "netbsd" {
+		maximumMTU = 1500
+	}
 	before := r.state.Load()
 	// A real kernel conflict on the second Network must roll back the first
 	// Network's completed prefix/MTU update, preserving both old runtimes.
@@ -60,11 +64,11 @@ func TestNativeBSDConfigurationReconcile(t *testing.T) {
 	rejected := config.Clone()
 	rejected.Revision++
 	rejected.Networks[0].CIDR = netip.PrefixFrom(rejected.Networks[0].Self.Address, 25).Masked()
-	rejected.Networks[0].MTU = 9000
+	rejected.Networks[0].MTU = maximumMTU
 	rejected.Networks[1].CIDR = foreignConfig.Address.Masked()
 	rejected.Networks[1].Self.Address = foreignConfig.Address.Addr()
 	rejected.Networks[1].Directory[0].Address = foreignConfig.Address.Addr()
-	rejected.Networks[1].MTU = 9000
+	rejected.Networks[1].MTU = maximumMTU
 	if err := r.Apply(context.Background(), rejected); err == nil {
 		t.Fatal("conflicting IPv6 address/route accepted")
 	}
@@ -86,7 +90,7 @@ func TestNativeBSDConfigurationReconcile(t *testing.T) {
 			t.Fatalf("rollback address: %v, want %s", addresses, want)
 		}
 	}
-	for _, mtu := range []int{9000, 1280} {
+	for _, mtu := range []int{maximumMTU, 1280} {
 		config.Revision++
 		for i := range config.Networks {
 			config.Networks[i].MTU = mtu

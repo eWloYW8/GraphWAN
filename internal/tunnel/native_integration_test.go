@@ -1,4 +1,4 @@
-//go:build (linux || freebsd || darwin || openbsd || windows) && integration
+//go:build (linux || freebsd || darwin || openbsd || netbsd || windows) && integration
 
 package tunnel_test
 

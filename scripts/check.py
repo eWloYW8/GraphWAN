@@ -33,12 +33,16 @@ NATIVE = {
         "discovery": ["TestNativeFreeBSDInterfaceDiscovery"],
     },
     "openbsd": {
-        "tunnel": ["TestNativeOpenBSDTunnel", "TestNativeOpenBSDConfiguration", "TestNativeOpenBSDRouteConflict", "TestNativeOpenBSDOwnership", "TestNativeOpenBSDCrashRecovery", "TestNativeOpenBSDRecoveryOwnership", "TestNativeOpenBSDRecoveryWithoutOpen", "TestNativeOpenBSDRecoveryIncompleteRecord", "TestNativeOpenBSDRecoveryRecordProtection", "TestNativeOpenBSDRecoveryConcurrentClose"],
+        "tunnel": ["TestNativeOpenBSDTunnel", "TestNativeOpenBSDConfiguration", "TestNativeOpenBSDRouteConflict", "TestNativeOpenBSDOwnership", "TestNativePersistentBSDCrashRecovery", "TestNativePersistentBSDRecoveryOwnership", "TestNativePersistentBSDRecoveryWithoutOpen", "TestNativePersistentBSDRecoveryIncompleteRecord", "TestNativePersistentBSDRecoveryRecordProtection", "TestNativePersistentBSDRecoveryConcurrentClose"],
         "agent": ["TestNativeBSDConfigurationReconcile"],
         "discovery": ["TestNativeOpenBSDInterfaceDiscovery"],
     },
+    "netbsd": {
+        "tunnel": ["TestNetBSDIOCTLLayout", "TestNativeNetBSDTunnel", "TestNativeNetBSDConfiguration", "TestNativeNetBSDRouteConflict", "TestNativeNetBSDOwnership", "TestNativeNetBSDMTULimit", "TestNativePersistentBSDCrashRecovery", "TestNativePersistentBSDRecoveryOwnership", "TestNativePersistentBSDRecoveryWithoutOpen", "TestNativePersistentBSDRecoveryIncompleteRecord", "TestNativePersistentBSDRecoveryRecordProtection", "TestNativePersistentBSDRecoveryConcurrentClose"],
+        "agent": ["TestNativeBSDConfigurationReconcile"],
+    },
 }
-OPT_IN = {"darwin": "GRAPHWAN_TEST_MACOS", "windows": "GRAPHWAN_TEST_WINDOWS", "freebsd": "GRAPHWAN_TEST_VM", "openbsd": "GRAPHWAN_TEST_VM"}
+OPT_IN = {"darwin": "GRAPHWAN_TEST_MACOS", "windows": "GRAPHWAN_TEST_WINDOWS", "freebsd": "GRAPHWAN_TEST_VM", "openbsd": "GRAPHWAN_TEST_VM", "netbsd": "GRAPHWAN_TEST_VM"}
 SOCKET_GATES = {
     "transport": [
         "TestUDPWildcardReplySource", "TestTCPWildcardBothFamiliesAndClose",
@@ -222,7 +226,7 @@ def check_native(logs):
             privilege = [] if system != "windows" and os.geteuid() == 0 else ["sudo", "-n"]
             if system == "linux":
                 args = [*privilege, "unshare", "--net", "env", "GRAPHWAN_TEST_NETNS=1", *args]
-            elif system in ("darwin", "freebsd", "openbsd"):
+            elif system in ("darwin", "freebsd", "openbsd", "netbsd"):
                 args = [*privilege, "env", OPT_IN[system] + "=1", *args]
             output = run(args, env=env, log=logs / f"native-{package}.jsonl")
             require_native_pass(output, expected)

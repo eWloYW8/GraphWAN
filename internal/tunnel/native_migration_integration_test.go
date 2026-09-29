@@ -1,4 +1,4 @@
-//go:build (freebsd || darwin || openbsd || windows) && integration
+//go:build (freebsd || darwin || openbsd || netbsd || windows) && integration
 
 package tunnel_test
 
@@ -12,6 +12,10 @@ import (
 
 func checkNativeMigration(t *testing.T, beforeAddress, afterAddress string) {
 	t.Helper()
+	checkNativeMigrationMTU(t, beforeAddress, afterAddress, 9000)
+}
+func checkNativeMigrationMTU(t *testing.T, beforeAddress, afterAddress string, mtu int) {
+	t.Helper()
 	before := tunnel.Config{Address: netip.MustParsePrefix(beforeAddress), MTU: 1280}
 	device, err := tunnel.Open(before)
 	if err != nil {
@@ -22,7 +26,7 @@ func checkNativeMigration(t *testing.T, beforeAddress, afterAddress string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	after := tunnel.Config{Address: netip.MustParsePrefix(afterAddress), MTU: 9000}
+	after := tunnel.Config{Address: netip.MustParsePrefix(afterAddress), MTU: mtu}
 	if err := device.(tunnel.Reconfigurable).Reconfigure(after); err != nil {
 		t.Fatal(err)
 	}

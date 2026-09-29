@@ -35,6 +35,9 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Coordinated IPv4/IPv6 listeners with native OpenBSD transport/Mesh evidence.
 - [x] OpenBSD marked-TUN SIGKILL recovery, including startup with no Networks.
 - [ ] OpenBSD pre-marker creation-window cleanup and multi-host/NAT acceptance.
+- [x] NetBSD native dual-stack TUN, MTU validation, live edits and route rollback.
+- [x] NetBSD marked-TUN SIGKILL recovery and multi-Network Agent configuration/shutdown.
+- [ ] NetBSD discovery, multi-host/NAT, pre-marker interruption and other-architecture native acceptance.
 - [x] macOS utun adapter code and Intel/Apple Silicon cross-builds.
 - [ ] Native macOS utun/route/reconfiguration, multi-host and NAT acceptance.
 - [x] Windows Wintun adapter code, pinned DLL retrieval and amd64/arm64/386 cross-builds.
@@ -539,3 +542,32 @@ Every feature below derives from the accepted proposal, including its suggestion
   binaries and vet pass for all ten Go-advertised FreeBSD/OpenBSD architecture
   targets; all 33 production targets build and match their manifest sizes and
   SHA-256 hashes. Native interface/address cleanup is verified on both VMs.
+
+
+- NetBSD 11.0/amd64 TUN now passes native IPv4/IPv6 full-MTU kernel I/O,
+  seven address/prefix/family migration cases, exact-route conflict rollback,
+  oversized-MTU rejection and owned-device lifecycle checks. The kernel's
+  1500-byte TUN limit is enforced before mutation. Native header compilation
+  confirms ioctl layouts; IPv6 readiness uses address flags rather than a UDP
+  bind, and explicit driver `FIONBIO` prevents kernel-blocked reads on shutdown.
+  The final TUN package passes 99 tests/subtests with zero skips.
+  The same real Agent test passes two consecutive multi-Network migration,
+  rollback and shutdown runs. See [NetBSD operation](netbsd-operation.md).
+- Persistent TUN ownership/recovery code is shared by OpenBSD and NetBSD, with
+  platform-specific ioctl hooks. Both run SIGKILL recovery, live-owner protection,
+  unmarked replacement/retagged interface preservation, startup without Networks,
+  incomplete records, unsafe-record rejection and 30 concurrent close/recover
+  iterations. OpenBSD retains its stronger copied-marker replacement test; its
+  final native suite passes 31 tests/subtests with zero skips after the refactor.
+  NetBSD reuses interface indices and cannot distinguish a privileged replacement
+  carrying a complete copied marker. Its kernel also retains descriptor
+  associations across external same-unit replacement. These ownership boundaries
+  and the unresolved pre-marker creation window are documented explicitly.
+- Linux uncached full race tests and vet pass after the shared changes. Production
+  binaries for all 33 advertised targets have verified manifest sizes/hashes;
+  the final NetBSD nonblocking fix is additionally built for all four NetBSD
+  targets. Integration binaries and vet pass for all ten NetBSD/OpenBSD targets.
+  Cross-builds do not establish native execution on those other architectures.
+  NetBSD physical discovery, multi-host/NAT and broader platform acceptance remain
+  open. Its new local native gate rejects skipped or missing required TUN/Agent
+  tests; no hosted NetBSD job has run.
