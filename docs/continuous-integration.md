@@ -109,10 +109,14 @@ With Go 1.26.8, `go tool dist list` advertises 33 targets in this selection:
 | NetBSD | 386, amd64, arm, arm64 |
 | DragonFly BSD | amd64 |
 
-The script uses `CGO_ENABLED=0`, `-trimpath`, explicit CPU baselines and a Git
-revision version. A dirty checkout adds `-dirty`; build from a clean checkout
+The script uses `CGO_ENABLED=0`, `-trimpath`, explicit CPU baselines (including
+RISC-V `rva20u64`) and a Git revision version. It ignores `go env -w` settings,
+local build flags, experiments and surrounding workspaces, fixes FIPS mode to
+`off`, and requires the locally installed Go toolchain rather than automatically
+switching toolchains. Module-cache and dependency-fetch environment settings
+remain available. A dirty checkout adds `-dirty`; build from a clean checkout
 for reproducible revision artifacts. Keep the output outside that checkout.
-`manifest.json` records the full revision, worktree state, Go version, baselines,
+`manifest.json` records the full revision, worktree state, Go version, build settings, baselines,
 binary paths, sizes and SHA-256 hashes. A manifest is written only after all
 selected builds succeed; failed builds remove any prior manifest at that output.
 
@@ -139,6 +143,12 @@ checkouts produce a 17,371,298-byte binary with SHA-256
 and identical manifests. This is evidence for that target/toolchain/revision;
 the other 32 targets have successful build/hash verification, not repeated-build
 or cross-host reproducibility evidence.
+
+A subsequent build-environment check compares both `linux/amd64` and
+`linux/riscv64` from the same working tree, with and without a custom `GOENV`
+file and conflicting CPU, FIPS, module, target and compiler-flag settings. Both
+binaries and manifests remain identical. This tests configuration isolation;
+it is not an additional clean-checkout or native RISC-V execution claim.
 
 These are build-verification binaries, not complete distribution packages.
 Windows Agents still need the [Wintun DLL](windows-operation.md). Successful

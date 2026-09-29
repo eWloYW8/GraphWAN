@@ -464,3 +464,8 @@ Every feature below derives from the accepted proposal, including its suggestion
   different absolute paths (one with spaces) and conflicting local CPU/build
   flags. Other targets' repeat-build and cross-host reproducibility, complete
   packaging and deployment examples remain open.
+  Additional same-worktree Linux amd64/riscv64 comparisons verify identical
+  binaries/manifests despite conflicting persistent Go configuration, CPU/FIPS
+  settings, module mode, target and compiler flags. Cross-builds now isolate
+  these settings for toolchain probes as well as compilation and record them
+  in the manifest; native RISC-V and cross-host execution remain unverified.

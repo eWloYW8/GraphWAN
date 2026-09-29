@@ -16,6 +16,12 @@ SYSTEMS = ("linux", "windows", "darwin", "freebsd", "openbsd", "netbsd", "dragon
 BASELINES = {
     "GOAMD64": "v1", "GO386": "sse2", "GOARM": "7", "GOARM64": "v8.0",
     "GOMIPS": "softfloat", "GOMIPS64": "softfloat", "GOPPC64": "power8",
+    "GORISCV64": "rva20u64",
+}
+BUILD_ENV = {
+    "CGO_ENABLED": "0", "GOENV": "off", "GO111MODULE": "on",
+    "GOFLAGS": "", "GOEXPERIMENT": "", "GOWORK": "off",
+    "GOFIPS140": "off", "GOTOOLCHAIN": "local",
 }
 
 
@@ -26,7 +32,14 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     try:
-        available = subprocess.check_output(["go", "tool", "dist", "list"], cwd=ROOT, text=True).splitlines()
+        build_env = os.environ.copy()
+        build_env.update(BUILD_ENV)
+        build_env.update(BASELINES)
+        # Inventory and version probes use the same toolchain/configuration as
+        # compilation, independent of go env -w and any surrounding workspace.
+        build_env.pop("GOOS", None)
+        build_env.pop("GOARCH", None)
+        available = subprocess.check_output(["go", "tool", "dist", "list"], cwd=ROOT, env=build_env, text=True).splitlines()
         systems = args.goos or SYSTEMS
         targets = sorted(target for target in available if target.split("/")[0] in systems)
         if args.target:
@@ -48,14 +61,11 @@ def main():
             directory = args.output / f"{goos}-{goarch}"
             directory.mkdir(parents=True, exist_ok=True)
             binary = directory / ("graphwan.exe" if goos == "windows" else "graphwan")
-            env = os.environ.copy()
-            # Keep the architecture baseline independent of local Go settings.
-            env.update(BASELINES)
-            env.update(GOOS=goos, GOARCH=goarch, CGO_ENABLED="0", GOFLAGS="", GOEXPERIMENT="", GOWORK="off")
+            env = {**build_env, "GOOS": goos, "GOARCH": goarch}
             print(f"Building {target}", flush=True)
             subprocess.run(["go", "build", "-trimpath", "-buildvcs=false", "-ldflags", f"-s -w -X main.version={version}", "-o", str(binary.resolve()), "./cmd/graphwan"], cwd=ROOT, env=env, check=True)
             records.append({"target": target, "path": binary.relative_to(args.output).as_posix(), "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(), "bytes": binary.stat().st_size})
-        manifest = {"revision": revision, "worktree_dirty": dirty, "version": version, "go": subprocess.check_output(["go", "version"], cwd=ROOT, text=True).strip(), "cgo": False, "architecture_baselines": BASELINES, "builds": records}
+        manifest = {"revision": revision, "worktree_dirty": dirty, "version": version, "go": subprocess.check_output(["go", "version"], cwd=ROOT, env=build_env, text=True).strip(), "cgo": False, "architecture_baselines": BASELINES, "go_environment": BUILD_ENV, "builds": records}
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         parser.exit(1, f"Cross-build failed: {error}\n")
