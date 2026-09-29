@@ -161,23 +161,43 @@ func TestDNSAllAddressesRetainedAcrossTransports(t *testing.T) {
 			})
 			for i, m := range meshes {
 				frame := make([]byte, 128)
-				copy(frame, "DNS multiple addresses")
-				waitWeb(t, ctx, func() bool {
-					err := m.Send(ctx, state.Networks[0].ID, state.Networks[0].Nodes[1-i].ID, frame)
+				frame[0] = byte(i + 1)
+				copy(frame[1:], "DNS multiple addresses")
+				// Active-Link changes intentionally invalidate queued data, and
+				// datagram transports do not guarantee delivery. Probe repeatedly
+				// under a bounded deadline, as an application's retransmit would.
+				packetCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				defer cancel()
+				retry := time.NewTicker(20 * time.Millisecond)
+				defer retry.Stop()
+			transfer:
+				for {
+					err := m.Send(packetCtx, state.Networks[0].ID, state.Networks[0].Nodes[1-i].ID, frame)
 					if err != nil && !errors.Is(err, link.ErrUnavailable) {
 						t.Fatal(err)
 					}
-					return err == nil
-				})
-				select {
-				case got := <-delivered:
-					if string(got) != string(frame) {
-						t.Fatal("corrupt data")
+					select {
+					case got := <-delivered:
+						if len(got) != len(frame) {
+							t.Fatal("corrupt data length")
+						}
+						// Ignore a late probe from the other direction.
+						if got[0] != frame[0] {
+							continue
+						}
+						if string(got) != string(frame) {
+							t.Fatal("corrupt data")
+						}
+						break transfer
+					case <-retry.C:
+					case <-packetCtx.Done():
+						t.Fatal("DNS path data stalled")
 					}
-				case <-ctx.Done():
-					t.Fatal("DNS path data stalled")
 				}
+				retry.Stop()
+				cancel()
 			}
+
 			state.Agents[1].Endpoints = nil
 			applyWebState(t, state, meshes)
 			waitWeb(t, ctx, func() bool { return len(meshes[0].Report()) == 0 && len(meshes[1].Report()) == 0 })
