@@ -220,14 +220,17 @@ func udpGROSize(control []byte) (int, error) {
 			return 0, err
 		}
 		if header.Level == unix.SOL_UDP && header.Type == unix.UDP_GRO {
-			if len(data) < 2 {
+			// Unlike the uint16 UDP_SEGMENT send option, Linux publishes GRO
+			// ancillary data as a native int (32 bits), including on big-endian
+			// hosts. See include/linux/udp.h: udp_cmsg_recv.
+			if len(data) < 4 {
 				return 0, errors.New("short UDP GRO control message")
 			}
-			size := int(binary.NativeEndian.Uint16(data))
-			if size == 0 {
-				return 0, errors.New("zero UDP GRO segment size")
+			size := binary.NativeEndian.Uint32(data)
+			if size == 0 || size > 65535 {
+				return 0, errors.New("invalid UDP GRO segment size")
 			}
-			return size, nil
+			return int(size), nil
 		}
 		control = rest
 	}

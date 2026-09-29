@@ -5,6 +5,7 @@ package transport
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"testing"
@@ -26,15 +27,18 @@ func joinedMessage(m ipv6.Message) []byte {
 func messageSegments(t *testing.T, m ipv6.Message) [][]byte {
 	t.Helper()
 	control := bytes.Clone(m.OOB)
-	// The receive parser can read the same native segment size after changing
-	// the cmsg type from the send option to the receive option.
+	// Emulate the kernel's uint16 send option to int32 receive cmsg conversion.
 	for offset := 0; offset < len(control); {
-		h, _, rest, err := unix.ParseOneSocketControlMessage(control[offset:])
+		h, data, rest, err := unix.ParseOneSocketControlMessage(control[offset:])
 		if err != nil {
 			t.Fatal(err)
 		}
 		if h.Level == unix.SOL_UDP && h.Type == unix.UDP_SEGMENT {
-			(*unix.Cmsghdr)(unsafe.Pointer(&control[offset])).Type = unix.UDP_GRO
+			size := binary.NativeEndian.Uint16(data)
+			header := (*unix.Cmsghdr)(unsafe.Pointer(&control[offset]))
+			header.Type = unix.UDP_GRO
+			header.SetLen(unix.CmsgLen(4))
+			binary.NativeEndian.PutUint32(control[offset+unix.CmsgLen(0):], uint32(size))
 		}
 		offset = len(control) - len(rest)
 	}
@@ -205,6 +209,8 @@ func TestUDPGSORealWireCompatibility(t *testing.T) {
 func TestUDPGROSplitAndTruncation(t *testing.T) {
 	control := appendUDPSegment(nil, 100)
 	(*unix.Cmsghdr)(unsafe.Pointer(&control[0])).Type = unix.UDP_GRO
+	(*unix.Cmsghdr)(unsafe.Pointer(&control[0])).SetLen(unix.CmsgLen(4))
+	binary.NativeEndian.PutUint32(control[unix.CmsgLen(0):], 100)
 	for _, flags := range []int{0, unix.MSG_TRUNC, unix.MSG_CTRUNC} {
 		raw := bytes.Repeat([]byte{9}, 250)
 		r := &udpPacketReader{count: 1}
@@ -233,5 +239,27 @@ func TestUDPGROSplitAndTruncation(t *testing.T) {
 	}
 	if udpGSOUnsupported(errors.New("other")) || udpGSOUnsupported(context.Canceled) {
 		t.Fatal("unexpected retry")
+	}
+}
+
+func TestUDPGROControlUsesNativeInt32(t *testing.T) {
+	control := make([]byte, unix.CmsgSpace(4))
+	header := (*unix.Cmsghdr)(unsafe.Pointer(&control[0]))
+	header.Level, header.Type = unix.SOL_UDP, unix.UDP_GRO
+	header.SetLen(unix.CmsgLen(4))
+	for _, size := range []uint32{1, 1406, 65535, 0, 65536, 0xffffffff} {
+		binary.NativeEndian.PutUint32(control[unix.CmsgLen(0):], size)
+		got, err := udpGROSize(control)
+		valid := size > 0 && size <= 65535
+		if valid && (err != nil || got != int(size)) {
+			t.Fatalf("size=%d got=%d error=%v", size, got, err)
+		}
+		if !valid && err == nil {
+			t.Fatalf("accepted invalid size %d", size)
+		}
+	}
+	header.SetLen(unix.CmsgLen(2))
+	if _, err := udpGROSize(control); err == nil {
+		t.Fatal("accepted truncated int32")
 	}
 }

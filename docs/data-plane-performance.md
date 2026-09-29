@@ -156,6 +156,16 @@ receive storage as traffic arrives. The first follow-up run measured 787.5 Mbps,
 35.6% local CPU and zero kernel socket drops; it reduced retransmissions but did
 not establish a significant additional throughput gain over the preceding runs.
 
+Final release measurements (`2a11a0c09116`, 20 seconds plus a 2-second
+warm-up) repeated UDP forward throughput at 784.3, 783.6 and 784.4 Mbps
+(median 784.3 Mbps). Local CPU was 37.1–37.4% and Orange Pi CPU was
+209.8–212.2%, where 100% means one logical core. The reverse UDP run measured
+719.7 Mbps (145.6% local CPU and 177.0% Orange Pi CPU). Reverse performance
+remains direction dependent; these results do not imply symmetric throughput.
+A subsequent portability fix reads Linux UDP_GRO ancillary data as native
+int32, matching the kernel ABI on both little- and big-endian machines.
+The temporary transport preference was restored to automatic after testing.
+
 For perspective, the measured inner TCP MSS is 1,228 bytes. With a full
 1,280-byte inner packet, the UDP/IPv4 path sends 1,472 bytes on the wire after
 including the 80-byte overlay header, two kind bytes, 24-byte encrypted-session
