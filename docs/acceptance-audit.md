@@ -142,7 +142,10 @@ used HTTP and missed Chromium rejecting the Ed25519 HTTPS server key. The
 controller now serves an ECDSA P-256 key while retaining its existing CA and Agent
 identities. Both browser scenarios now run over HTTPS and pass; PKI, controller,
 Agent and CLI race suites pass, including a new persisted-CA/existing-Agent
-regression. This corrects the earlier browser-compatibility assumption.
+regression. This corrects the earlier TLS-negotiation assumption. Chromium can
+still reject the legacy Ed25519-signed chain during certificate validation; the
+browser fixture ignores certificate errors and does not prove browser CA trust.
+The temporary deployment offers an explicitly requested HTTP management frontend.
 
 - The Edge graph must connect the intended Nodes. Disconnected components have
   no route; the controller does not manufacture Edges or relay payloads.

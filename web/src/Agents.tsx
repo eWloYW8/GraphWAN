@@ -51,9 +51,17 @@ export function Enrollment({ csrf, close }: { csrf: string; close: () => void })
             <code>GRAPHWAN_ENROLLMENT_TOKEN</code> to this token, then run:
           </p>
           <pre>
-            graphwan agent --server {location.origin}
+            graphwan agent --server{' '}
+            {location.protocol === 'https:'
+              ? location.origin
+              : 'https://CONTROLLER_HOST:HTTPS_PORT'}
             {' \\\n'} --ca ./ca.pem --name my-agent
           </pre>
+          {location.protocol !== 'https:' && (
+            <p className="muted">
+              Use the controller’s HTTPS address for agents, not this HTTP management address.
+            </p>
+          )}
           <p className="muted">
             The agent needs permission to create TUN devices. After enrollment, add it to a network.
           </p>

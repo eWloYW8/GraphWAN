@@ -98,7 +98,12 @@ export function ratesBetween(previous: AgentStatus[], current: AgentStatus[]): R
   }
   return result
 }
-export const newID = () => crypto.randomUUID().replaceAll('-', '')
+// getRandomValues is also available on HTTP management frontends; randomUUID
+// requires a secure context. IDs are 128 random bits encoded as lowercase hex.
+export const newID = () =>
+  Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('')
 export const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 export const rate = (n: number | undefined) =>
   n === undefined

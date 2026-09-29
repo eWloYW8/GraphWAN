@@ -60,6 +60,11 @@ async function currentState(request: APIRequestContext): Promise<State> {
 test('real controller: enrollment, graph edits, conflict protection, agent settings and responsive view', async ({
   page,
 }) => {
+  // HTTP pages cannot use randomUUID. Keep exercising topology creation when
+  // that secure-context API is absent, while retaining the HTTPS handshake test.
+  await page.addInitScript(() => {
+    Object.defineProperty(window.crypto, 'randomUUID', { value: undefined })
+  })
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
