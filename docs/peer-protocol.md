@@ -96,13 +96,18 @@ the announced identity, have valid lifetimes and signing/role usage, and contain
 no unhandled critical extensions. No CA/proxy fallback is allowed here. Each side
 then sends the four magic bytes inside TLS, confirming that both verifiers passed.
 
-The TLS connection carries yamux streams. A physical session is pooled by remote
-IP/port and authenticated Agent identity, allowing multiple Networks and fresh
+The TLS connection carries yamux streams. A physical session is pooled by local
+and remote IP/port plus authenticated Agent identity, allowing multiple Networks and fresh
 Noise sessions to share the same TCP four-tuple. Every stream uses the 32-bit
 length framing and ordinary Network/Edge Noise admission above. Admission also
 checks that a punch candidate arrived over this transport, not ordinary TCP.
-There are at most 64 physical sessions per authenticated adjacent Agent identity,
-including pending outgoing connections. A pending connection that becomes
+Each authenticated adjacent Agent identity has a physical-session allowance of
+at least 64, growing with its locally authorized TCP endpoint candidates and
+DNS answers. Local endpoint hostnames use the bounded DNS cache for this sizing
+as well, without requiring a matching answer to authenticate an incoming target.
+The bound includes headroom for replacement sessions and IPv6 interface scopes;
+remote connection attempts cannot increase it. Pending outgoing connections count
+toward this allowance. A pending connection that becomes
 installed consumes one slot; a closed connection can be replaced in that slot.
 The allowance is separate for each identity, so one peer cannot consume the
 physical-connection capacity of other configured peers. Logical stream capacity starts
@@ -110,7 +115,7 @@ at 32 per session and grows with the locally authorized TCP-punch topology for
 that peer. Its bound includes endpoint aliases, IPv6 egress scopes and headroom
 for concurrent handshakes, replacement keys and retiring streams. Peers cannot
 negotiate this allowance. Existing physical sessions retain their highest
-authorized allowance when policy shrinks, so retiring streams and healthy Links
+authorized stream allowance when policy shrinks, so retiring streams and healthy Links
 whose observed endpoints have expired can finish or renew. The accept backlog
 remains eight streams, with a 256 KiB window per stream.
 Writes time out after two seconds; unacknowledged stream opens and graceful stream

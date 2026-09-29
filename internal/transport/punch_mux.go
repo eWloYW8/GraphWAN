@@ -131,6 +131,7 @@ func NewPunchMux(ctx context.Context, conn net.Conn, identity ed25519.PublicKey,
 }
 
 func (p *PunchMux) Identity() ed25519.PublicKey { return bytes.Clone(p.identity) }
+func (p *PunchMux) LocalAddr() net.Addr         { return p.session.LocalAddr() }
 func (p *PunchMux) RemoteAddr() net.Addr        { return p.session.RemoteAddr() }
 func (p *PunchMux) Done() <-chan struct{}       { return p.session.CloseChan() }
 func (p *PunchMux) Close() error                { p.socket.Close(); return p.session.Close() }

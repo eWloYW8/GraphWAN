@@ -20,6 +20,7 @@ import (
 type punchKey struct {
 	remote   netip.AddrPort
 	identity [32]byte
+	local    netip.AddrPort // Zero for an outgoing reservation before routing.
 }
 type punchDial struct {
 	done chan struct{}
@@ -32,19 +33,25 @@ type punchDial struct {
 // its pending reservation or a closed session even when the allowance is full.
 func (m *Mesh) punchConnectionAvailableLocked(k punchKey) bool {
 	used := 0
+	installedTargets := map[punchKey]bool{}
 	for existing := range m.punches {
-		if existing.identity == k.identity && existing != k {
+		if existing.identity != k.identity {
+			continue
+		}
+		installedTargets[punchKey{remote: existing.remote, identity: existing.identity}] = true
+		if existing != k {
 			used++
 		}
 	}
+	reservation := punchKey{remote: k.remote, identity: k.identity}
 	for pending := range m.punchDials {
-		if pending.identity == k.identity && pending != k {
-			if _, installed := m.punches[pending]; !installed {
+		if pending.identity == k.identity && pending != reservation {
+			if !installedTargets[pending] {
 				used++
 			}
 		}
 	}
-	return used < 64
+	return used < max(64, m.punchCapacityLocked(k.identity[:], true))
 }
 
 func (m *Mesh) allowsTCPPunchLocked(identity ed25519.PublicKey) bool {
@@ -71,12 +78,25 @@ func (m *Mesh) allowsTCPPunch(identity ed25519.PublicKey) bool {
 // Four slots per potential candidate cover current/replacement sessions plus
 // retiring generations; the fixed headroom covers bounded concurrent admission.
 func (m *Mesh) punchStreamCapacityLocked(identity ed25519.PublicKey) int {
+	return m.punchCapacityLocked(identity, false)
+}
+
+// Physical sessions also account for DNS fanout: one hostname may reach many
+// distinct sockets. Local endpoints matter for incoming connections; resolving
+// their names uses the same bounded asynchronous cache as outgoing candidates.
+func (m *Mesh) punchCapacityLocked(identity ed25519.PublicKey, resolve bool) int {
 	budget := 16
 	maximum := int(^uint(0) >> 1)
 	count := func(endpoints []model.Endpoint) (tcp, scopes int) {
 		for _, endpoint := range endpoints {
 			if endpoint.Transport == model.TCP {
-				tcp++
+				addresses := 1
+				if resolve && m.dns != nil {
+					if host := endpointHostname(endpoint.URL); host != "" {
+						addresses = max(1, len(m.dns.addresses(m.ctx, host)))
+					}
+				}
+				tcp += addresses
 			}
 			if endpoint.Transport == model.UDP && endpoint.Source == model.Interface && (link.Candidate{Endpoint: endpoint}).NeedsScope() {
 				scopes++
@@ -113,7 +133,13 @@ func (m *Mesh) installPunch(session *transport.PunchMux) bool {
 	if err != nil {
 		return false
 	}
-	k := punchKey{address, [32]byte(session.Identity())}
+	local, err := punchAddress(session.LocalAddr())
+	if err != nil {
+		return false
+	}
+	// The same remote source port can reach several local NICs. Pooling only
+	// by the remote half would reject those independent TCP four-tuples.
+	k := punchKey{remote: address, identity: [32]byte(session.Identity()), local: local}
 	m.mu.Lock()
 	if !m.allowsTCPPunchLocked(session.Identity()) || !m.punchConnectionAvailableLocked(k) {
 		m.mu.Unlock()
@@ -190,16 +216,19 @@ func (m *Mesh) dialTCPPunch(ctx context.Context, candidate link.Candidate, ident
 }
 
 func (m *Mesh) punchStream(ctx context.Context, remote netip.AddrPort, identity ed25519.PublicKey) (*transport.PunchStream, error) {
-	k := punchKey{remote, [32]byte(identity)}
+	k := punchKey{remote: remote, identity: [32]byte(identity)}
 	m.mu.Lock()
 	if !m.allowsTCPPunchLocked(identity) {
 		m.mu.Unlock()
 		return nil, errors.New("TCP punching is not permitted")
 	}
-	if session := m.punches[k]; session != nil {
+	for existing, session := range m.punches {
+		if existing.remote != remote || existing.identity != k.identity {
+			continue
+		}
 		select {
 		case <-session.Done():
-			delete(m.punches, k)
+			delete(m.punches, existing)
 		default:
 			m.mu.Unlock()
 			return session.Open(ctx)

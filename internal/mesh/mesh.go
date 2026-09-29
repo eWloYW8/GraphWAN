@@ -151,6 +151,13 @@ func (m *Mesh) Apply(snapshot model.Snapshot) error {
 		return net.ErrClosed
 	}
 	hosts := map[string]bool{}
+	for _, endpoint := range snapshot.Endpoints {
+		if endpoint.Transport == model.TCP {
+			if host := endpointHostname(endpoint.URL); host != "" {
+				hosts[host] = true
+			}
+		}
+	}
 	for _, network := range snapshot.Networks {
 		for _, peer := range network.Peers {
 			for _, endpoint := range peer.Endpoints {

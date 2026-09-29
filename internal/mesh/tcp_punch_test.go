@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -15,6 +16,115 @@ import (
 	"github.com/graphwan/graphwan/internal/testutil"
 	"github.com/graphwan/graphwan/internal/transport"
 )
+
+func TestTCPPunchRetainsEveryAddressOfOnePeer(t *testing.T) {
+	testutil.RequireLoopbackAliases(t, "127.0.0.2", "127.0.0.65")
+	for _, hostname := range []bool{false, true} {
+		t.Run(fmt.Sprintf("hostname=%t", hostname), func(t *testing.T) {
+			ctx, meshes, state, delivered := webMeshesWithTimeout(t, "", 30*time.Second)
+			count := 32
+			if hostname {
+				count = 65
+			}
+			var answers []netip.Addr
+			var expected []string
+			edge := &state.Networks[0].Edges[0]
+			edge.Transports = []model.Transport{model.TCP}
+			edge.Methods = model.ConnectionMethods{HolePunch: true}
+			state.Agents[0].Endpoints = nil // One initiator, many responder addresses.
+			state.Agents[1].Endpoints = nil
+			for i := range count {
+				address := netip.MustParseAddr(fmt.Sprintf("127.0.0.%d", i+1))
+				answers = append(answers, address)
+				endpoint := model.Endpoint{ID: testutil.ID(1000 + i), Source: model.Manual, Transport: model.TCP, URL: fmt.Sprintf("tcp://%s:%d", address, meshes[1].Port())}
+				if hostname {
+					endpoint.ID, endpoint.URL = testutil.ID(1000), fmt.Sprintf("tcp://many.example.test:%d", meshes[1].Port())
+				}
+				base := link.Candidate{ID: link.CandidateID(edge.ID, state.Networks[0].Nodes[0].ID, endpoint.ID, 4, link.Punch), Endpoint: endpoint, Family: 4, Method: link.Punch}
+				if hostname {
+					base, _ = link.ResolveCandidate(base, address)
+				}
+				expected = append(expected, base.ID)
+				if !hostname || i == 0 {
+					state.Agents[1].Endpoints = append(state.Agents[1].Endpoints, endpoint)
+				}
+			}
+			for _, m := range meshes {
+				m.linkOptions = link.Options{Heartbeat: 100 * time.Millisecond, Timeout: 3 * time.Second, RenewAfter: 2 * time.Second}
+				m.dns.lookup = func(context.Context, string, string) ([]netip.Addr, error) { return slices.Clone(answers), nil }
+			}
+			edge.PreferredCandidate = expected[count-1]
+			applyWebState(t, state, meshes)
+			t.Cleanup(func() {
+				if t.Failed() {
+					for i, m := range meshes {
+						m.mu.Lock()
+						t.Logf("mesh %d: %d physical sessions", i, len(m.punches))
+						m.mu.Unlock()
+					}
+				}
+			})
+			ready := func(previous map[string]bool) bool {
+				for _, m := range meshes {
+					healthy := map[string]bool{}
+					for _, stat := range m.Report() {
+						if stat.Healthy && !previous[stat.LinkID] {
+							healthy[stat.CandidateID] = true
+						}
+					}
+					for _, candidate := range expected {
+						if !healthy[candidate] {
+							return false
+						}
+					}
+				}
+				return commonWeb(meshes, expected[count-1])
+			}
+			waitWeb(t, ctx, func() bool { return ready(nil) })
+			physicalBefore := make([]map[punchKey]*transport.PunchMux, len(meshes))
+			previous := map[string]bool{}
+			for i, m := range meshes {
+				for _, stat := range m.Report() {
+					previous[stat.LinkID] = true
+				}
+				m.mu.Lock()
+				physicalBefore[i] = make(map[punchKey]*transport.PunchMux)
+				for k, session := range m.punches {
+					physicalBefore[i][k] = session
+				}
+				m.mu.Unlock()
+			}
+			waitWeb(t, ctx, func() bool { return ready(previous) })
+			for i, m := range meshes {
+				m.mu.Lock()
+				physical := len(m.punches)
+				same := true
+				for k, session := range m.punches {
+					same = same && session == physicalBefore[i][k]
+				}
+				m.mu.Unlock()
+				if physical != count {
+					t.Fatalf("physical sessions = %d, want %d", physical, count)
+				}
+				if !same {
+					t.Fatal("rekey replaced a physical connection")
+				}
+			}
+			payload := bytes.Repeat([]byte{42}, 1280)
+			if err := meshes[0].Send(ctx, state.Networks[0].ID, state.Networks[0].Nodes[1].ID, payload); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case got := <-delivered:
+				if !bytes.Equal(got, payload) {
+					t.Fatal("corrupted payload")
+				}
+			case <-ctx.Done():
+				t.Fatal("preferred path did not deliver")
+			}
+		})
+	}
+}
 
 func TestTCPPunchSharesPhysicalConnectionAcrossNetworksAndRekeys(t *testing.T) {
 	ctx, meshes, state, delivered := webMeshes(t)
@@ -310,16 +420,16 @@ func TestTCPPunchConnectionReservationsArePerIdentity(t *testing.T) {
 	identity := [32]byte{1}
 	var keys []punchKey
 	for i := range 64 {
-		k := punchKey{netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(1000+i)), identity}
+		k := punchKey{remote: netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(1000+i)), identity: identity, local: netip.MustParseAddrPort("127.0.0.2:24752")}
 		keys = append(keys, k)
 		// Completed dials may remain in the pending map until their initial
 		// stream opens. Their physical connection must not be counted twice.
 		if i < 32 {
 			m.punches[k] = nil
 		}
-		m.punchDials[k] = nil
+		m.punchDials[punchKey{remote: k.remote, identity: k.identity}] = nil
 	}
-	extra := punchKey{netip.MustParseAddrPort("127.0.0.1:2000"), identity}
+	extra := punchKey{remote: netip.MustParseAddrPort("127.0.0.1:2000"), identity: identity}
 	if m.punchConnectionAvailableLocked(extra) {
 		t.Fatal("one peer exceeded its connection and dial allowance")
 	}
@@ -334,9 +444,33 @@ func TestTCPPunchConnectionReservationsArePerIdentity(t *testing.T) {
 	if !m.punchConnectionAvailableLocked(keys[0]) {
 		t.Fatal("a closed session cannot be replaced at capacity")
 	}
-	delete(m.punchDials, keys[63])
+	delete(m.punchDials, punchKey{remote: keys[63].remote, identity: keys[63].identity})
 	if !m.punchConnectionAvailableLocked(extra) {
 		t.Fatal("canceled dial did not release its reservation")
+	}
+}
+
+func TestTCPPunchReservationsCountDistinctLocalAddresses(t *testing.T) {
+	m := &Mesh{punches: map[punchKey]*transport.PunchMux{}, punchDials: map[punchKey]*punchDial{}}
+	reservation := punchKey{remote: netip.MustParseAddrPort("127.0.0.1:24752"), identity: [32]byte{1}}
+	m.punchDials[reservation] = nil
+	var existing punchKey
+	for i := range 64 {
+		existing = reservation
+		existing.local = netip.MustParseAddrPort(fmt.Sprintf("127.0.1.%d:24752", i+1))
+		m.punches[existing] = nil
+	}
+	extra := reservation
+	extra.local = netip.MustParseAddrPort("127.0.1.65:24752")
+	if m.punchConnectionAvailableLocked(extra) {
+		t.Fatal("distinct local sockets sharing one remote address exceeded the allowance")
+	}
+	if !m.punchConnectionAvailableLocked(existing) {
+		t.Fatal("reservation was counted twice or an existing socket cannot be replaced")
+	}
+	delete(m.punches, existing)
+	if !m.punchConnectionAvailableLocked(extra) {
+		t.Fatal("closing one local socket did not release its slot")
 	}
 }
 

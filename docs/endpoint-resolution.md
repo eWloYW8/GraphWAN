@@ -153,8 +153,11 @@ DNS candidates, the concrete DNS target. The
 receiving Agent reconstructs its Candidate ID against an advertised manual
 hostname endpoint, permitted family/method and actual ingress transport/path.
 It rejects an inconsistent hash, disabled family or attempt to override a literal
-endpoint. The responder does not perform a second DNS lookup: split-horizon DNS
+endpoint. Target validation does not require a second DNS lookup: split-horizon DNS
 and reverse proxies can make its answer set different from the initiator's.
+TCP punch physical-session capacity may independently resolve a local endpoint
+hostname to size its per-peer resource allowance; that answer set does not
+replace the authenticated introduction's target or serve as an address allowlist.
 The target is a path identifier, not evidence of peer identity; identity comes
 from the authenticated handshake. The fingerprint is the first 16 bytes of
 SHA-256 over endpoint source, NUL, transport, NUL and exact URL, encoded as 32
@@ -197,6 +200,8 @@ TCP/UDP punch methods, and an unreachable first UDP answer. The DNS responses ar
 controlled test fixtures; peer sockets, TLS, handshakes and Link reconciliation
 are real. Separate tests check bounded lookup concurrency/cancellation, cache
 pruning, transient failures versus name-not-found, and invalid introductions.
+TCP punch coverage additionally retains all 65 answers of one hostname at both
+Agents and renews every Candidate's keys without replacing its physical socket.
 Actual CA-trusted WSS/gRPC frontends verify SNI, authority, path and message echo.
 UDP tests check secondary IPv4 and IPv6 reply sources on standalone/shared sockets.
 Policy-edit tests retain exact Link IDs across endpoint addition/removal, URL

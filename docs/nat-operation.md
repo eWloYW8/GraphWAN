@@ -94,14 +94,23 @@ regression coverage starts with one network, adds another 19, waits for all 40
 bidirectional candidates to renew their keys, then removes the extra networks.
 The original physical session remains in use throughout growth and renewal.
 
-Physical connections are limited separately for each authenticated adjacent Agent:
-up to 64 established or pending connections per identity, with a dial and its
-result counted once. The number of authorized neighbors does not share that
-64-connection allowance. A Linux loopback fixture verifies 65 simultaneous
+Physical connections are limited separately for each authenticated adjacent Agent.
+The allowance starts at 64 established or pending connections and grows from
+authorized endpoint counts, DNS answers and interface scopes, with a dial and
+its result counted once. The number of authorized neighbors does not share that
+allowance. A Linux loopback fixture verifies 65 simultaneous
 neighbors, encrypted traffic to each, and revocation of one neighbor without
-replacing the others' sessions. A separate saturation fixture checks that a peer's
-65th physical connection is rejected while its first 64 remain open, then removes
+replacing the others' sessions. A separate saturation fixture with no advertised
+endpoints checks that a peer's 65th physical connection is rejected while its first 64 remain open, then removes
 all of them when that peer's last authorized Edge is disabled.
+
+The pool distinguishes both local and remote socket addresses. A single neighbor
+using the same source port can therefore reach multiple local NIC addresses
+without those sockets being mistaken for duplicates. Linux real-socket regressions
+verify 32 independently configured IP endpoints and a hostname with 65 addresses:
+all Candidates remain healthy at both ends, complete key rotation without replacing
+their physical sessions, and agree on the preferred Link for payload delivery.
+The hostname test injects DNS answers; it does not depend on an external resolver.
 
 Linux native tests below verify source-port reuse and peer SYNs through restricted
 NATs. Unix adapters set `SO_REUSEADDR`/`SO_REUSEPORT`; Windows sets `SO_REUSEADDR`.

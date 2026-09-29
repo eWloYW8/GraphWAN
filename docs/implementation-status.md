@@ -897,3 +897,31 @@ These checks are not required for completion under the agreed Linux validation s
   complete with this explicit boundary, not a claim that the interruption window
   disappeared. [OpenBSD](openbsd-operation.md#creation-window-review-and-platform-limits)
   and [NetBSD](netbsd-operation.md) document the source evidence and limits.
+
+- TCP punch pooling now includes both local and remote socket addresses with the
+  authenticated Agent identity. A Linux regression reproduced a hostname with
+  many reachable addresses retaining only one physical session because the
+  receiving pool treated connections to different local addresses as duplicates.
+  The corrected pool preserves separate TCP four-tuples while still sharing each
+  one across Networks and key generations.
+- Physical-session admission still isolates each peer and counts pending/installed
+  overlap once, but its allowance now grows beyond the minimum 64 with authorized
+  endpoint counts, DNS answers and IPv6 scopes. Local TCP hostnames also use the
+  bounded asynchronous DNS cache for sizing; incoming target authentication does
+  not require the local resolver's answer to match the initiator's. Prior entries
+  describing a fixed 64-session ceiling are historical. Tests retain the default
+  saturation/revocation checks and cover distinct local sockets sharing one remote
+  address, reservation deduplication and slot reuse.
+- Real-socket Linux tests retain all 32 individually configured TCP IP endpoints
+  and all 65 answers of one manual hostname, require every Candidate to be healthy
+  at both ends after key rotation, preserve the original physical sessions, agree
+  on the preferred Candidate and deliver payloads. DNS answers are injected;
+  sockets, mutual TLS, Noise handshakes and Link selection are real.
+- Mesh/transport/Agent race suites and `go vet ./...` pass. Seven production
+  cross-builds have verified sizes and SHA-256 hashes: Linux/386, Windows/amd64,
+  macOS/arm64 and FreeBSD/OpenBSD/NetBSD/DragonFly amd64. Linux three-NAT TCP
+  acceptance passes at overlay/underlay MTU 9000/1280 with restricted capabilities:
+  live remapping recovers in 43.9 seconds, followed by STUN/controller outage,
+  offline TUN repair, cached transit restart and shutdown cleanup. No non-Linux
+  native execution is claimed. Full Link-retention acceptance and the final
+  project audit remain open.

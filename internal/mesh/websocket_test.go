@@ -31,8 +31,12 @@ func webMeshes(t *testing.T) (context.Context, []*Mesh, *model.State, <-chan []b
 }
 
 func webMeshesOn(t *testing.T, host string) (context.Context, []*Mesh, *model.State, <-chan []byte) {
+	return webMeshesWithTimeout(t, host, 10*time.Second)
+}
+
+func webMeshesWithTimeout(t *testing.T, host string, timeout time.Duration) (context.Context, []*Mesh, *model.State, <-chan []byte) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	t.Cleanup(cancel)
 	state := testutil.Topology()
 	state.Agents = state.Agents[:2]
