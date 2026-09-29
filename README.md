@@ -69,6 +69,9 @@ The default peer listen port is 24752. No controller packet relay is
 used. Agents keep forwarding and can restart from cached configuration while the
 controller is unavailable.
 
+For distribution archives, Linux systemd services, upgrades and backups, see
+[deployment](docs/deployment.md).
+
 See [Linux operation and testing](docs/linux-operation.md) for behavior, current
 limits, and reproducible native tests.
 For the FreeBSD adapter, requirements and native checks, see

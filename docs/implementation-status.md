@@ -86,7 +86,7 @@ checks are listed separately from outstanding implementation work.
 - [ ] Unit/race/integration/E2E tests, formatting, vet and frontend checks in CI.
 - [x] Pinned-toolchain CI definitions, native-result gates and local Linux/FreeBSD execution.
 - [x] All 33 Go-advertised targets for seven selected operating systems cross-build with hash manifests.
-- [ ] Packaging, reproducible build commands, deployment/service examples.
+- [x] Verified distribution archives, reproducible build commands and Linux deployment/service examples.
 - [ ] User/API/protocol documentation and realistic security/operational limitations.
 - [ ] Final requirement-by-requirement audit with linked evidence.
 
@@ -625,3 +625,22 @@ These checks are not required for completion under the agreed Linux validation s
   Workflow lint and all five script tests pass on Linux. The Linux native TUN
   and interface-discovery gates also pass in isolated network namespaces after
   the runner changes. No hosted workflow execution is claimed.
+
+- Deployment and packaging: Linux controller/Agent systemd examples include
+  persistent private state, initial enrollment settings, restart/termination
+  behavior and restricted capabilities. `scripts/check.py deployment` builds a
+  temporary executable and verifies both units without installing host services.
+  `scripts/package.py` checks the cross-build manifest, normalizes tar/ZIP metadata,
+  bundles operation guides, and atomically publishes archives and SHA-256 manifests.
+  Nine script tests pass, including corrupt inputs, existing-output preservation,
+  path validation and deterministic tar/ZIP generation. Real Linux/amd64 and
+  Windows/amd64 builds produce byte-identical archives on repeated packaging;
+  checksums, bundled files and the extracted Linux executable are verified.
+  Windows execution is not claimed. Linux three-Agent E2E passes with the service
+  capability policy for automatic TCP/UDP and IPv6-over-IPv4 UDP NAT, including
+  MTU 9000/1280 traffic, controller/STUN outage, TUN repair, offline cached restart
+  and cleanup. The NAT run verifies actual effective/bounding capabilities and
+  `NoNewPrivs` through `/proc`. CI now uses this policy for its Linux network
+  matrix and retains distribution archives alongside cross-build artifacts.
+  Unit syntax validation does not claim a real systemd installation test.
+  See [deployment and upgrade instructions](deployment.md).

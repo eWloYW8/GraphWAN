@@ -44,6 +44,8 @@ jobs:
         run: python3 scripts/check.py go --logs "${{ runner.temp }}/graphwan-checks"
       - name: Native kernel and Agent checks
         run: python3 scripts/check.py native --logs "${{ runner.temp }}/graphwan-checks"
+      - name: Verify Linux deployment units without installing them
+        run: python3 scripts/check.py deployment --logs "${{ runner.temp }}/graphwan-checks"
       - name: Retain check output
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -140,7 +142,7 @@ jobs:
           GRAPHWAN_LOG: ${{ runner.temp }}/network.log
         shell: bash
         run: |
-          args=(--binary "$GRAPHWAN_BINARY" --transport "$TRANSPORT" --overlay-family "$OVERLAY" --underlay-family "$UNDERLAY" --mtu "$MTU" --underlay-mtu 1280)
+          args=(--binary "$GRAPHWAN_BINARY" --transport "$TRANSPORT" --overlay-family "$OVERLAY" --underlay-family "$UNDERLAY" --mtu "$MTU" --underlay-mtu 1280 --restricted-agent)
           if [[ "$NAT" == true ]]; then args+=(--nat); fi
           sudo -n unshare --net python3 tests/e2e_linux.py "${args[@]}" 2>&1 | tee "$GRAPHWAN_LOG"
       - name: Retain network test output
@@ -173,11 +175,15 @@ jobs:
         env:
           TARGET_OS: ${{ matrix.goos }}
         run: python3 scripts/cross-build.py --goos "$TARGET_OS" --output "${{ runner.temp }}/builds"
+      - name: Package verified binaries and operation guides
+        run: python3 scripts/package.py --builds "${{ runner.temp }}/builds" --output "${{ runner.temp }}/packages"
       - name: Retain binaries and SHA-256 manifest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: builds-${{ matrix.goos }}
-          path: ${{ runner.temp }}/builds
+          path: |
+            ${{ runner.temp }}/builds
+            ${{ runner.temp }}/packages
           if-no-files-found: error
           retention-days: 7
 

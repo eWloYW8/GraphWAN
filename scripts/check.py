@@ -124,6 +124,28 @@ def check_frontend(logs):
             run(["git", "diff", "--exit-code", "--", "internal/webui/dist"], log=logs / "web-assets.log")
 
 
+def check_deployment(logs):
+    """Check Linux unit syntax without installing a service on the host."""
+    if platform.system() != "Linux":
+        raise RuntimeError("deployment unit verification requires Linux")
+    with tempfile.TemporaryDirectory(prefix="graphwan-deployment-") as temporary:
+        directory = Path(temporary)
+        binary = directory / "graphwan"
+        run([executable("go"), "build", "-o", binary, "./cmd/graphwan"], log=logs / "deployment-build.log")
+        units = []
+        for source in sorted((ROOT / "deploy/linux").glob("*.service")):
+            raw = source.read_text(encoding="utf-8")
+            command = "ExecStart=/usr/local/bin/graphwan "
+            if raw.count(command) != 1:
+                raise RuntimeError(f"unexpected deployment executable in {source}")
+            unit = directory / source.name
+            unit.write_text(raw.replace(command, f'ExecStart="{binary}" '), encoding="utf-8")
+            units.append(unit)
+        if len(units) != 2:
+            raise RuntimeError("expected controller and Agent service units")
+        run([executable("systemd-analyze"), "verify", "--man=no", *units], log=logs / "systemd-verify.log")
+
+
 def require_native_pass(output, expected, *, complete=False):
     """A successful test binary exit must not turn absent/skipped gates green."""
     results = {}
@@ -241,7 +263,7 @@ def check_native(logs):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("check", choices=("go", "frontend", "native", "prepare-freebsd", "verify-freebsd", "prepare-netbsd", "verify-netbsd"))
+    parser.add_argument("check", choices=("go", "frontend", "deployment", "native", "prepare-freebsd", "verify-freebsd", "prepare-netbsd", "verify-netbsd"))
     parser.add_argument("--logs", type=Path, required=True, help="directory to retain check output")
     parser.add_argument("--binaries", type=Path, help="output bundle for prepare-freebsd/prepare-netbsd; copy this directory to the disposable guest")
     args = parser.parse_args()
@@ -253,7 +275,7 @@ def main():
         elif args.check.startswith("verify-"):
             verify_bsd(args.check.removeprefix("verify-"), args.logs.resolve())
         else:
-            {"go": check_go, "frontend": check_frontend, "native": check_native}[args.check](args.logs.resolve())
+            {"go": check_go, "frontend": check_frontend, "deployment": check_deployment, "native": check_native}[args.check](args.logs.resolve())
     except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError) as error:
         parser.exit(1, f"GraphWAN check failed: {error}\n")
 

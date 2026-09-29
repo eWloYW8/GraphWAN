@@ -27,16 +27,19 @@ Python 3.10 or newer is used for the check and build scripts.
 
 | Job | Coverage |
 | --- | --- |
-| Backend | Ubuntu 24.04: Go formatting, module integrity, vet, uncached race tests and native kernel/Agent tests |
+| Backend | Ubuntu 24.04: Go formatting, module integrity, vet, uncached race tests, native kernel/Agent tests and systemd unit syntax |
 | Frontend | Locked install, formatting, TypeScript/Vite build, exact embedded-asset comparison, unit tests and Chromium integration/accessibility tests against a real controller |
 | Linux network | Thirteen isolated three-Agent scenarios: automatic TCP/UDP, all six IPv6 transports, mixed address families, and TCP/UDP NAT with IPv4/IPv6 overlays |
 | Optional native platforms (manual) | Windows 2025, macOS 15 arm64/Intel, and FreeBSD 15.1 amd64 VM. FreeBSD covers: TUN lifecycle and reconfiguration, Agent reconciliation, interface discovery, maximum-size UDP/wildcard replies and the complete Mesh test package |
-| Cross-build | Every advertised architecture for the seven operating systems below, with binary sizes and SHA-256 hashes |
+| Cross-build | Every advertised architecture for the seven operating systems below, with binary sizes, SHA-256 hashes and distribution archives |
 
 Linux network scenarios include controller/STUN outages, offline TUN repair,
 cached Agent restart, full-MTU traffic and resource cleanup. The underlay MTU is
 1280; the automatic IPv4 baseline uses overlay MTU 1280 and the other scenarios
 use 9000. See [Linux testing](linux-operation.md) for the fixtures and their limits.
+Agents run with the service example's `NET_ADMIN`/`NET_BIND_SERVICE` capability
+bounding set and `NoNewPrivileges`; the test inspects the actual process flags.
+See [deployment](deployment.md) for service installation and reproducible packages.
 
 The socket gate requires both address families for TCP, native UDP, QUIC and
 TCP/UDP STUN, plus failed-bind cleanup and shared UDP admission limits.
@@ -55,6 +58,7 @@ From the repository root:
 ```sh
 python3 -B -m unittest discover -s scripts -p 'test_*.py' -v
 python3 scripts/check.py go --logs /tmp/graphwan-checks
+python3 scripts/check.py deployment --logs /tmp/graphwan-checks
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web exec playwright install --with-deps chromium

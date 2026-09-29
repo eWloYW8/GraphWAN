@@ -44,6 +44,7 @@ def main():
     parser.add_argument("--overlay-family", type=int, choices=(4, 6), default=4, help="virtual network address family")
     parser.add_argument("--underlay-family", type=int, choices=(4, 6), default=4, help="controller and peer underlay address family")
     parser.add_argument("--nat", action="store_true", help="place each agent behind a separate restricted NAT; requires --transport udp/tcp and iptables")
+    parser.add_argument("--restricted-agent", action="store_true", help="run agents with the capability bounding set used by the systemd example")
     args = parser.parse_args()
     if args.nat and args.transport not in ("udp", "tcp"):
         parser.error("--nat verifies UDP or TCP punching")
@@ -172,10 +173,20 @@ def main():
             agents, agent_commands = [], []
             for index, holder in enumerate(namespaces):
                 token = api("POST", "/enrollment-tokens", {})["token"]
-                argv = ["nsenter", "-t", str(holder.pid), "-n", binary, "agent", "--server", server_url, "--ca", str(ca), "--name", f"node-{index}", "--data-dir", str(root / f"agent-{index}")]
+                argv = ["nsenter", "-t", str(holder.pid), "-n"]
+                if args.restricted_agent:
+                    argv += ["setpriv", "--bounding-set=-all,+net_admin,+net_bind_service", "--no-new-privs"]
+                argv += [binary, "agent", "--server", server_url, "--ca", str(ca), "--name", f"node-{index}", "--data-dir", str(root / f"agent-{index}")]
                 agent_commands.append(argv)
                 agents.append(spawn(f"agent-{index}", argv, dict(os.environ, GRAPHWAN_ENROLLMENT_TOKEN=token, HTTP_PROXY="", HTTPS_PROXY="", ALL_PROXY="")))
             state = eventually(lambda: (s if len(s["agents"]) == 3 and all(a["endpoints"] for a in s["agents"]) else None) if (s := api("GET", "/state")) else None)
+            if args.restricted_agent:
+                for process in agents:
+                    status = dict(line.split(":", 1) for line in Path(f"/proc/{process.pid}/status").read_text().splitlines())
+                    for field in ("CapBnd", "CapEff"):
+                        assert int(status[field], 16) == ((1 << 12) | (1 << 10)), f"unexpected Agent {field}"
+                    assert status["NoNewPrivs"].strip() == "1", "Agent can gain new privileges"
+                print("PASS: agents have only NET_ADMIN/NET_BIND_SERVICE and cannot gain privileges", flush=True)
             by_name = {a["name"]: a for a in state["agents"]}
             if args.nat:
                 stun_services = ["192.0.2.1:3478"]
