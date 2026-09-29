@@ -47,7 +47,7 @@ type Info struct {
 type Options struct {
 	Heartbeat, Timeout, WriteTimeout, RenewAfter time.Duration
 	// OwnedPackets opts into explicit packet ownership. Consumers must release
-	// every buffer received from OwnedPackets; the legacy Packets API is unused.
+	// every buffer received from ReadOwnedBatch; the legacy Packets API is unused.
 	OwnedPackets bool
 }
 
@@ -82,7 +82,7 @@ type Link struct {
 	dataGeneration  atomic.Uint64
 	control         chan []byte
 	packets         chan []byte
-	ownedPackets    chan *packetbuf.Buffer
+	ownedPackets    *packetbuf.Queue
 	queueMu         sync.Mutex
 	mu              sync.Mutex
 	pending         map[uint64]time.Time
@@ -111,7 +111,7 @@ func New(parent context.Context, channel Channel, info Info, options Options) (*
 	if _, ok := channel.(interface {
 		ReceiveOwnedBatch(context.Context) ([]*packetbuf.Buffer, error)
 	}); ok && options.OwnedPackets {
-		l.ownedPackets = make(chan *packetbuf.Buffer, queueSize)
+		l.ownedPackets = packetbuf.NewQueue(queueSize)
 	}
 	l.dataGeneration.Store(1)
 	l.wg.Add(3)
@@ -122,7 +122,7 @@ func New(parent context.Context, channel Channel, info Info, options Options) (*
 		l.wg.Wait()
 		close(l.packets)
 		if l.ownedPackets != nil {
-			close(l.ownedPackets)
+			l.ownedPackets.Close()
 		}
 		close(l.done)
 	}()
@@ -156,14 +156,14 @@ func (l *Link) stop() {
 func (l *Link) Close() error {
 	l.stop()
 	<-l.done
-	if l.ownedPackets != nil {
-		for b := range l.ownedPackets {
-			b.Release()
-		}
-	}
 	return nil
 }
-func (l *Link) OwnedPackets() <-chan *packetbuf.Buffer { return l.ownedPackets }
+func (l *Link) ReadOwnedBatch(ctx context.Context, dst []*packetbuf.Buffer) (int, error) {
+	if l.ownedPackets == nil {
+		return 0, errors.New("owned packet receive is not enabled")
+	}
+	return l.ownedPackets.Read(ctx, dst)
+}
 func (l *Link) Send(ctx context.Context, frame []byte) error {
 	l.queueMu.Lock()
 	defer l.queueMu.Unlock()
@@ -218,13 +218,23 @@ func (l *Link) readLoop() {
 	})
 	var ownedPending []*packetbuf.Buffer
 	var current *packetbuf.Buffer
+	var ready [32]*packetbuf.Buffer
+	count := 0
+	flush := func() {
+		if count == 0 {
+			return
+		}
+		l.dropped.Add(uint64(l.ownedPackets.Put(ready[:count])))
+		clear(ready[:count])
+		count = 0
+	}
 	owning = owning && l.ownedPackets != nil
 	batch, batching := l.channel.(interface {
 		ReceiveBatch(context.Context) ([][]byte, error)
 	})
 	var pending [][]byte
 	defer l.wg.Done()
-	defer func() { current.Release(); packetbuf.ReleaseAll(ownedPending) }()
+	defer func() { current.Release(); packetbuf.ReleaseAll(ownedPending); packetbuf.ReleaseAll(ready[:count]) }()
 	defer l.stop()
 	for {
 		var raw []byte
@@ -233,6 +243,7 @@ func (l *Link) readLoop() {
 		current = nil
 		if owning {
 			if len(ownedPending) == 0 {
+				flush()
 				ownedPending, err = owned.ReceiveOwnedBatch(l.ctx)
 			}
 			if err != nil || len(ownedPending) == 0 {
@@ -267,11 +278,10 @@ func (l *Link) readLoop() {
 			l.rx.Add(uint64(len(raw) - 1))
 			if current != nil {
 				current.Data = raw[1:]
-				select {
-				case l.ownedPackets <- current:
-					current = nil
-				default:
-					l.dropped.Add(1)
+				ready[count], current = current, nil
+				count++
+				if count == len(ready) {
+					flush()
 				}
 			} else {
 				select {

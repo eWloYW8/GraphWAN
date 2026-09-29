@@ -3,6 +3,8 @@ package forwarding
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -25,11 +27,19 @@ var (
 type Send func(context.Context, model.ID, model.ID, []byte) error
 type Deliver func(context.Context, model.ID, []byte) error
 
+type node struct {
+	id      model.ID
+	address netip.Addr
+	wire    [16]byte
+}
+
 type network struct {
+	id        model.ID
+	header    [packet.HeaderSize]byte
 	self      model.Node
 	mtu       int
-	byAddress map[netip.Addr]model.ID
-	byNode    map[model.ID]netip.Addr
+	byAddress map[netip.Addr]*node
+	byNode    map[[16]byte]*node
 	peers     map[model.ID]bool
 	routes    map[model.ID]model.ID
 }
@@ -37,6 +47,7 @@ type table struct {
 	agentID  model.ID
 	revision uint64
 	networks map[model.ID]*network
+	byWire   map[[16]byte]*network
 }
 
 // Router swaps immutable forwarding tables atomically. Send chooses the active
@@ -70,12 +81,23 @@ func (r *Router) Configure(snapshot model.Snapshot) error {
 	if previous != nil && (previous.agentID != snapshot.AgentID || snapshot.Revision < previous.revision) {
 		return errors.New("forwarding table identity change or revision rollback")
 	}
-	next := &table{agentID: snapshot.AgentID, revision: snapshot.Revision, networks: map[model.ID]*network{}}
+	next := &table{agentID: snapshot.AgentID, revision: snapshot.Revision, networks: map[model.ID]*network{}, byWire: map[[16]byte]*network{}}
 	for _, config := range snapshot.Networks {
-		n := &network{self: config.Self, mtu: config.MTU, byAddress: map[netip.Addr]model.ID{}, byNode: map[model.ID]netip.Addr{}, peers: map[model.ID]bool{}, routes: map[model.ID]model.ID{}}
+		n := &network{id: config.ID, self: config.Self, mtu: config.MTU, byAddress: map[netip.Addr]*node{}, byNode: map[[16]byte]*node{}, peers: map[model.ID]bool{}, routes: map[model.ID]model.ID{}}
+		// Snapshot validation above is the sole place where IDs need checking.
+		header, err := (packet.Packet{Header: packet.Header{Network: config.ID, Source: config.Self.ID, Destination: config.Self.ID, HopLimit: packet.DefaultHopLimit, Epoch: snapshot.Revision}, Payload: []byte{0}}).MarshalBinary()
+		if err != nil {
+			return err
+		}
+		copy(n.header[:], header)
+		next.byWire[[16]byte(header[8:24])] = n
 		for _, dest := range config.Directory {
-			n.byAddress[dest.Address] = dest.NodeID
-			n.byNode[dest.NodeID] = dest.Address
+			entry := &node{id: dest.NodeID, address: dest.Address}
+			if _, err := hex.Decode(entry.wire[:], []byte(dest.NodeID)); err != nil {
+				return err
+			}
+			n.byAddress[dest.Address] = entry
+			n.byNode[entry.wire] = entry
 		}
 		for _, peer := range config.Peers {
 			n.peers[peer.Node.ID] = true
@@ -113,15 +135,22 @@ func (r *Router) FromTunnel(ctx context.Context, networkID model.ID, raw []byte)
 	if !ok {
 		return ErrDestination
 	}
-	if destination == n.self.ID {
+	if destination.id == n.self.ID {
 		return r.deliver(ctx, networkID, raw)
 	}
-	nextHop, ok := n.routes[destination]
+	nextHop, ok := n.routes[destination.id]
 	if !ok {
 		return ErrUnreachable
 	}
-	p := packet.Packet{Header: packet.Header{Network: networkID, Source: n.self.ID, Destination: destination, HopLimit: packet.DefaultHopLimit, Epoch: current.revision, Flow: info.Flow}, Payload: raw}
-	return r.sendPacket(ctx, networkID, nextHop, p)
+	buffer := packetbuf.Get(packet.HeaderSize + len(raw))
+	defer buffer.Release()
+	frame := buffer.Data
+	copy(frame, n.header[:])
+	binary.BigEndian.PutUint16(frame[4:6], uint16(len(raw)))
+	copy(frame[40:56], destination.wire[:])
+	binary.BigEndian.PutUint64(frame[64:72], info.Flow)
+	copy(frame[packet.HeaderSize:], raw)
+	return r.send(ctx, networkID, nextHop, frame)
 }
 
 // FromPeer must receive the Node ID authenticated by the peer Channel, never an
@@ -168,12 +197,12 @@ func (r *Router) FromPeerBatch(ctx context.Context, peerID model.ID, frames [][]
 	return result
 }
 func (r *Router) fromPeer(ctx context.Context, peerID model.ID, frame []byte, deliver Deliver) error {
-	p, err := packet.Parse(frame)
+	p, err := packet.ParseView(frame)
 	if err != nil {
 		return err
 	}
 	current := r.state.Load()
-	n := current.networks[p.Header.Network]
+	n := current.byWire[p.Network]
 	if n == nil {
 		return ErrNetwork
 	}
@@ -183,46 +212,42 @@ func (r *Router) fromPeer(ctx context.Context, peerID model.ID, frame []byte, de
 	if len(p.Payload) > n.mtu {
 		return ErrMTU
 	}
-	source, ok := n.byNode[p.Header.Source]
-	if !ok || p.Header.Source == n.self.ID {
+	source, ok := n.byNode[p.Source]
+	if !ok || source.id == n.self.ID {
 		return ErrSource
 	}
-	destination, ok := n.byNode[p.Header.Destination]
+	destination, ok := n.byNode[p.Destination]
 	if !ok {
 		return ErrDestination
 	}
-	info, err := packet.InspectIP(p.Payload)
+	info, err := packet.InspectAddresses(p.Payload)
 	if err != nil {
 		return err
 	}
-	if info.Source != source {
+	if info.Source != source.address {
 		return ErrSource
 	}
-	if info.Destination != destination {
+	if info.Destination != destination.address {
 		return ErrDestination
 	}
-	if p.Header.Destination == n.self.ID {
-		return deliver(ctx, p.Header.Network, p.Payload)
+	if destination.id == n.self.ID {
+		return deliver(ctx, n.id, p.Payload)
 	}
-	if err := p.Forward(); err != nil {
-		return err
+	if p.HopLimit <= 1 {
+		return packet.ErrHopLimit
 	}
-	nextHop, ok := n.routes[p.Header.Destination]
+	nextHop, ok := n.routes[destination.id]
 	if !ok {
 		return ErrUnreachable
 	}
 	if nextHop == peerID {
 		return fmt.Errorf("route would return packet to ingress neighbor")
 	}
-	return r.sendPacket(ctx, p.Header.Network, nextHop, p)
-}
-
-func (r *Router) sendPacket(ctx context.Context, network, next model.ID, p packet.Packet) error {
-	buffer := packetbuf.Get(packet.HeaderSize + len(p.Payload))
+	// Keep the caller's authenticated frame immutable. Transit changes only
+	// the hop limit; copying its canonical wire header avoids decoding/reencoding.
+	buffer := packetbuf.Get(len(frame))
 	defer buffer.Release()
-	frame, err := p.AppendBinary(buffer.Data[:0])
-	if err != nil {
-		return err
-	}
-	return r.send(ctx, network, next, frame)
+	copy(buffer.Data, frame)
+	buffer.Data[3]--
+	return r.send(ctx, n.id, nextHop, buffer.Data)
 }

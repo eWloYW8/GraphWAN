@@ -4,13 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
-	"github.com/graphwan/graphwan/internal/packetbuf"
 	"net"
 	"net/netip"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/graphwan/graphwan/internal/packetbuf"
 )
 
 const (
@@ -50,7 +51,7 @@ type Datagram struct {
 	batchSend     *udpBatchSend
 	hub           *UDP
 	key           udpKey
-	incoming      chan *packetbuf.Buffer
+	incoming      *packetbuf.Queue
 	done          chan struct{}
 	closeOnce     sync.Once
 	lastSeen      atomic.Int64
@@ -119,14 +120,14 @@ func (h *UDP) stop() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		for _, peer := range h.peers {
-			peer.closeOnce.Do(func() { close(peer.done); peer.drainIncoming() })
+			peer.closeOnce.Do(func() { close(peer.done); peer.incoming.Close() })
 		}
 		clear(h.peers)
 		h.pending = 0
 	})
 }
 func (h *UDP) newPeer(key udpKey, reply []byte) *Datagram {
-	peer := &Datagram{replyControl: reply, hub: h, key: key, incoming: make(chan *packetbuf.Buffer, udpQueueSize), done: make(chan struct{})}
+	peer := &Datagram{replyControl: reply, hub: h, key: key, incoming: packetbuf.NewQueue(udpQueueSize), done: make(chan struct{})}
 	peer.lastSeen.Store(time.Now().UnixNano())
 	h.peers[key] = peer
 	h.pending++
@@ -168,69 +169,93 @@ func (h *UDP) Accept(ctx context.Context) (*Datagram, error) {
 		}
 	}
 }
+
+type udpPacket struct {
+	raw, control []byte
+	remote       netip.AddrPort
+	flags        int
+}
+
 func (h *UDP) readLoop(socket *net.UDPConn) {
 	defer h.wg.Done()
 	defer h.stop()
 	reader := newUDPPacketReader(socket)
+	var packets [32]udpPacket
 	for {
-		raw, control, flags, remote, err := reader.read()
-		if udpReadTruncated(flags, err) {
+		n, err := reader.readBatch(packets[:])
+		if udpReadTruncated(0, err) {
 			continue
 		}
 		if err != nil {
 			return
 		}
-		h.receivePacket(raw, remote, udpReplyControl(control, remote))
+		count := 0
+		for _, p := range packets[:n] {
+			if udpReadTruncated(p.flags, nil) || h.receiveSTUN(p.raw, p.remote) {
+				continue
+			}
+			packets[count] = p
+			count++
+		}
+		h.receivePackets(packets[:count])
 	}
 }
 
-func (h *UDP) receivePacket(raw []byte, remote netip.AddrPort, reply []byte) {
-	if h.receiveSTUN(raw, remote) {
-		return
-	}
-	n := len(raw)
-	if n <= udpHeaderSize || n > MaxMessage+udpHeaderSize || [4]byte(raw[:4]) != udpMagic {
-		return
-	}
-	key := udpKey{remote: netip.AddrPortFrom(remote.Addr().Unmap(), remote.Port()), token: [16]byte(raw[4:20])}
-	if key.token == [16]byte{} {
-		return
-	}
+// receivePackets publishes each consecutive run for a peer together, preserving
+// socket/GRO batches through the decryption queue. The lock also serializes
+// acceptance and close, so no storage can arrive after the last close drain.
+func (h *UDP) receivePackets(packets []udpPacket) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	select {
 	case <-h.done:
-		h.mu.Unlock()
 		return
 	default:
 	}
-	peer := h.peers[key]
-	if peer == nil {
-		if h.pending >= maxPendingUDP {
-			h.mu.Unlock()
-			return
-		}
-		peer = h.newPeer(key, reply)
-		select {
-		case h.accept <- peer:
-		default:
-			delete(h.peers, key)
-			h.pending--
-			peer.closeOnce.Do(func() { close(peer.done); peer.drainIncoming() })
-			h.mu.Unlock()
-			return
+	var pending [32]*packetbuf.Buffer
+	var previous *Datagram
+	count := 0
+	flush := func() {
+		if count > 0 {
+			previous.incoming.Put(pending[:count])
+			clear(pending[:count])
+			count = 0
 		}
 	}
-	// Enqueue and close/drain share hub.mu, so ownership cannot arrive after
-	// a peer has drained its last queued packet.
-	defer h.mu.Unlock()
-	payload := packetbuf.Get(len(raw) - udpHeaderSize)
-	copy(payload.Data, raw[udpHeaderSize:])
-	select {
-	case <-peer.done:
-		payload.Release()
-	case peer.incoming <- payload:
-	default:
-		payload.Release()
+	defer flush()
+	for _, p := range packets {
+		raw, remote := p.raw, p.remote
+		n := len(raw)
+		if n <= udpHeaderSize || n > MaxMessage+udpHeaderSize || [4]byte(raw[:4]) != udpMagic {
+			continue
+		}
+		key := udpKey{remote: netip.AddrPortFrom(remote.Addr().Unmap(), remote.Port()), token: [16]byte(raw[4:20])}
+		if key.token == [16]byte{} {
+			continue
+		}
+		peer := h.peers[key]
+		if peer == nil {
+			if h.pending >= maxPendingUDP {
+				continue
+			}
+			peer = h.newPeer(key, udpReplyControl(p.control, remote))
+			select {
+			case h.accept <- peer:
+			default:
+				delete(h.peers, key)
+				h.pending--
+				peer.closeOnce.Do(func() { close(peer.done); peer.incoming.Close() })
+				continue
+			}
+		}
+		if peer != previous || count == len(pending) {
+			flush()
+			previous = peer
+		}
+		payload := packetbuf.Get(n - udpHeaderSize)
+		copy(payload.Data, raw[udpHeaderSize:])
+		pending[count] = payload
+		count++
 	}
 }
 
@@ -281,7 +306,7 @@ func (d *Datagram) Close() error {
 	defer d.hub.mu.Unlock()
 	d.closeOnce.Do(func() {
 		close(d.done)
-		d.drainIncoming()
+		d.incoming.Close()
 		if d.hub.peers[d.key] == d {
 			delete(d.hub.peers, d.key)
 			if !d.authenticated.Load() {
@@ -329,25 +354,10 @@ func (h *UDP) writeDatagramControl(ctx context.Context, raw []byte, remote netip
 	}
 	return nil
 }
-func (d *Datagram) drainIncoming() {
-	for {
-		select {
-		case b := <-d.incoming:
-			b.Release()
-		default:
-			return
-		}
-	}
-}
 func (d *Datagram) receiveOwned(ctx context.Context) (*packetbuf.Buffer, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-d.done:
-		return nil, net.ErrClosed
-	case payload := <-d.incoming:
-		return payload, nil
-	}
+	var out [1]*packetbuf.Buffer
+	_, err := d.incoming.Read(ctx, out[:])
+	return out[0], err
 }
 func (d *Datagram) Receive(ctx context.Context) ([]byte, error) {
 	b, err := d.receiveOwned(ctx)
@@ -370,21 +380,9 @@ func (d *Datagram) ReceiveBatch(ctx context.Context) ([][]byte, error) {
 	return out, nil
 }
 func (d *Datagram) ReceiveOwnedBatch(ctx context.Context) ([]*packetbuf.Buffer, error) {
-	first, err := d.receiveOwned(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*packetbuf.Buffer, 1, 32)
-	out[0] = first
-	for len(out) < cap(out) {
-		select {
-		case raw := <-d.incoming:
-			out = append(out, raw)
-		default:
-			return out, nil
-		}
-	}
-	return out, nil
+	out := make([]*packetbuf.Buffer, 32)
+	n, err := d.incoming.Read(ctx, out)
+	return out[:n], err
 }
 
 func (d *Datagram) Unreliable() bool { return true }

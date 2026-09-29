@@ -142,5 +142,14 @@ func TestIPInspection(t *testing.T) {
 func FuzzInspectIP(f *testing.F) {
 	f.Add([]byte{0x45})
 	f.Add(make([]byte, 40))
-	f.Fuzz(func(t *testing.T, b []byte) { packet.InspectIP(b) })
+	f.Fuzz(func(t *testing.T, b []byte) {
+		full, fullErr := packet.InspectIP(b)
+		addresses, addressErr := packet.InspectAddresses(b)
+		if (fullErr == nil) != (addressErr == nil) {
+			t.Fatal("address-only validation differs")
+		}
+		if fullErr == nil && (full.Source != addresses.Source || full.Destination != addresses.Destination) {
+			t.Fatal("address-only parse differs")
+		}
+	})
 }

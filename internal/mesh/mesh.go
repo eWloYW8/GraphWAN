@@ -488,65 +488,27 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 			delete(g.linkCandidates, l.ID())
 			g.mu.Unlock()
 		}()
+
+		var owners [32]*packetbuf.Buffer
+		var frames [32][]byte
 		for {
-			select {
-			case first, ok := <-l.OwnedPackets():
-				if !ok {
-					return
-				}
-				var owners [32]*packetbuf.Buffer
-				var frames [32][]byte
-				owners[0], frames[0] = first, first.Data
-				count := 1
-			collectOwned:
-				for count < len(owners) {
-					select {
-					case next, ok := <-l.OwnedPackets():
-						if !ok {
-							break collectOwned
-						}
-						owners[count], frames[count] = next, next.Data
-						count++
-					default:
-						break collectOwned
-					}
-				}
-				if g.mesh.receiveBatch != nil {
-					g.mesh.receiveBatch(g.ctx, cfg.peer.Node.ID, frames[:count])
-				} else {
-					for _, raw := range frames[:count] {
-						g.mesh.receive(g.ctx, cfg.peer.Node.ID, bytes.Clone(raw))
-					}
-				}
-				packetbuf.ReleaseAll(owners[:count])
-			case raw, ok := <-l.Packets():
-				if !ok {
-					return
-				}
-				if g.mesh.receiveBatch == nil {
-					g.mesh.receive(g.ctx, cfg.peer.Node.ID, raw)
-					continue
-				}
-				var packets [32][]byte
-				packets[0] = raw
-				count := 1
-			collect:
-				for count < len(packets) {
-					select {
-					case next, open := <-l.Packets():
-						if !open {
-							break collect
-						}
-						packets[count] = next
-						count++
-					default:
-						break collect
-					}
-				}
-				g.mesh.receiveBatch(g.ctx, cfg.peer.Node.ID, packets[:count])
-			case <-g.ctx.Done():
+			count, err := l.ReadOwnedBatch(g.ctx, owners[:])
+			if err != nil {
 				return
 			}
+			for i, b := range owners[:count] {
+				frames[i] = b.Data
+			}
+			if g.mesh.receiveBatch != nil {
+				g.mesh.receiveBatch(g.ctx, cfg.peer.Node.ID, frames[:count])
+			} else {
+				for _, raw := range frames[:count] {
+					g.mesh.receive(g.ctx, cfg.peer.Node.ID, bytes.Clone(raw))
+				}
+			}
+			packetbuf.ReleaseAll(owners[:count])
+			clear(owners[:count])
+			clear(frames[:count])
 		}
 	}()
 }

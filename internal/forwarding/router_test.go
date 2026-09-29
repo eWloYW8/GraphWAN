@@ -174,3 +174,47 @@ func TestBatchPreservesAdmissionAndPacketOrder(t *testing.T) {
 		t.Fatal("nonadjacent peer admitted", err)
 	}
 }
+
+func TestCachedHeaderMatchesCanonicalEncoder(t *testing.T) {
+	state := testutil.Topology()
+	config, err := routing.Compile(state, testutil.ID(11))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent []byte
+	router, err := forwarding.New(config, func(_ context.Context, _ model.ID, _ model.ID, raw []byte) error { sent = bytes.Clone(raw); return nil }, func(context.Context, model.ID, []byte) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, size := range []int{28, 1280, 99} {
+		config.Revision++
+		if err := router.Configure(config); err != nil {
+			t.Fatal(err)
+		}
+		raw := make([]byte, size)
+		copy(raw, ipPacket(2, 3))
+		binary.BigEndian.PutUint16(raw[2:4], uint16(size))
+		if err := router.FromTunnel(t.Context(), testutil.ID(1), raw); err != nil {
+			t.Fatal(err)
+		}
+		info, _ := packet.InspectIP(raw)
+		want, err := (packet.Packet{Header: packet.Header{Network: testutil.ID(1), Source: testutil.ID(21), Destination: testutil.ID(22), HopLimit: packet.DefaultHopLimit, Epoch: config.Revision, Flow: info.Flow}, Payload: raw}).MarshalBinary()
+		if err != nil || !bytes.Equal(sent, want) {
+			t.Fatal("cached encoding differs from canonical wire format")
+		}
+	}
+	original := packet.Packet{Header: packet.Header{Network: testutil.ID(1), Source: testutil.ID(20), Destination: testutil.ID(22), HopLimit: 17, Epoch: 21, Flow: 22, Sequence: 23}, Payload: ipPacket(1, 3)}
+	frame, _ := original.MarshalBinary()
+	before := bytes.Clone(frame)
+	if err := router.FromPeer(t.Context(), testutil.ID(20), frame); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(frame, before) {
+		t.Fatal("transit mutated caller storage")
+	}
+	original.Header.HopLimit--
+	want, _ := original.MarshalBinary()
+	if !bytes.Equal(sent, want) {
+		t.Fatal("transit changed fields other than hop limit")
+	}
+}

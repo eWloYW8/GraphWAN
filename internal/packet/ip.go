@@ -16,6 +16,16 @@ type IPInfo struct {
 // packets use an address/protocol key so all fragments follow the same path.
 // IPv6 extension chains use the base next-header key until ECMP is enabled.
 func InspectIP(raw []byte) (IPInfo, error) {
+	return inspectIP(raw, true)
+}
+
+// InspectAddresses performs the same IP validation without recomputing a flow
+// hash. Peer receive admission does not use that hash.
+func InspectAddresses(raw []byte) (IPInfo, error) {
+	return inspectIP(raw, false)
+}
+
+func inspectIP(raw []byte, flow bool) (IPInfo, error) {
 	var info IPInfo
 	if len(raw) < 1 {
 		return info, errors.New("empty IP packet")
@@ -37,7 +47,9 @@ func InspectIP(raw []byte) (IPInfo, error) {
 		info.Destination = netip.AddrFrom4([4]byte(raw[16:20]))
 		protocol = raw[9]
 		fragmented = binary.BigEndian.Uint16(raw[6:8])&0x3fff != 0
-		h.Write(raw[12:20])
+		if flow {
+			h.Write(raw[12:20])
+		}
 	case 6:
 		if len(raw) < 40 || int(binary.BigEndian.Uint16(raw[4:6]))+40 != len(raw) {
 			return info, errors.New("invalid IPv6 length")
@@ -46,9 +58,14 @@ func InspectIP(raw []byte) (IPInfo, error) {
 		info.Destination = netip.AddrFrom16([16]byte(raw[24:40]))
 		protocol = raw[6]
 		offset = 40
-		h.Write(raw[8:40])
+		if flow {
+			h.Write(raw[8:40])
+		}
 	default:
 		return info, errors.New("unsupported IP version")
+	}
+	if !flow {
+		return info, nil
 	}
 	h.Write([]byte{protocol})
 	if !fragmented && (protocol == 6 || protocol == 17) && len(raw) >= offset+4 {

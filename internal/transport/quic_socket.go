@@ -15,10 +15,12 @@ import (
 // would change native UDP fragmentation behavior. QUIC uses 1200-byte packets.
 type quicSocket struct {
 	net.PacketConn
-	hub    *UDP
-	socket *net.UDPConn
-	readMu sync.Mutex
-	reader *udpPacketReader
+	hub         *UDP
+	socket      *net.UDPConn
+	readMu      sync.Mutex
+	reader      *udpPacketReader
+	packets     [32]udpPacket
+	next, count int
 }
 
 func (s *quicSocket) ReadFrom(raw []byte) (int, net.Addr, error) {
@@ -28,28 +30,46 @@ func (s *quicSocket) ReadFrom(raw []byte) (int, net.Addr, error) {
 		s.reader = newUDPPacketReader(s.socket)
 	}
 	for {
-		packet, control, flags, remote, err := s.reader.read()
-		n := len(packet)
-		if udpReadTruncated(flags, err) {
+		if s.next == s.count {
+			n, err := s.reader.readBatch(s.packets[:])
+			if udpReadTruncated(0, err) {
+				continue
+			}
+			if err != nil {
+				s.hub.stop()
+				return 0, nil, err
+			}
+			var native [32]udpPacket
+			nativeCount, quicCount := 0, 0
+			for _, p := range s.packets[:n] {
+				if udpReadTruncated(p.flags, nil) {
+					continue
+				}
+				if len(p.raw) >= 4 && [4]byte(p.raw[:4]) == udpMagic {
+					native[nativeCount] = p
+					nativeCount++
+				} else if !s.hub.receiveSTUN(p.raw, p.remote) {
+					s.packets[quicCount] = p
+					quicCount++
+				}
+			}
+			if nativeCount > 0 {
+				s.hub.receivePackets(native[:nativeCount])
+			}
+			s.next, s.count = 0, quicCount
+			if quicCount == 0 {
+				continue
+			}
+		}
+		p := s.packets[s.next]
+		s.next++
+		if len(p.raw) > len(raw) {
 			continue
 		}
-		if err != nil {
-			s.hub.stop()
-			return 0, nil, err
-		}
-		if n >= 4 && [4]byte(packet[:4]) == udpMagic {
-			s.hub.receivePacket(packet, remote, udpReplyControl(control, remote))
-			continue
-		}
-		if s.hub.receiveSTUN(packet, remote) {
-			continue
-		}
-		if n > len(raw) {
-			continue
-		}
-		return copy(raw, packet), net.UDPAddrFromAddrPort(remote), nil
+		return copy(raw, p.raw), net.UDPAddrFromAddrPort(p.remote), nil
 	}
 }
+
 func (s *quicSocket) WriteTo(raw []byte, remote net.Addr) (int, error) {
 	s.hub.writeMu.Lock()
 	defer s.hub.writeMu.Unlock()

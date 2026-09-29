@@ -71,9 +71,18 @@ func (p Packet) AppendBinary(dst []byte) ([]byte, error) {
 	return dst, nil
 }
 
-// Parse references the caller's frame; callers must copy before reusing buffers.
-func Parse(frame []byte) (Packet, error) {
-	var p Packet
+// View keeps wire IDs in their native fixed-width representation so configured
+// forwarding tables can look them up without allocating hexadecimal strings.
+// Payload references the caller's frame and must not outlive its ownership.
+type View struct {
+	Network, Source, Destination [16]byte
+	HopLimit                     uint8
+	Epoch, Flow, Sequence        uint64
+	Payload                      []byte
+}
+
+func ParseView(frame []byte) (View, error) {
+	var p View
 	if len(frame) < HeaderSize || len(frame) > MaxFrame {
 		return p, errors.New("invalid frame length")
 	}
@@ -87,22 +96,36 @@ func Parse(frame []byte) (Packet, error) {
 	if size == 0 || size != len(frame)-HeaderSize {
 		return p, errors.New("payload length mismatch")
 	}
-	ids := []*model.ID{&p.Header.Network, &p.Header.Source, &p.Header.Destination}
+	ids := []*[16]byte{&p.Network, &p.Source, &p.Destination}
 	for i, dest := range ids {
 		raw := frame[8+i*16 : 24+i*16]
 		// Fixed-width binary IDs encode to canonical lowercase hex by construction.
 		// Only the reserved zero value needs validation on this receive path.
 		if [16]byte(raw) == [16]byte{} {
-			return Packet{}, errors.New("zero ID is reserved")
+			return View{}, errors.New("zero ID is reserved")
 		}
-		*dest = model.ID(hex.EncodeToString(raw))
+		*dest = [16]byte(raw)
 	}
-	p.Header.HopLimit = frame[3]
-	p.Header.Epoch = binary.BigEndian.Uint64(frame[56:64])
-	p.Header.Flow = binary.BigEndian.Uint64(frame[64:72])
-	p.Header.Sequence = binary.BigEndian.Uint64(frame[72:80])
+	p.HopLimit = frame[3]
+	p.Epoch = binary.BigEndian.Uint64(frame[56:64])
+	p.Flow = binary.BigEndian.Uint64(frame[64:72])
+	p.Sequence = binary.BigEndian.Uint64(frame[72:80])
 	p.Payload = frame[HeaderSize:]
 	return p, nil
+}
+
+// Parse retains the string-ID API for callers that need a materialized Header.
+func Parse(frame []byte) (Packet, error) {
+	v, err := ParseView(frame)
+	if err != nil {
+		return Packet{}, err
+	}
+	return Packet{Header: Header{
+		Network:     model.ID(hex.EncodeToString(v.Network[:])),
+		Source:      model.ID(hex.EncodeToString(v.Source[:])),
+		Destination: model.ID(hex.EncodeToString(v.Destination[:])),
+		HopLimit:    v.HopLimit, Epoch: v.Epoch, Flow: v.Flow, Sequence: v.Sequence,
+	}, Payload: v.Payload}, nil
 }
 
 func (p *Packet) Forward() error {

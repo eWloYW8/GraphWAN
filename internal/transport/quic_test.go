@@ -271,6 +271,29 @@ func TestQUICDatagramsShareSocketWithLegacyUDP(t *testing.T) {
 	if err != nil || !bytes.Equal(got, frame) {
 		t.Fatal("legacy UDP reply lost:", err)
 	}
+	// Native UDP batches (including Linux GSO/GRO) and QUIC share the same
+	// reader. Neither compaction nor splitting may consume the other's frames.
+	for round := range 3 {
+		batch := make([][]byte, 32)
+		for i := range batch {
+			batch[i] = bytes.Repeat([]byte{byte(round*32 + i)}, 1200)
+		}
+		if err := native.SendBatch(ctx, batch); err != nil {
+			t.Fatal(err)
+		}
+		quicFrame := []byte{byte(round), 17, 23, 41}
+		if err := a.Send(ctx, quicFrame); err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range batch {
+			if got, err := remote.Receive(ctx); err != nil || !bytes.Equal(got, want) {
+				t.Fatal("shared reader corrupted native batch", err)
+			}
+		}
+		if got, err := b.Receive(ctx); err != nil || !bytes.Equal(got, quicFrame) {
+			t.Fatal("shared reader consumed QUIC frame", err)
+		}
+	}
 	// Receive deadlines must leave a datagram session alive for handshake retries.
 	short, stop := context.WithTimeout(ctx, 20*time.Millisecond)
 	defer stop()

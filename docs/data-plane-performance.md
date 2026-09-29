@@ -84,6 +84,65 @@ single-run results establish a substantial improvement, not gigabit line rate
 or a universal advantage for one transport. The temporary candidate preference
 was restored to automatic selection after these comparisons.
 
+## Further optimization, 2026-09-29
+
+The second pass targets the remaining UDP kernel work, queue handoffs and ID
+conversion. Linux UDP now uses `UDP_SEGMENT` with scatter/gather buffers and
+splits `UDP_GRO` receives before native/STUN/QUIC dispatch. The wire still carries
+independent datagrams with their original token, nonce and authentication tag.
+Groups contain at most 64 segments and 65,507 bytes, retaining source-interface
+control messages. Unsupported offload or a path-MTU rejection disables GSO for
+that peer and retries only the unsent prefix remainder as ordinary datagrams.
+Negative syscall counts are not treated as submitted messages. This preserves
+the existing fragmentation behavior for configured large virtual MTUs. See the
+[Linux UDP socket API](https://man7.org/linux/man-pages/man7/udp.7.html) and
+[kernel segmentation documentation](https://docs.kernel.org/networking/segmentation-offloads.html).
+
+Reply packet information is decoded only when accepting a new peer. UDP receive
+and Link delivery publish batches to a shared bounded packet queue, preserving
+batches through decryption and TUN delivery. Capacity remains 256 packets for a
+UDP peer and 512 for a Link; it is not multiplied by the batch size. Queue close
+releases only queued storage, leaving already delivered buffers with their
+consumer. Overflow releases the unqueued tail, and readers never wait to fill a
+batch.
+
+The immutable forwarding table now indexes received binary IDs directly. It
+caches the invariant outgoing header when configuration is validated, instead
+of repeatedly validating and decoding three string IDs. IP admission uses the
+same length/address checks without recomputing an unused receive-side flow hash.
+Transit copies the canonical input frame and changes only the hop limit.
+
+`BenchmarkForwarding` uses a small valid IP packet, synchronous no-op delivery,
+and three runs per case. These are routing microbenchmarks, excluding encryption,
+queues, kernel I/O and payload-sized copy cost:
+
+| CPU and operation | Before, median | After, median | Allocations per operation |
+| --- | ---: | ---: | ---: |
+| Local amd64 receive | 163.0 ns | 71.8 ns | 3 → 0 (96 → 0 bytes) |
+| Local amd64 send | 248.4 ns | 69.9 ns | 0 → 0 |
+| opi5 ARM64 receive | 570.9 ns | 160.3 ns | 3 → 0 (96 → 0 bytes) |
+| opi5 ARM64 send | 638.0 ns | 165.4 ns | 0 → 0 |
+
+The ARM64 CPU has heterogeneous cores and other running workloads; individual
+baseline receive runs ranged from 500.6 to 755.3 ns. The microbenchmark reduction
+does not imply a corresponding multiplier for encrypted network throughput.
+
+Pre-release single-flow UDP/IPv4 measurements progressed from 636.8 Mbps with
+baseline CPU profiling to 762.3 Mbps with offloads, 770.5 Mbps with binary routing
+and Link batch delivery, and 788.4 Mbps after preserving UDP receive batches.
+The latter runs used the existing 20-second test/2-second warmup/25-second CPU
+window. The final step used 38.2% local Agent CPU and 210.3% opi5 Agent CPU.
+TCP/IPv4 measured 736.1 Mbps forward and 788.9 Mbps reverse in this build.
+These single measurements are development evidence, not isolated maxima.
+
+Regression coverage includes negative/partial `sendmmsg` results, wire-compatible
+GSO boundaries, GRO truncation, source control preservation, mixed native/QUIC
+traffic, queue ownership/overflow/cancellation, canonical cached-header encoding
+and immutable transit frames. Linux three-Agent tests cover TCP, IPv6 QUIC over
+an MTU-1280 underlay, and IPv6 UDP with MTU 9000 through three restricted IPv4
+NATs over MTU 1280. The latter explicitly exercises offload rejection and legacy
+fragmentation, plus STUN/controller outages and restart recovery.
+
 ## Reproduce and validate
 
 Record the active transport/address from both Agents' telemetry before and after

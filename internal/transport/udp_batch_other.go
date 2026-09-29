@@ -46,3 +46,5 @@ func (r *udpPacketReader) read() ([]byte, []byte, int, netip.AddrPort, error) {
 	}
 	return r.buffer[:n], r.control[:control], flags, remote, err
 }
+
+func (r *udpPacketReader) buffered() bool { return false }
