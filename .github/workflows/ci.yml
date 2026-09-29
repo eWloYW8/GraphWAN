@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2025, macos-15, macos-15-intel]
+        os: [ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
@@ -34,31 +34,16 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: go.sum
-      - name: Configure disposable macOS loopback fixtures
-        if: runner.os == 'macOS'
-        run: |
-          sudo ifconfig lo0 inet 127.0.0.2/32 alias
-          sudo ifconfig lo0 inet 127.0.0.3/32 alias
       - name: Enable Linux TUN driver
-        if: runner.os == 'Linux'
         run: sudo modprobe tun
       - name: Check CI evidence gate
-        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} -m unittest discover -s scripts -p 'test_*.py' -v
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
       - name: Validate workflow definitions
-        if: runner.os == 'Linux'
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
       - name: Format, module integrity, vet and race tests
-        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/check.py go --logs "${{ runner.temp }}/graphwan-checks"
+        run: python3 scripts/check.py go --logs "${{ runner.temp }}/graphwan-checks"
       - name: Native kernel and Agent checks
-        env:
-          GRAPHWAN_TEST_MACOS: '1'
-          GRAPHWAN_TEST_WINDOWS: '1'
-        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/check.py native --logs "${{ runner.temp }}/graphwan-checks"
-      - name: Remove macOS loopback fixtures
-        if: always() && runner.os == 'macOS'
-        run: |
-          sudo ifconfig lo0 inet 127.0.0.2 -alias
-          sudo ifconfig lo0 inet 127.0.0.3 -alias
+        run: python3 scripts/check.py native --logs "${{ runner.temp }}/graphwan-checks"
       - name: Retain check output
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -167,41 +152,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  freebsd-native:
-    name: FreeBSD 15.1 native tests (amd64)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: .go-version
-          cache-dependency-path: go.sum
-      - name: Build native test bundle with the pinned Go toolchain
-        run: python3 scripts/check.py prepare-freebsd --binaries .ci-native --logs .ci-native/build-logs
-      - name: Execute against a disposable FreeBSD kernel
-        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff # v1.5.8
-        with:
-          release: '15.1'
-          arch: x86_64
-          sync: rsync
-          copyback: true
-          run: env GRAPHWAN_TEST_VM=1 sh .ci-native/run.sh
-      - name: Require execution of native tests and their subtests
-        run: python3 scripts/check.py verify-freebsd --logs .ci-native/logs
-      - name: Retain native build and execution output
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: checks-freebsd-15.1-amd64
-          path: |
-            .ci-native/build-logs
-            .ci-native/logs
-          if-no-files-found: warn
-          retention-days: 7
-
   cross-build:
     name: Cross-build (${{ matrix.goos }})
     runs-on: ubuntu-24.04
@@ -234,7 +184,7 @@ jobs:
   required:
     name: Required checks
     if: always()
-    needs: [backend, frontend, linux-network, freebsd-native, cross-build]
+    needs: [backend, frontend, linux-network, cross-build]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every matrix and gate to succeed

@@ -9,12 +9,13 @@ the embedded React management UI supports topology editing and live status.
 FreeBSD now has a native TUN adapter with verified kernel IPv4/IPv6 packet I/O
 and live address/prefix/MTU updates. A macOS utun adapter is implemented and
 cross-built for Intel and Apple Silicon. Windows Wintun support and a verified
-DLL download script are implemented with amd64/arm64/386 cross-builds. Native
-macOS/Windows validation, FreeBSD multi-host acceptance, remaining BSD adapters
-and other acceptance items are still in progress.
+DLL download script are implemented with amd64/arm64/386 cross-builds. Remaining
+BSD adapter work and other implementation items are still in progress.
+Runtime acceptance is required on Linux; other platforms are reviewed and
+cross-built. Complete native validation on those platforms is optional.
 OpenBSD now has native TUN, Agent configuration, IPv4/IPv6 transport and configured
-TUN crash-recovery tests. Creation-window cleanup and multi-host/NAT acceptance
-remain incomplete.
+TUN crash-recovery tests. Creation-window cleanup review remains open;
+multi-host/NAT native checks are optional.
 Progress and verification gaps are
 tracked in [the acceptance checklist](docs/implementation-status.md).
 

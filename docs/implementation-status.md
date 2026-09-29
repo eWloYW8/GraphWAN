@@ -3,6 +3,13 @@
 `[ ]` is incomplete or not yet verified. A module's existence is not acceptance.
 Every feature below derives from the accepted proposal, including its suggestions.
 
+Acceptance scope (updated 2026-09-29): runtime, integration and end-to-end
+verification is required on **Linux only**. Other platforms still require their
+implementations, source review and cross-builds, but complete native execution
+is optional. Historical evidence below records what actually ran; it does not
+make other-platform native tests a completion requirement. Unverified native
+checks are listed separately from outstanding implementation work.
+
 ## Foundation
 
 - [x] Validated Network / Agent / Node / Endpoint / Edge models, stable IDs.
@@ -19,7 +26,6 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] Multi-network/node/edge/endpoint CRUD with concurrency conflict handling.
 - [x] Persistent control connection, config push, applied ACK and recovery.
 - [x] TCP/UDP observed endpoint exchange and rendezvous through peer snapshots, never relay.
-- [ ] Broader NAT/platform acceptance beyond the verified Linux scenarios.
 - [x] Batched live telemetry, stale/offline state and bounded event streaming.
 - [x] Agent process CPU/Go memory/runtime telemetry with table and Node-detail display.
 
@@ -30,18 +36,16 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [ ] Per-network TUN, address/route setup and safe resource cleanup on all platforms.
 - [x] FreeBSD native IPv4/IPv6 TUN, full-MTU kernel I/O and live MTU reconciliation.
 - [x] FreeBSD live address/prefix/MTU edits, multi-Network rollback and applied-state recovery.
-- [ ] FreeBSD multi-host/NAT acceptance and older kernels.
 - [x] OpenBSD native IPv4/IPv6 TUN, live configuration, route rollback and ownership checks.
 - [x] Coordinated IPv4/IPv6 listeners with native OpenBSD transport/Mesh evidence.
 - [x] OpenBSD marked-TUN SIGKILL recovery, including startup with no Networks.
-- [ ] OpenBSD pre-marker creation-window cleanup and multi-host/NAT acceptance.
+- [ ] OpenBSD pre-marker creation-window cleanup review.
 - [x] NetBSD native dual-stack TUN, MTU validation, live edits and route rollback.
 - [x] NetBSD marked-TUN SIGKILL recovery and multi-Network Agent configuration/shutdown.
-- [ ] NetBSD multi-host/NAT, pre-marker interruption and other-architecture native acceptance.
+- [x] NetBSD native transport/Mesh execution and reproducible cross-compiled test bundle.
+- [ ] NetBSD pre-marker interruption cleanup review.
 - [x] macOS utun adapter code and Intel/Apple Silicon cross-builds.
-- [ ] Native macOS utun/route/reconfiguration, multi-host and NAT acceptance.
 - [x] Windows Wintun adapter code, pinned DLL retrieval and amd64/arm64/386 cross-builds.
-- [ ] Native Windows kernel/Agent, multi-host, discovery and NAT acceptance.
 - [x] Local recovery from fatal TUN I/O, independent runtime health and Linux offline recovery.
 - [x] Actual multi-hop IP forwarding and network/source admission enforcement.
 - [x] Native Linux IPv4/IPv6 overlays and underlays, all six IPv6 transports and mixed families.
@@ -53,13 +57,12 @@ Every feature below derives from the accepted proposal, including its suggestion
 - [x] FreeBSD kernel driver/type discovery with native renamed-interface and address-change tests.
 - [x] OpenBSD kernel type/cloner discovery with native clone exclusion and address-change tests.
 - [x] NetBSD kernel type/cloner discovery with native clone exclusion and address-change tests.
-- [ ] Manual hostname/path endpoints and configurable listeners (default 24752), full platform acceptance.
+- [ ] Manual hostname/path endpoints and configurable listeners (default 24752), Linux acceptance and cross-platform review.
 - [x] Per-address DNS Candidates across all six transports, refresh, preference and healthy rekey on Linux.
 - [x] Windows UDP packet-info implementation and portable 32/64-bit ABI validation.
-- [ ] Native Windows UDP reply-source selection for wildcard/multiple-address listeners.
 - [x] STUN from the data socket and UDP punching through verified restricted NATs.
 - [x] Linux TCP hole punching, independent STUN mappings and pooled authenticated sessions.
-- [ ] Remaining NAT cases and native TCP punching support on other platforms.
+- [ ] Remaining Linux NAT cases and cross-platform TCP punching implementation review.
 - [ ] IPv4/IPv6 direct and punch allowlists, bounded scheduling/backoff.
 - [ ] All viable Links retained; one active Link, preferred/lowest RTT selection.
 - [x] Heartbeat, RTT/loss/traffic metrics, hysteresis and standby failover.
@@ -79,13 +82,22 @@ Every feature below derives from the accepted proposal, including its suggestion
 ## Delivery
 
 - [ ] Windows, Linux, macOS and BSD adapters and documented support matrix.
-- [ ] Common architecture build matrix; native integration evidence where available.
+- [ ] Common architecture build matrix and Linux integration evidence.
 - [ ] Unit/race/integration/E2E tests, formatting, vet and frontend checks in CI.
 - [x] Pinned-toolchain CI definitions, native-result gates and local Linux/FreeBSD execution.
 - [x] All 33 Go-advertised targets for seven selected operating systems cross-build with hash manifests.
 - [ ] Packaging, reproducible build commands, deployment/service examples.
 - [ ] User/API/protocol documentation and realistic security/operational limitations.
 - [ ] Final requirement-by-requirement audit with linked evidence.
+
+## Optional supplemental native verification
+
+These checks are not required for completion under the agreed Linux validation scope:
+
+- Windows TUN/Agent, discovery, wildcard UDP reply source and multi-host/NAT runtime checks.
+- macOS utun/routes/reconfiguration and multi-host/NAT runtime checks.
+- FreeBSD/OpenBSD/NetBSD multi-host/NAT, older kernels, other architectures and physical hardware.
+- Hosted execution of the manually dispatched native-platform workflow.
 
 ## Verification evidence
 
@@ -589,3 +601,27 @@ Every feature below derives from the accepted proposal, including its suggestion
   all 14 advertised NetBSD/OpenBSD/FreeBSD architecture targets, and all 33
   production targets have verified manifest sizes/hashes. Native evidence is
   limited to the two amd64 guests above; no hosted CI run is claimed.
+
+
+- NetBSD 11.0/amd64 passes all transport tests three times (270 tests/subtests,
+  zero skips) and the complete Mesh suite (66 tests/subtests, zero skips).
+  This provides native socket evidence for both IP families, all six transports,
+  secondary-address reply selection, STUN data-port reuse, truncation recovery,
+  listener/resource cleanup, DNS refresh, policy-preserved Links, fallback and
+  rekey. It does not establish multi-host/NAT acceptance. The new
+  `prepare-netbsd`/`verify-netbsd` commands package and verify TUN, Agent,
+  discovery, transport and Mesh tests with guarded loopback fixtures. FreeBSD
+  retains its existing command names and now also runs the full transport suite.
+  See [NetBSD native bundle](netbsd-operation.md#complete-native-test-bundle).
+
+- Validation scope change: non-Linux native CI moved to a separate manual-only
+  workflow. The default gate retains Linux backend/native checks, frontend/browser
+  checks, thirteen Linux network scenarios and all 33 production cross-builds.
+  The final local NetBSD bundle exposed an intermittent
+  `TestGRPCSharesListenerAndFallsBackToEstablishedLinks` failure (`edge has no
+  healthy link` after fallback); that bundle is not counted as a complete pass.
+  A subsequent Linux race-enabled run of this test passed 100 repetitions. This
+  does not establish the cause or prove that the intermittent failure is fixed.
+  Workflow lint and all five script tests pass on Linux. The Linux native TUN
+  and interface-discovery gates also pass in isolated network namespaces after
+  the runner changes. No hosted workflow execution is claimed.
