@@ -22,7 +22,7 @@ import {
   Waypoints,
   X,
 } from 'lucide-react'
-import Globe, { type ViewCommand } from './Globe'
+import Globe, { type ViewCommand } from '../src/globe/Globe'
 import {
   distance,
   examples,

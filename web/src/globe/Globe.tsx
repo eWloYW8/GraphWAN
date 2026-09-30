@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import countries from './assets/countries.json'
-import type { GlobeNode, GlobeEdge, Selection } from './data'
+import type { GlobeNode, GlobeEdge, Selection, Appearance } from './types'
 
 export type ViewCommand = { kind: 'reset' | 'in' | 'out' | 'focus'; id?: string; serial: number }
 const teal = '#69e8c0'
@@ -94,19 +94,30 @@ export default function Globe({
   rotating,
   labels,
   command,
+  appearance,
+  connect,
 }: {
   nodes: GlobeNode[]
   edges: GlobeEdge[]
   selection: Selection
-  select: (selection: Selection) => void
+  select: (selection: Selection, multiple?: boolean) => void
   rotating: boolean
   labels: boolean
   command: ViewCommand
+  appearance?: Appearance
+  connect?: (source: string, target: string) => void
 }) {
   const host = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
-  const options = useRef({ selection, select, rotating, labels })
-  options.current = { selection, select, rotating, labels }
+  const options = useRef({ nodes, selection, select, rotating, labels, appearance, connect })
+  options.current = { nodes, selection, select, rotating, labels, appearance, connect }
+  const cameraPosition = useRef<THREE.Vector3 | null>(null)
+  const cameraAspect = useRef(1)
+  // Live status updates must never rebuild geometry or reset the orbit position.
+  const geometryKey = JSON.stringify([
+    nodes.map(({ id, latitude, longitude }) => [id, latitude, longitude]),
+    edges,
+  ])
   const api = useRef<{ refresh: () => void; command: (command: ViewCommand) => void } | null>(null)
 
   useEffect(() => {
@@ -134,7 +145,7 @@ export default function Globe({
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100)
     const home = position(24, 48).multiplyScalar(3.75)
-    camera.position.copy(home)
+    camera.position.copy(cameraPosition.current || home)
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enablePan = false
     controls.enableDamping = false
@@ -237,7 +248,8 @@ export default function Globe({
         label.className = 'globe-node-label'
         label.textContent = node.name
         label.title = `${node.name} · ${node.city} · ${node.ip}`
-        label.onclick = () => options.current.select({ type: 'node', id: node.id })
+        label.onclick = (event) =>
+          options.current.select({ type: 'node', id: node.id }, event.ctrlKey || event.metaKey)
         element.appendChild(label)
         markers.set(node.id, { mesh, halo, point, label })
       })
@@ -247,18 +259,25 @@ export default function Globe({
         b = markers.get(edge.b)
       if (!a || !b) return []
       const points = arc(a.point, b.point)
-      const curve = new THREE.CatmullRomCurve3(points)
-      const mesh = new THREE.Mesh(
-        new THREE.TubeGeometry(curve, 96, 0.0016, 5, false),
-        new THREE.MeshBasicMaterial({ color: teal, transparent: true, opacity: 0.72 }),
+      const mesh = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineDashedMaterial({
+          color: teal,
+          transparent: true,
+          opacity: 0.72,
+          dashSize: 100,
+          gapSize: 0,
+          depthWrite: false,
+        }),
       )
+      mesh.computeLineDistances()
       mesh.userData.selection = { type: 'edge', id: edge.id }
       scene.add(mesh)
       picks.push(mesh)
       return [{ edge, mesh }]
     })
 
-    let width = 1,
+    let width = cameraAspect.current,
       height = 1,
       frame = 0,
       disposed = false,
@@ -315,7 +334,9 @@ export default function Globe({
           boxes.push(spot)
           label.style.transform = `translate(${spot.x}px, ${spot.y}px)`
           label.dataset.selected = String(
-            options.current.selection?.type === 'node' && options.current.selection.id === id,
+            options.current.appearance
+              ? options.current.appearance.focusedNodes.includes(id)
+              : options.current.selection?.type === 'node' && options.current.selection.id === id,
           )
         }
       }
@@ -356,20 +377,35 @@ export default function Globe({
     }
     const refresh = () => {
       const selected = options.current.selection
+      const appearance = options.current.appearance
+      const currentNodes = new Map(options.current.nodes.map((node) => [node.id, node]))
       for (const [id, marker] of markers) {
-        const on = selected?.type === 'node' && selected.id === id
-        marker.mesh.material.color.set(on ? amber : teal)
-        marker.halo.material.color.set(on ? amber : teal)
+        const node = currentNodes.get(id)
+        if (node) {
+          marker.label.textContent = node.name
+          marker.label.title = `${node.name} · ${node.city} · ${node.ip}`
+        }
+        const on = appearance
+          ? appearance.focusedNodes.includes(id)
+          : selected?.type === 'node' && selected.id === id
+        const color = on ? amber : appearance?.nodes[id]?.color || teal
+        marker.mesh.material.color.set(color)
+        marker.halo.material.color.set(color)
+        if (appearance?.nodes[id]) marker.label.title = appearance.nodes[id].title
         marker.mesh.scale.setScalar(on ? 1.4 : 1)
         marker.halo.scale.setScalar(on ? 1.25 : 1)
       }
       for (const { edge, mesh } of lines) {
-        const on =
-          selected?.type === 'edge'
+        const on = appearance
+          ? appearance.focusedEdges.includes(edge.id)
+          : selected?.type === 'edge'
             ? selected.id === edge.id
             : selected?.type === 'node' && (edge.a === selected.id || edge.b === selected.id)
-        mesh.material.color.set(on ? amber : teal)
-        mesh.material.opacity = selected ? (on ? 0.95 : 0.17) : 0.7
+        const style = appearance?.edges[edge.id]
+        mesh.material.color.set(on ? amber : style?.color || teal)
+        mesh.material.dashSize = style?.dashed ? 0.018 : 100
+        mesh.material.gapSize = style?.dashed ? 0.012 : 0
+        mesh.material.opacity = appearance?.dimmed || selected ? (on ? 0.95 : 0.17) : 0.7
       }
       invalidate()
     }
@@ -402,10 +438,10 @@ export default function Globe({
       },
     }
     const resize = new ResizeObserver(([entry]) => {
+      if (!entry.contentRect.width || !entry.contentRect.height) return
       const previousAspect = width / height
       width = entry.contentRect.width
       height = entry.contentRect.height
-      if (!width || !height) return
       camera.aspect = width / height
       camera.updateProjectionMatrix()
       // Fit the whole sphere even in a narrow, tall panel. Preserve the user's
@@ -428,10 +464,11 @@ export default function Globe({
     })
     resize.observe(element)
     const raycaster = new THREE.Raycaster()
+    raycaster.params.Line.threshold = 0.012
     const down = new THREE.Vector2()
-    const pointerDown = (e: PointerEvent) => down.set(e.clientX, e.clientY)
-    const pointerUp = (e: PointerEvent) => {
-      if (down.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > 5) return
+    let pressed = false
+    let source: string | undefined
+    const pick = (e: PointerEvent) => {
       const bounds = renderer.domElement.getBoundingClientRect()
       raycaster.setFromCamera(
         new THREE.Vector2(
@@ -442,28 +479,59 @@ export default function Globe({
       )
       // Include the opaque earth so nodes/edges on the back cannot be selected.
       const hit = raycaster.intersectObjects([earth, ...picks], false)[0]
-      options.current.select(hit?.object.userData.selection || null)
+      return (hit?.object.userData.selection || null) as Selection
+    }
+    const pointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return
+      pressed = true
+      down.set(e.clientX, e.clientY)
+      const hit = pick(e)
+      source = options.current.connect && hit?.type === 'node' ? hit.id : undefined
+      if (source) controls.enableRotate = false
+    }
+    const pointerUp = (e: PointerEvent) => {
+      if (!pressed) return
+      pressed = false
+      controls.enableRotate = true
+      const hit = pick(e)
+      if (down.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > 5) {
+        if (source && hit?.type === 'node' && hit.id !== source)
+          options.current.connect?.(source, hit.id)
+        source = undefined
+        return
+      }
+      source = undefined
+      options.current.select(hit, e.ctrlKey || e.metaKey)
     }
     const cancelFly = () => {
       fly = null
     }
+    const cancelPointer = () => {
+      pressed = false
+      source = undefined
+      controls.enableRotate = true
+    }
     controls.addEventListener('change', invalidate)
     controls.addEventListener('start', cancelFly)
-    renderer.domElement.addEventListener('pointerdown', pointerDown)
-    renderer.domElement.addEventListener('pointerup', pointerUp)
+    renderer.domElement.addEventListener('pointerdown', pointerDown, true)
+    window.addEventListener('pointerup', pointerUp)
+    window.addEventListener('pointercancel', cancelPointer)
     document.addEventListener('visibilitychange', invalidate)
     reducedMotion.addEventListener('change', invalidate)
     refresh()
     return () => {
       disposed = true
+      cameraPosition.current = camera.position.clone()
+      cameraAspect.current = camera.aspect
       cancelAnimationFrame(frame)
       resize.disconnect()
       controls.dispose()
       api.current = null
       document.removeEventListener('visibilitychange', invalidate)
       reducedMotion.removeEventListener('change', invalidate)
-      renderer.domElement.removeEventListener('pointerdown', pointerDown)
-      renderer.domElement.removeEventListener('pointerup', pointerUp)
+      renderer.domElement.removeEventListener('pointerdown', pointerDown, true)
+      window.removeEventListener('pointerup', pointerUp)
+      window.removeEventListener('pointercancel', cancelPointer)
       for (const { label } of markers.values()) label.remove()
       scene.traverse((object) => {
         if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
@@ -477,10 +545,10 @@ export default function Globe({
       renderer.forceContextLoss()
       renderer.domElement.remove()
     }
-  }, [nodes, edges])
+  }, [geometryKey])
   useEffect(() => {
     api.current?.refresh()
-  }, [selection, rotating, labels])
+  }, [nodes, selection, rotating, labels, appearance])
   useEffect(() => {
     api.current?.command(command)
   }, [command])

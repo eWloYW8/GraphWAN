@@ -379,4 +379,5 @@ func (s *Server) Close() {
 		conn.CloseNow()
 	}
 	s.streamWG.Wait()
+	s.geoip.Close()
 }

@@ -128,6 +128,30 @@ STUN using [NAT operation](nat-operation.md). Control-plane outage preserves cac
 forwarding and reconnection, but fresh enrollment/configuration changes need the
 controller. Service logs go to the journal; status and traffic appear in the UI.
 
+## Geographic topology view
+
+The network's Drawing switch includes a 3D globe. It uses existing Agent public
+endpoints and the same node/edge selection and editing panel as the 2D views.
+Node details show public IPs, the located IP, city, country and coordinates.
+Location is approximate; unknown locations are listed as unlocated, not placed
+at invented coordinates. Expired, private, container, CGNAT and reserved IPs are
+excluded. STUN observations take priority, followed by public interface IPs and
+manual literal IPs; IPv4 is preferred within each source. DNS-only manual
+endpoints are not resolved for geolocation because they can point to proxies.
+
+On first use with a public endpoint, the Server downloads DB-IP City Lite over
+HTTPS into `<data-dir>/geoip/`. No Agent upgrade or extra Agent telemetry is
+required. The monthly database is cached locally and refreshed on demand; a
+cached database remains usable if downloading an update fails. Downloads are
+performed in the background and do not block controller startup or routing.
+Every Server replica maintains its own cache outside the replicated state.
+
+For offline operation, set `GRAPHWAN_GEOIP_DB` to an absolute path to a city
+MMDB (DB-IP City Lite or GeoLite2-City) before starting the Server. This disables
+automatic downloads; restart the Server after replacing that file. The MMDB is
+not embedded in release binaries. Data attribution is preserved in the globe,
+node details and bundled third-party notices.
+
 ## Upgrade, back up and remove
 
 Download the new binary from the release. Stop the corresponding service before

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ReactFlow,
   useReactFlow,
@@ -14,7 +14,8 @@ import {
   type NodeProps,
   type Node as FlowNode,
 } from '@xyflow/react'
-import { Server, Plus, Settings2, Cable, MousePointer2 } from 'lucide-react'
+import { Server, Plus, Settings2, Cable, MousePointer2, Globe2 } from 'lucide-react'
+import { useAgentLocations } from './globe/useAgentLocations'
 import { FloatingEdge, FloatingConnection, LineConnection } from './FloatingEdge'
 import { planAnchors } from './edgeGeometry'
 import { planRoutes, planLabels, type LineStyle } from './edgeRouting'
@@ -93,6 +94,7 @@ function AgentNode({ data, isConnectable }: NodeProps<GraphNode>) {
 }
 const nodeTypes = { agent: AgentNode }
 const edgeTypes = { floating: FloatingEdge }
+const NetworkGlobe = lazy(() => import('./globe/NetworkGlobe'))
 export default function Topology({
   state,
   network,
@@ -118,15 +120,17 @@ export default function Topology({
   addNode: () => void
   addEdge: () => void
 }) {
-  const [lineStyle, setLineStyle] = useState<LineStyle>(() => {
+  const [viewStyle, setViewStyle] = useState<LineStyle | 'globe'>(() => {
     try {
-      return localStorage.getItem('graphwan:line-style') === 'bezier' ? 'bezier' : 'line'
+      const saved = localStorage.getItem('graphwan:line-style')
+      return saved === 'globe' || saved === 'bezier' ? saved : 'line'
     } catch {
       return 'line'
     }
   })
-  const chooseLineStyle = (style: LineStyle) => {
-    setLineStyle(style)
+  const lineStyle = viewStyle === 'globe' ? 'line' : viewStyle
+  const chooseLineStyle = (style: LineStyle | 'globe') => {
+    setViewStyle(style)
     try {
       localStorage.setItem('graphwan:line-style', style)
     } catch {
@@ -295,6 +299,15 @@ export default function Topology({
     selection?.type === 'edge' ? network.edges.find((e) => e.id === selection.id) : undefined
   const agent = node ? state.agents.find((a) => a.id === node.agent_id) : undefined
   const agentStatus = node ? status.get(node.agent_id) : undefined
+  const geographyAgents = useMemo(() => {
+    const ids = new Set(network.nodes.map((node) => node.agent_id))
+    return state.agents.filter((agent) => ids.has(agent.id))
+  }, [state.agents, network.nodes])
+  const geography = useAgentLocations(
+    geographyAgents,
+    viewStyle === 'globe' || selection?.type === 'node',
+  )
+  const nodeGeography = node ? geography.data?.agents[node.agent_id] : undefined
   const updateEdge = (patch: Partial<Edge>) =>
     edge &&
     change({
@@ -336,7 +349,7 @@ export default function Topology({
           <div className="drawing-control">
             <span>Drawing</span>
             <div className="drawing-switch" role="group" aria-label="Line drawing">
-              <button aria-pressed={lineStyle === 'line'} onClick={() => chooseLineStyle('line')}>
+              <button aria-pressed={viewStyle === 'line'} onClick={() => chooseLineStyle('line')}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                   <path
                     d="M3 13 13 3"
@@ -348,7 +361,7 @@ export default function Topology({
                 Line
               </button>
               <button
-                aria-pressed={lineStyle === 'bezier'}
+                aria-pressed={viewStyle === 'bezier'}
                 onClick={() => chooseLineStyle('bezier')}
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -361,84 +374,110 @@ export default function Topology({
                 </svg>
                 Bezier
               </button>
+              <button aria-pressed={viewStyle === 'globe'} onClick={() => chooseLineStyle('globe')}>
+                <Globe2 size={16} />
+                3D
+              </button>
             </div>
           </div>
         </div>
         <div className="canvas">
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            connectionLineComponent={lineStyle === 'line' ? LineConnection : FloatingConnection}
-            connectionMode={ConnectionMode.Loose}
-            connectOnClick={false}
-            isValidConnection={validConnection}
-            nodesDraggable={editing && !connecting}
-            nodesConnectable={editing}
-            edgesReconnectable={false}
-            deleteKeyCode={null}
-            onNodeDragStart={() => setDragging(true)}
-            onNodeDragStop={() => setDragging(false)}
-            onNodeClick={(event, n) => selectNode(n.id, event.ctrlKey || event.metaKey)}
-            onNodeContextMenu={(event, n) => {
-              if (event.ctrlKey) {
-                event.preventDefault()
-                selectNode(n.id, true)
-              }
-            }}
-            onEdgeClick={(_, e) => select({ type: 'edge', id: e.id })}
-            onPaneClick={() => select(null)}
-            onNodesChange={(changes) => {
-              applyNodeChanges(changes)
-              if (!editing) return
-              const positions = new Map(
-                changes.flatMap((c) =>
-                  c.type === 'position' && c.position ? [[c.id, c.position] as const] : [],
-                ),
-              )
-              if (positions.size)
-                change({
-                  ...network,
-                  nodes: network.nodes.map((n) =>
-                    positions.has(n.id) ? { ...n, position: positions.get(n.id)! } : n,
+          {viewStyle === 'globe' ? (
+            <Suspense fallback={<div className="canvas-empty">Loading 3D view…</div>}>
+              <NetworkGlobe
+                key={network.id}
+                network={network}
+                state={state}
+                statuses={statuses}
+                live={live}
+                locations={geography.data}
+                error={geography.error}
+                retry={geography.retry}
+                selection={selection}
+                select={select}
+                selectNode={selectNode}
+                focusedEdges={[...focus]}
+                pathNodes={path?.nodes ?? []}
+                connecting={editing && connecting}
+                connect={connect}
+              />
+            </Suspense>
+          ) : (
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              connectionLineComponent={lineStyle === 'line' ? LineConnection : FloatingConnection}
+              connectionMode={ConnectionMode.Loose}
+              connectOnClick={false}
+              isValidConnection={validConnection}
+              nodesDraggable={editing && !connecting}
+              nodesConnectable={editing}
+              edgesReconnectable={false}
+              deleteKeyCode={null}
+              onNodeDragStart={() => setDragging(true)}
+              onNodeDragStop={() => setDragging(false)}
+              onNodeClick={(event, n) => selectNode(n.id, event.ctrlKey || event.metaKey)}
+              onNodeContextMenu={(event, n) => {
+                if (event.ctrlKey) {
+                  event.preventDefault()
+                  selectNode(n.id, true)
+                }
+              }}
+              onEdgeClick={(_, e) => select({ type: 'edge', id: e.id })}
+              onPaneClick={() => select(null)}
+              onNodesChange={(changes) => {
+                applyNodeChanges(changes)
+                if (!editing) return
+                const positions = new Map(
+                  changes.flatMap((c) =>
+                    c.type === 'position' && c.position ? [[c.id, c.position] as const] : [],
                   ),
-                })
-            }}
-            onConnectStart={() => {
-              connected.current = false
-            }}
-            onConnect={(connection) => {
-              connected.current = true
-              connect(connection.source, connection.target)
-            }}
-            onConnectEnd={(event, connection) => {
-              if (connected.current || !connection.fromNode) return
-              const pointer = 'changedTouches' in event ? event.changedTouches[0] : event
-              if (!pointer) return
-              const target = document
-                .elementFromPoint(pointer.clientX, pointer.clientY)
-                ?.closest('.react-flow__node')
-                ?.getAttribute('data-id')
-              if (target) connect(connection.fromNode.id, target)
-            }}
-            fitView
-            fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
-            minZoom={0.15}
-            maxZoom={2}
-            connectionRadius={48}
-          >
-            <FitLayout count={nodes.length} />
-            <Background color="#c9d9d4" gap={22} size={1} />
-            <Controls showInteractive={false} />
-            <MiniMap
-              style={{ width: 115, height: 75 }}
-              pannable
-              zoomable
-              nodeColor="#7ebbaa"
-              maskColor="rgba(239,245,242,.7)"
-            />
-          </ReactFlow>
+                )
+                if (positions.size)
+                  change({
+                    ...network,
+                    nodes: network.nodes.map((n) =>
+                      positions.has(n.id) ? { ...n, position: positions.get(n.id)! } : n,
+                    ),
+                  })
+              }}
+              onConnectStart={() => {
+                connected.current = false
+              }}
+              onConnect={(connection) => {
+                connected.current = true
+                connect(connection.source, connection.target)
+              }}
+              onConnectEnd={(event, connection) => {
+                if (connected.current || !connection.fromNode) return
+                const pointer = 'changedTouches' in event ? event.changedTouches[0] : event
+                if (!pointer) return
+                const target = document
+                  .elementFromPoint(pointer.clientX, pointer.clientY)
+                  ?.closest('.react-flow__node')
+                  ?.getAttribute('data-id')
+                if (target) connect(connection.fromNode.id, target)
+              }}
+              fitView
+              fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
+              minZoom={0.15}
+              maxZoom={2}
+              connectionRadius={48}
+            >
+              <FitLayout count={nodes.length} />
+              <Background color="#c9d9d4" gap={22} size={1} />
+              <Controls showInteractive={false} />
+              <MiniMap
+                style={{ width: 115, height: 75 }}
+                pannable
+                zoomable
+                nodeColor="#7ebbaa"
+                maskColor="rgba(239,245,242,.7)"
+              />
+            </ReactFlow>
+          )}
           {network.nodes.length === 0 && (
             <div className="canvas-empty">
               <div className="empty-symbol">
@@ -606,6 +645,53 @@ export default function Topology({
               </Field>
             </fieldset>
             <dl>
+              <dt>Public IP</dt>
+              <dd>
+                {nodeGeography?.public_ips.length
+                  ? nodeGeography.public_ips.map((ip) => (
+                      <div className="mono" key={ip}>
+                        {ip}
+                      </div>
+                    ))
+                  : geography.error
+                    ? 'Unavailable'
+                    : !geography.data
+                      ? 'Loading…'
+                      : 'Not reported'}
+              </dd>
+              <dt>GeoIP location</dt>
+              <dd>
+                {nodeGeography?.location
+                  ? [nodeGeography.location.city, nodeGeography.location.country]
+                      .filter(Boolean)
+                      .join(', ') || 'Unknown city'
+                  : geography.error ||
+                    (geography.data?.pending
+                      ? 'Loading GeoIP database…'
+                      : geography.data?.error || nodeGeography?.reason || 'Not located')}
+              </dd>
+              {nodeGeography?.location && (
+                <>
+                  <dt>Coordinates</dt>
+                  <dd className="mono">
+                    {nodeGeography.location.latitude.toFixed(4)},{' '}
+                    {nodeGeography.location.longitude.toFixed(4)}
+                  </dd>
+                  <dt>GeoIP address</dt>
+                  <dd className="mono">{nodeGeography.location.ip}</dd>
+                  <dt>GeoIP source</dt>
+                  <dd>
+                    {geography.data?.database?.toLowerCase().includes('dbip') ? (
+                      <a href="https://db-ip.com" target="_blank" rel="noreferrer">
+                        IP Geolocation by DB-IP
+                      </a>
+                    ) : (
+                      geography.data?.database
+                    )}
+                    {geography.data?.database_date && ` · ${geography.data.database_date}`}
+                  </dd>
+                </>
+              )}
               <dt>Agent version</dt>
               <dd>{agentStatus?.version || 'Not reported'}</dd>
               <dt>Applied revision</dt>

@@ -9,7 +9,7 @@ Open http://localhost:5174/ (also listens on other host interfaces).
 For a compiled preview: pnpm demo:build && pnpm demo:preview
 No credentials or running GraphWAN Server / Agent are required.
 
-This is an isolated UI prototype, not the production topology page. The
+This is an isolated demo sharing its globe renderer with the production UI. The
 example topology is fictional; its public IPs are looked up in the actual
 local DB-IP City Lite database. Two example nodes intentionally share an IP
 to demonstrate co-located markers. IP input supports IPv4 and IPv6 and adds
@@ -20,7 +20,7 @@ Database: ~/.cache/graphwan-demo/city.mmdb
 Override with GRAPHWAN_GEOIP_DB=/absolute/path/to/city.mmdb.
 pnpm demo:setup downloads the current month's database from DB-IP over HTTPS.
 The database is not committed, embedded, or included in release binaries.
-Public endpoint discovery from real agents is left for production integration.
+The production topology view locates real Agent endpoints through the Server.
 GeoIP estimates a location; anycast, VPNs and provider registration can make
 that location differ from the actual physical machine.
 

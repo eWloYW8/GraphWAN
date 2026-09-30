@@ -14,6 +14,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/eWloYW8/GraphWAN/internal/cluster"
+	"github.com/eWloYW8/GraphWAN/internal/geoip"
 	"github.com/eWloYW8/GraphWAN/internal/model"
 	"github.com/eWloYW8/GraphWAN/internal/pki"
 	"github.com/eWloYW8/GraphWAN/internal/store"
@@ -23,6 +24,7 @@ import (
 const maxBody = 8 << 20
 
 type Server struct {
+	geoip        *geoip.Service
 	cluster      *cluster.Runtime
 	reload       chan struct{}
 	reloadOnce   sync.Once
@@ -42,8 +44,10 @@ type Server struct {
 	mux          *http.ServeMux
 }
 type Options struct {
-	Password string
-	Logger   *slog.Logger
+	Password       string
+	Logger         *slog.Logger
+	GeoIPDirectory string
+	GeoIPDatabase  string
 }
 
 func New(db *store.Store, options Options) (*Server, error) {
@@ -59,6 +63,7 @@ func New(db *store.Store, options Options) (*Server, error) {
 		options.Logger = slog.Default()
 	}
 	s := &Server{
+		geoip:  geoip.New(options.GeoIPDirectory, options.GeoIPDatabase, options.Logger),
 		reload: make(chan struct{}), db: db, auth: auth, ca: ca, log: options.Logger, mux: http.NewServeMux(),
 		done: make(chan struct{}), eventClients: map[[32]byte]int{},
 		streams: map[model.ID]*websocket.Conn{}, watchers: map[chan struct{}]bool{},
@@ -78,6 +83,14 @@ func New(db *store.Store, options Options) (*Server, error) {
 		respond(w, 200, map[string]string{"csrf_token": session.CSRF})
 	}))
 	s.mux.HandleFunc("GET /api/v1/state", auth.require(s.getState))
+	s.mux.HandleFunc("GET /api/v1/agents/locations", auth.require(func(w http.ResponseWriter, r *http.Request) {
+		state, err := s.db.Read()
+		if err != nil {
+			s.internal(w, err)
+			return
+		}
+		respond(w, http.StatusOK, s.geoip.Locations(state.Agents))
+	}))
 	s.mux.HandleFunc("POST /api/v1/networks", auth.require(s.createNetwork))
 	s.mux.HandleFunc("PUT /api/v1/networks/{id}", auth.require(s.putNetwork))
 	s.mux.HandleFunc("DELETE /api/v1/networks/{id}", auth.require(s.deleteNetwork))
