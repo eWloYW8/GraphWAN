@@ -1,0 +1,14 @@
+Natural Earth country geometry
+Source: https://github.com/nvkelso/natural-earth-vector/blob/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_110m_admin_0_countries.geojson
+Public domain: https://www.naturalearthdata.com/about/terms-of-use/
+Derivative: polygon rings only, rounded to three decimal places and stored
+in assets/countries.json. Rendered locally into a Three.js globe texture.
+
+IP geolocation
+DB-IP City Lite: https://db-ip.com/db/download/ip-to-city-lite
+License: Creative Commons Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/)
+Database is downloaded separately and used without modifications. UI lookup
+results retain city, country and coordinates. Approximate data; not evidence
+of a machine's exact physical location. IP Geolocation by DB-IP.com.
+
+Bundled JavaScript dependency notices: /.vite/license.md (compiled preview).
