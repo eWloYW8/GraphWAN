@@ -304,22 +304,9 @@ export default function Topology({
   return (
     <div className="workspace">
       <section className="canvas-card" aria-label="Network topology">
-        <div className="topology-view-toolbar">
-          <label>
-            Drawing{' '}
-            <select
-              aria-label="Line drawing"
-              value={lineStyle}
-              onChange={(event) => chooseLineStyle(event.target.value as LineStyle)}
-            >
-              <option value="line">Line</option>
-              <option value="bezier">Bezier</option>
-            </select>
-          </label>
-        </div>
-        {editing && (
-          <div className="canvas-toolbar">
-            <div className="actions">
+        <div className="canvas-toolbar">
+          {editing && (
+            <div className="actions" role="group" aria-label="Editing tools">
               <button
                 aria-label="Move nodes"
                 aria-pressed={!connecting}
@@ -345,8 +332,38 @@ export default function Topology({
                 Add edge
               </button>
             </div>
+          )}
+          <div className="drawing-control">
+            <span>Drawing</span>
+            <div className="drawing-switch" role="group" aria-label="Line drawing">
+              <button aria-pressed={lineStyle === 'line'} onClick={() => chooseLineStyle('line')}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path
+                    d="M3 13 13 3"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                Line
+              </button>
+              <button
+                aria-pressed={lineStyle === 'bezier'}
+                onClick={() => chooseLineStyle('bezier')}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path
+                    d="M3 13C3 3 13 13 13 3"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                Bezier
+              </button>
+            </div>
           </div>
-        )}
+        </div>
         <div className="canvas">
           <ReactFlow
             nodes={nodes}

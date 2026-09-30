@@ -86,8 +86,8 @@ export default function Servers({
       <div className="server-list">
         {servers.map((server) => (
           <section className="server-card" key={server.id}>
-            <div className="page-heading">
-              <div className="actions">
+            <div className="server-card-header">
+              <div className="server-identity">
                 <h2>{server.name}</h2>
                 {server.id === status?.id && <Badge>This server</Badge>}
                 {server.id === status?.leader && <Badge tone="online">Coordinator</Badge>}
