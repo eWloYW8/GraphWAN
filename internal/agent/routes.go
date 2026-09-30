@@ -8,6 +8,31 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+// Keep the installed live paths across discovery/configuration revisions. A new
+// config must never briefly reinstate a static route through a known-down edge.
+func carryLiveRoutes(snapshot model.Snapshot, previous *model.RouteUpdate) model.Snapshot {
+	if previous == nil {
+		return snapshot
+	}
+	next := snapshot.Clone()
+	old := map[model.ID][]model.Route{}
+	for _, n := range previous.Networks {
+		old[n.ID] = n.Routes
+	}
+	for i := range next.Networks {
+		n := &next.Networks[i]
+		n.Routes = append([]model.Route{}, old[n.ID]...)
+		// Topology edits may invalidate a retained route. Withdraw that network
+		// until its new live table arrives instead of falling back to static paths.
+		check := next
+		check.Networks = []model.NetworkConfig{*n}
+		if check.Validate(snapshot.AgentID) != nil {
+			n.Routes = nil
+		}
+	}
+	return next
+}
+
 func (r *DataPlane) ApplyRoutes(update model.RouteUpdate) error {
 	r.applyMu.Lock()
 	defer r.applyMu.Unlock()

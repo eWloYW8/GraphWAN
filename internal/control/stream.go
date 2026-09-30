@@ -201,11 +201,23 @@ func (s *Server) readAgent(ctx context.Context, conn *websocket.Conn, id model.I
 			if err != nil {
 				return err
 			}
-			// A previous revision may still be running while the new snapshot is
-			// being reconciled. Preserve its ACK/error, but discard obsolete
-			// link telemetry so removed edges cannot remain visible.
+			// Endpoint discovery changes revisions without changing live sessions.
+			// Keep still-admitted health reports while configuration catches up;
+			// clearing all links here would spuriously withdraw healthy paths.
 			if message.Report.AppliedRevision < snapshot.Revision {
-				message.Report.Links = nil
+				allowed := map[[2]model.ID]model.Edge{}
+				for _, n := range snapshot.Networks {
+					for _, p := range n.Peers {
+						allowed[[2]model.ID{n.ID, p.Edge.ID}] = p.Edge
+					}
+				}
+				links := message.Report.Links[:0]
+				for _, l := range message.Report.Links {
+					if e, ok := allowed[[2]model.ID{l.NetworkID, l.EdgeID}]; ok && slices.Contains(e.Transports, l.Transport) {
+						links = append(links, l)
+					}
+				}
+				message.Report.Links = links
 			}
 			if err := validateReport(snapshot, *message.Report); err != nil {
 				return err

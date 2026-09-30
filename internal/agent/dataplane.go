@@ -154,14 +154,7 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 		}
 		newMesh = true
 	}
-	forwardingSnapshot := snapshot
-	if r.lastRoutes != nil && r.lastRoutes.Revision == snapshot.Revision {
-		var err error
-		forwardingSnapshot, err = r.lastRoutes.Apply(snapshot)
-		if err != nil {
-			return err
-		}
-	}
+	forwardingSnapshot := carryLiveRoutes(snapshot, r.lastRoutes)
 	router, err := forwarding.New(forwardingSnapshot, next.mesh.Send, r.deliver, forwarding.BatchOptions{Deliver: r.deliverBatch, SendOwned: next.mesh.SendOwnedBatch})
 	if err != nil {
 		return err
