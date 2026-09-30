@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/eWloYW8/GraphWAN/internal/transport"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -99,6 +100,10 @@ func (s *Server) Serve() error {
 	for {
 		c, err := s.listener.Accept()
 		if err != nil {
+			return err
+		}
+		if err := transport.ConfigureTCP(c); err != nil {
+			c.Close()
 			return err
 		}
 		select {

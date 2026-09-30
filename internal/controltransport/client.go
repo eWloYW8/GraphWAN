@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/eWloYW8/GraphWAN/internal/transport"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -36,7 +37,7 @@ func DialContext(kind string, roots *x509.CertPool, serverNames ...string) func(
 		}
 		switch kind {
 		case "", "tcp":
-			return (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, network, addr)
+			return transport.DialTCP(ctx, &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}, network, addr)
 		case "grpc":
 			return dialGRPC(ctx, addr)
 		default:
@@ -55,7 +56,7 @@ func dialWebSocket(ctx context.Context, kind, addr string, roots *x509.CertPool,
 		scheme = "wss"
 	}
 	u := url.URL{Scheme: scheme, Host: addr, Path: WebSocketPath}
-	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: serverName, MinVersion: tls.VersionTLS13}, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
+	tr := &http.Transport{DialContext: DialContext("tcp", roots), TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: serverName, MinVersion: tls.VersionTLS13}, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
 	httpClient := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	ws, resp, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{HTTPClient: httpClient, Subprotocols: []string{WebSocketProtocol}, CompressionMode: websocket.CompressionDisabled})
 	tr.CloseIdleConnections()
@@ -97,7 +98,7 @@ func dialGRPC(ctx context.Context, addr string) (net.Conn, error) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithNoProxy(), grpc.WithDisableServiceConfig(),
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-			return (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", addr)
+			return transport.DialTCP(ctx, &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}, "tcp", addr)
 		}),
 		grpc.WithMaxHeaderListSize(8192),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxChunk+4), grpc.MaxCallSendMsgSize(maxChunk+4)))

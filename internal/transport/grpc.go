@@ -141,7 +141,7 @@ func DialGRPCAt(ctx context.Context, endpoint model.Endpoint, family int, identi
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithAuthority(parsed.Host),
 		grpc.WithContextDialer(func(ctx context.Context, address string) (net.Conn, error) {
-			return dialer.DialContext(ctx, "tcp"+strconv.Itoa(family), dialAddress)
+			return DialTCP(ctx, dialer, "tcp"+strconv.Itoa(family), dialAddress)
 		}),
 		grpc.WithNoProxy(), grpc.WithDisableRetry(), grpc.WithDisableServiceConfig(),
 		grpc.WithMaxHeaderListSize(8192),

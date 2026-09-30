@@ -37,6 +37,18 @@ type TCP struct {
 	wg       sync.WaitGroup
 }
 
+func (t *TCP) Accept() (net.Conn, error) {
+	conn, err := t.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	if err = ConfigureTCP(conn); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
 func (t *TCP) Close() error {
 	t.once.Do(func() {
 		close(t.done)
@@ -90,5 +102,5 @@ func DialTCPPort(ctx context.Context, local *net.TCPAddr, remote netip.AddrPort)
 		bind.Zone = ""
 	}
 	dialer := net.Dialer{LocalAddr: bind, Control: reuseTCPPort}
-	return dialer.DialContext(ctx, family, remote.String())
+	return DialTCP(ctx, &dialer, family, remote.String())
 }

@@ -28,6 +28,8 @@ const (
 	// Leave room for multiple kernel GSO bursts while writers process bounded
 	// batches. The queue is still finite; control messages use a separate queue.
 	queueSize = 512
+	// TCP-backed links retain at most 256 KiB of queued plaintext frames.
+	tcpQueueBytes = 256 * 1024
 )
 
 var ErrQueueFull = errors.New("link packet queue is full")
@@ -89,6 +91,7 @@ type Link struct {
 	done                          chan struct{}
 	data                          [queueSize]queuedPacket
 	dataHead, dataCount           int
+	dataBytes                     int
 	dataReady                     chan struct{}
 	selection                     chan Selection
 	retirements                   chan Retirement
@@ -243,8 +246,11 @@ func (l *Link) enqueue(ctx context.Context, frames [][]byte, owners []*packetbuf
 	if generation%2 == 0 {
 		return ErrUnavailable
 	}
-	accepted = min(len(frames), len(l.data)-l.dataCount)
-	for i, frame := range frames[:accepted] {
+	limit := min(len(frames), len(l.data)-l.dataCount)
+	for i, frame := range frames[:limit] {
+		if l.tcpBacked() && l.dataBytes+len(frame)+1 > tcpQueueBytes {
+			break
+		}
 		var buffer *packetbuf.Buffer
 		if owners != nil && owners[i].PrependByte(dataMessage) {
 			buffer = owners[i]
@@ -258,6 +264,8 @@ func (l *Link) enqueue(ctx context.Context, frames [][]byte, owners []*packetbuf
 		}
 		l.data[(l.dataHead+l.dataCount)%len(l.data)] = queuedPacket{generation: generation, raw: buffer.Data, buffer: buffer}
 		l.dataCount++
+		l.dataBytes += len(buffer.Data)
+		accepted++
 	}
 	if l.dataCount > 0 {
 		l.notifyData()
@@ -268,6 +276,15 @@ func (l *Link) enqueue(ctx context.Context, frames [][]byte, owners []*packetbuf
 	}
 	return nil
 }
+func (l *Link) tcpBacked() bool {
+	switch l.info.Transport {
+	case model.TCP, model.WS, model.WSS, model.GRPC:
+		return true
+	default:
+		return false
+	}
+}
+
 func (l *Link) notifyData() {
 	select {
 	case l.dataReady <- struct{}{}:
@@ -281,6 +298,7 @@ func (l *Link) takeData() queuedPacket {
 	l.data[l.dataHead] = queuedPacket{}
 	l.dataHead = (l.dataHead + 1) % len(l.data)
 	l.dataCount--
+	l.dataBytes -= len(data.raw)
 	return data
 }
 func (l *Link) healthy() bool {

@@ -78,7 +78,7 @@ func DialWebSocketAt(ctx context.Context, endpoint model.Endpoint, family int, i
 	dialer := &net.Dialer{}
 	t := &http.Transport{TLSClientConfig: PeerClientTLS(parsed.Hostname(), identity, roots), ForceAttemptHTTP2: false,
 		DialContext: func(ctx context.Context, _, address string) (net.Conn, error) {
-			conn, err := dialer.DialContext(ctx, "tcp"+strconv.Itoa(family), dialAddress)
+			conn, err := DialTCP(ctx, dialer, "tcp"+strconv.Itoa(family), dialAddress)
 			if err == nil {
 				socket = conn
 			}

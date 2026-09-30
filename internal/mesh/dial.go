@@ -142,7 +142,7 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 		raw = conn
 	} else if candidate.Endpoint.Transport == model.TCP {
 		dialer := net.Dialer{}
-		conn, err := dialer.DialContext(ctx, "tcp"+strconv.Itoa(candidate.Family), address)
+		conn, err := transport.DialTCP(ctx, &dialer, "tcp"+strconv.Itoa(candidate.Family), address)
 		if err != nil {
 			return err
 		}
