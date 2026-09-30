@@ -56,6 +56,11 @@ promise about the NAT's actual lease. Identical mappings from multiple services
 are deduplicated within each transport. Stable endpoint IDs include the Agent
 identity, transport and mapped address. Interface/manual URLs take precedence
 over duplicate observed URLs.
+Stable mappings keep their published expiry until one minute or less remains;
+only then is the latest successfully observed expiry published. This applies to
+both Agents and Servers and reduces configuration revisions without changing
+STUN probe frequency. Address changes, removals and shortened validity windows
+are not delayed. Unchanged interface endpoint lists are not resent every scan.
 Failed probes retain previous observations until expiry; a changed listener or
 STUN configuration discards the discovery cache. Automatic and manual endpoints
 share the existing 64-entry Agent limit; overflow is logged and automatic entries

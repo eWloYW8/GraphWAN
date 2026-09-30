@@ -157,11 +157,23 @@ The controller sends `ControlMessage` JSON envelopes:
 - `{"type":"config","snapshot":{...}}`: initial and updated compiled snapshot.
 - `{"type":"heartbeat"}`: liveness message every 15 seconds when unchanged.
 
-The Agent batches telemetry every 2 seconds and ACKs applied configuration
-changes promptly. A 45-second receive timeout detects a silent connection:
+The Agent checks telemetry every 2 seconds. User traffic, link/state changes and
+errors trigger reports at that cadence; applied configuration is ACKed promptly.
+When idle, a full report is sent approximately every 15 seconds, including in
+response to controller heartbeats. One final unchanged sample clears displayed
+traffic rates when transfers stop. CPU, memory, RTT and loss samples alone do not
+trigger extra reports. A 45-second receive timeout detects a silent connection:
 
 - `{"type":"ack","report":{"version":"...","applied_revision":N,"links":[],"config_error":"..."}}`
 - `{"type":"endpoints","endpoints":[...]}`: full discovered endpoint set.
+
+The inner control WebSocket negotiates per-message DEFLATE without context
+takeover for messages above 512 bytes. Older peers can decline compression;
+the JSON protocol remains unchanged. Small heartbeats remain uncompressed, and
+neither encrypted outer carriers nor data-plane packets are compressed.
+Identical discovered endpoint sets are not retransmitted; stable observed leases
+are renewed when at most one minute remains. Reconnect always republishes the
+current set. Actual endpoint changes are published immediately after discovery.
 
 `applied_revision` is the successfully reconciled revision, not simply receipt.
 An Agent may acknowledge an older revision while applying an update. Its old Link

@@ -13,6 +13,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/eWloYW8/GraphWAN/internal/discovery"
 	"github.com/eWloYW8/GraphWAN/internal/model"
 	"github.com/eWloYW8/GraphWAN/internal/routing"
 	"github.com/eWloYW8/GraphWAN/internal/store"
@@ -71,7 +72,7 @@ func (s *Server) agentControl(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionDisabled})
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionNoContextTakeover})
 	if err != nil {
 		return
 	}
@@ -120,14 +121,14 @@ func (s *Server) agentControl(w http.ResponseWriter, r *http.Request) {
 			<-done
 			return
 		}
-		snapshot, err := routing.Compile(state, id)
-		if err != nil {
-			conn.CloseNow()
-			<-done
-			return
-		}
 		message := model.ControlMessage{Type: "heartbeat"}
-		if first || snapshot.Revision != last {
+		if first || state.Revision != last {
+			snapshot, err := routing.Compile(state, id)
+			if err != nil {
+				conn.CloseNow()
+				<-done
+				return
+			}
 			message.Type = "config"
 			message.Snapshot = &snapshot
 			last = snapshot.Revision
@@ -263,7 +264,7 @@ func (s *Server) updateEndpoints(id model.ID, endpoints []model.Endpoint) error 
 				if a.Revoked {
 					return errors.New("agent revoked")
 				}
-				combined := append([]model.Endpoint{}, endpoints...)
+				combined := discovery.CoalesceEndpoints(a.Endpoints, endpoints, time.Now())
 				for _, e := range a.Endpoints {
 					if e.Source == model.Manual {
 						combined = append(combined, e)

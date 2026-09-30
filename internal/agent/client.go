@@ -15,6 +15,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/eWloYW8/GraphWAN/internal/controltransport"
+	"github.com/eWloYW8/GraphWAN/internal/discovery"
 	"github.com/eWloYW8/GraphWAN/internal/model"
 )
 
@@ -122,7 +124,12 @@ func (c *Client) SetEndpoints(endpoints []model.Endpoint) error {
 		}
 	}
 	c.mu.Lock()
-	c.endpoints = append([]model.Endpoint{}, endpoints...)
+	endpoints = discovery.CoalesceEndpoints(c.endpoints, endpoints, time.Now())
+	if c.endpointsSet && slices.Equal(c.endpoints, endpoints) {
+		c.mu.Unlock()
+		return nil
+	}
+	c.endpoints = endpoints
 	c.endpointsSet = true
 	c.mu.Unlock()
 	select {
@@ -270,7 +277,7 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 	}
 	defer func() { c.failedTargets[target.key] = true }()
 	dialCtx, stop := context.WithTimeout(ctx, 4*time.Second)
-	conn, resp, err := websocket.Dial(dialCtx, c.server+"/api/v1/agent/control", &websocket.DialOptions{HTTPClient: c.http, CompressionMode: websocket.CompressionDisabled})
+	conn, resp, err := websocket.Dial(dialCtx, c.server+"/api/v1/agent/control", &websocket.DialOptions{HTTPClient: c.http, CompressionMode: websocket.CompressionNoContextTakeover})
 	stop()
 	if err != nil {
 		if resp != nil {
@@ -291,6 +298,9 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+	var previous model.AgentReport
+	var lastReport time.Time
+	settling := false
 	// Publish discovery once per connection, including an intentionally empty set.
 	if err := c.sendEndpoints(ctx, conn); err != nil {
 		conn.CloseNow()
@@ -298,6 +308,7 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 		return err
 	}
 	for {
+		force := false
 		select {
 		case err := <-readerDone:
 			return err
@@ -313,9 +324,16 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 			}
 			continue
 		case <-acks:
+			force = true
 		case <-ticker.C:
 		}
 		report := c.Report()
+		changed := reportChanged(previous, report)
+		// Send one final unchanged sample so displayed traffic rates return to
+		// zero promptly when a transfer stops, before entering idle cadence.
+		if !force && !settling && time.Since(lastReport) < 15*time.Second && !changed {
+			continue
+		}
 		writeCtx, stop := context.WithTimeout(ctx, 10*time.Second)
 		err := wsjson.Write(writeCtx, conn, model.ControlMessage{Type: "ack", Report: &report})
 		stop()
@@ -324,6 +342,8 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 			<-readerDone
 			return err
 		}
+		previous, lastReport = report, time.Now()
+		settling = changed
 	}
 }
 func (c *Client) sendEndpoints(ctx context.Context, conn *websocket.Conn) error {

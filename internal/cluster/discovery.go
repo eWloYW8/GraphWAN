@@ -139,6 +139,14 @@ func (r *Runtime) PublishEndpoints(endpoints []model.ServerEndpoint) error {
 				}
 				for _, e := range endpoints {
 					if !urls[e.URL] && len(combined) < model.MaxEndpoints {
+						for _, prior := range p.Endpoints {
+							candidate := e
+							candidate.ExpiresAt = prior.ExpiresAt
+							if e.Source == model.Observed && candidate == prior {
+								e.ExpiresAt = discovery.PublishedExpiry(prior.ExpiresAt, e.ExpiresAt, time.Now())
+								break
+							}
+						}
 						combined = append(combined, e)
 						urls[e.URL] = true
 					}

@@ -23,7 +23,9 @@ Edge weights, route compilation or active-Link selection.
 
 Sampling uses a mutex and a one-second cache, without a polling goroutine or
 per-Link requests. Resource fields ride in the existing batched Agent reports,
-normally sent every two seconds. Reports own their samples, so concurrent callers
+sent every two seconds during traffic or status changes, and approximately every
+15 seconds while idle. Resource fluctuations alone do not wake idle reporting.
+Reports own their samples, so concurrent callers
 cannot mutate the sampler's cache. A CPU rate needs two valid, nondecreasing
 counter samples. The first sample, an OS error or a counter reset omits the CPU
 value; zero remains a valid measured result. Other fields remain available.

@@ -46,6 +46,9 @@ type Info struct {
 }
 type Options struct {
 	Heartbeat, Timeout, WriteTimeout, RenewAfter time.Duration
+	// IdleHeartbeat spaces probes when no user data is moving. An unanswered
+	// probe resumes Heartbeat cadence and retains the normal response timeout.
+	IdleHeartbeat time.Duration
 	// OwnedPackets opts into explicit packet ownership. Consumers must release
 	// every buffer received from ReadOwnedBatch; the legacy Packets API is unused.
 	OwnedPackets bool
@@ -57,6 +60,9 @@ func (o Options) defaults() Options {
 	}
 	if o.Timeout <= 0 {
 		o.Timeout = 5 * time.Second
+	}
+	if o.IdleHeartbeat <= 0 {
+		o.IdleHeartbeat = max(10*time.Second, o.Heartbeat)
 	}
 	if o.WriteTimeout <= 0 {
 		o.WriteTimeout = 2 * time.Second
@@ -90,6 +96,11 @@ type Link struct {
 	pending         map[uint64]time.Time
 	nextPing        uint64
 	lastPong        time.Time
+	lastPing        time.Time
+	probeSince      time.Time
+	lastTraffic     time.Time
+	sampledRX       uint64
+	sampledTX       uint64
 	rtt             time.Duration
 	sent, lost      uint64
 	rx, tx, dropped atomic.Uint64
@@ -99,6 +110,9 @@ func New(parent context.Context, channel Channel, info Info, options Options) (*
 	options = options.defaults()
 	if options.Timeout < 2*options.Heartbeat || options.Timeout/options.Heartbeat > 64 {
 		return nil, errors.New("link timeout must span 2–64 heartbeats")
+	}
+	if options.IdleHeartbeat < options.Heartbeat {
+		return nil, errors.New("idle heartbeat must not be shorter than active heartbeat")
 	}
 	if channel == nil || channel.ID() == "" || info.CandidateID == "" || !info.Transport.Valid() {
 		return nil, errors.New("invalid link identity")
@@ -261,12 +275,15 @@ func (l *Link) takeData() queuedPacket {
 func (l *Link) healthy() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.ctx.Err() == nil && !l.lastPong.IsZero() && time.Since(l.lastPong) < l.options.Timeout
+	return l.healthyLocked(time.Now())
+}
+func (l *Link) healthyLocked(now time.Time) bool {
+	return l.ctx.Err() == nil && !l.lastPong.IsZero() && (l.probeSince.IsZero() || now.Sub(l.probeSince) < l.options.Timeout)
 }
 func (l *Link) Stats() model.LinkStatus {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	healthy := l.ctx.Err() == nil && !l.lastPong.IsZero() && time.Since(l.lastPong) < l.options.Timeout
+	healthy := l.healthyLocked(time.Now())
 	loss := float64(0)
 	if l.sent > 0 {
 		loss = float64(l.lost) / float64(l.sent)
@@ -381,19 +398,7 @@ func (l *Link) readLoop() {
 				return
 			}
 			nonce := binary.BigEndian.Uint64(raw[1:])
-			now := time.Now()
-			l.mu.Lock()
-			if sent, ok := l.pending[nonce]; ok {
-				sample := now.Sub(sent)
-				if l.rtt == 0 {
-					l.rtt = sample
-				} else {
-					l.rtt = (l.rtt*4 + sample) / 5
-				}
-				l.lastPong = now
-				delete(l.pending, nonce)
-			}
-			l.mu.Unlock()
+			l.recordPong(nonce, time.Now())
 		default:
 			return
 		}
@@ -478,45 +483,75 @@ func (l *Link) writeLoop() {
 func (l *Link) healthLoop() {
 	defer l.wg.Done()
 	defer l.stop()
-	start := time.Now()
+	now := time.Now()
 	ticker := time.NewTicker(l.options.Heartbeat)
 	defer ticker.Stop()
 	for {
-		now := time.Now()
-		l.mu.Lock()
-		for seq, sent := range l.pending {
-			if now.Sub(sent) >= l.options.Timeout {
-				delete(l.pending, seq)
-				l.lost++
-			}
-		}
-		since := l.lastPong
-		if since.IsZero() {
-			since = start
-		}
-		if now.Sub(since) >= l.options.Timeout {
-			l.mu.Unlock()
-			return
-		}
-		l.nextPing++
-		nonce := l.nextPing
-		raw := make([]byte, 9)
-		raw[0] = pingMessage
-		binary.BigEndian.PutUint64(raw[1:], nonce)
-		select {
-		case l.control <- raw:
-			l.pending[nonce] = now
-			l.sent++
-		default:
-		}
-		l.mu.Unlock()
-		if l.channel.NeedsRekey() {
+		if !l.heartbeat(now) || l.channel.NeedsRekey() {
 			return
 		}
 		select {
 		case <-l.ctx.Done():
 			return
-		case <-ticker.C:
+		case now = <-ticker.C:
 		}
 	}
+}
+
+func (l *Link) recordPong(nonce uint64, now time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if sent, ok := l.pending[nonce]; ok {
+		sample := now.Sub(sent)
+		if l.rtt == 0 {
+			l.rtt = sample
+		} else {
+			l.rtt = (l.rtt*4 + sample) / 5
+		}
+		l.lastPong, l.probeSince = now, time.Time{}
+		delete(l.pending, nonce)
+	}
+}
+
+// Only the health worker calls heartbeat. Sampling existing user-byte counters
+// avoids adding clocks or synchronization to the packet forwarding hot path.
+func (l *Link) heartbeat(now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for seq, sent := range l.pending {
+		if now.Sub(sent) >= l.options.Timeout {
+			delete(l.pending, seq)
+			l.lost++
+		}
+	}
+	if !l.probeSince.IsZero() && now.Sub(l.probeSince) >= l.options.Timeout {
+		return false
+	}
+	rx, tx := l.rx.Load(), l.tx.Load()
+	if rx != l.sampledRX || tx != l.sampledTX {
+		l.lastTraffic = now
+		l.sampledRX, l.sampledTX = rx, tx
+	}
+	interval := l.options.IdleHeartbeat
+	if l.lastPong.IsZero() || !l.probeSince.IsZero() || now.Sub(l.lastTraffic) < l.options.IdleHeartbeat {
+		interval = l.options.Heartbeat
+	}
+	if !l.lastPing.IsZero() && now.Sub(l.lastPing) < interval {
+		return true
+	}
+	l.nextPing++
+	raw := make([]byte, 9)
+	raw[0] = pingMessage
+	binary.BigEndian.PutUint64(raw[1:], l.nextPing)
+	select {
+	case l.control <- raw:
+		l.pending[l.nextPing] = now
+		l.lastPing = now
+		if l.probeSince.IsZero() {
+			l.probeSince = now
+		}
+		l.sent++
+	default:
+	}
+	return true
 }

@@ -49,7 +49,9 @@ are described with their traversal limits in that guide.
 - Each Edge independently retries allowed candidates with jittered backoff.
   The Agent permits eight concurrent outgoing attempts and eight incoming
   handshakes. Every retained Link exchanges authenticated heartbeats once per
-  second, with a five-second liveness timeout.
+  second during traffic and once per ten seconds while idle. Missing replies
+  restore one-second probes, with a five-second response timeout; detecting a
+  silent idle failure can therefore take approximately fifteen seconds.
 - An available manually preferred candidate wins immediately. Otherwise the
   lowest measured RTT wins, with a two-second hold time and a 15%/2 ms minimum
   improvement to avoid switches caused by timing noise. An unhealthy active Link

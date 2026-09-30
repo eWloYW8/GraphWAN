@@ -136,7 +136,7 @@ authorized stream allowance when policy shrinks, so retiring streams and healthy
 whose observed endpoints have expired can finish or renew. The accept backlog
 remains eight streams, with a 256 KiB window per stream.
 Writes time out after two seconds; unacknowledged stream opens and graceful stream
-closes expire after three seconds. Keepalives run every five seconds. Canceling a
+closes expire after three seconds. Mux keepalives run every fifteen seconds. Canceling a
 stream does not close unrelated streams. Disabling the last TCP punch Edge to an
 identity closes its physical sessions. See [NAT operation](nat-operation.md) for
 source-port reuse and platform limits.
@@ -245,6 +245,16 @@ by the established peer session.
 
 The Link then uses plaintext type 1 followed by an overlay frame for user data,
 and type 2/type 3 followed by an eight-byte big-endian probe sequence for ping/pong.
+
+Link probes run every second during user traffic and every ten seconds while
+idle (including standby Links). A missing response resumes one-second probes;
+five seconds without a valid response after the first unanswered probe closes
+the Link. Thus silent failure detection can take approximately fifteen seconds
+while idle, versus approximately five to six seconds during traffic. Initial
+admission still requires a valid pong within five seconds. User data restores
+fast probes on the next tick; after ten seconds without user data the Link
+returns to idle cadence. Ping/pong traffic itself does not count as user activity.
+Wire framing is unchanged, and peers with the old probe cadence interoperate.
 Probes have priority over queued user frames. Standby Links run the same probes;
 only the selected sending Link receives user frames from the routing engine.
 

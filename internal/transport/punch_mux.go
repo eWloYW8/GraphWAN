@@ -112,7 +112,7 @@ func NewPunchMux(ctx context.Context, conn net.Conn, identity ed25519.PublicKey,
 	cleanup = func() {}
 	options := yamux.DefaultConfig()
 	options.AcceptBacklog = 8
-	options.KeepAliveInterval = 5 * time.Second
+	options.KeepAliveInterval = 15 * time.Second
 	options.ConnectionWriteTimeout = 2 * time.Second
 	options.StreamOpenTimeout = 3 * time.Second
 	options.StreamCloseTimeout = 3 * time.Second

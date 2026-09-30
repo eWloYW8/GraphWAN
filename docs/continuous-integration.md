@@ -7,7 +7,7 @@ the source. Toolchains are pinned in `.go-version`, `.node-version` and
 
 ## Core tests
 
-Seven Go test files contain 17 test functions covering:
+Ten Go test files contain 20 test functions covering:
 
 - Topology validation and deterministic weighted routing.
 - Disabled edges, revoked Agents and loop-free forwarding tables.
@@ -16,6 +16,8 @@ Seven Go test files contain 17 test functions covering:
 - Durable configuration, transactional rollback and conflicting edits.
 - Bidirectional cluster channels, leader changes, forwarded writes and reconnects
   over in-memory connections with only one permitted dialing direction.
+- Idle probe failure detection, report suppression and observed endpoint lease
+  renewal, using in-memory state and explicit timestamps.
 
 They run locally without starting a controller or Agent, opening network ports,
 creating TUN devices or requiring administrator privileges. Store tests use
