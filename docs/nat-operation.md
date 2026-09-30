@@ -110,31 +110,19 @@ for every Link would conflict with the existing NAT mapping. See the
 
 The logical stream allowance grows from locally authorized configuration, keeping
 space for each network's endpoint candidates and session-key replacement. Adding
-networks updates an existing physical session without reconnecting. Linux loopback
-regression coverage starts with one network, adds another 19, waits for all 40
-bidirectional candidates to renew their keys, then removes the extra networks.
-The original physical session remains in use throughout growth and renewal.
+networks updates an existing physical session without reconnecting.
 
 Physical connections are limited separately for each authenticated adjacent Agent.
 The allowance starts at 64 established or pending connections and grows from
 authorized endpoint counts, DNS answers and interface scopes, with a dial and
 its result counted once. The number of authorized neighbors does not share that
-allowance. A Linux loopback fixture verifies 65 simultaneous
-neighbors, encrypted traffic to each, and revocation of one neighbor without
-replacing the others' sessions. A separate saturation fixture with no advertised
-endpoints checks that a peer's 65th physical connection is rejected while its first 64 remain open, then removes
-all of them when that peer's last authorized Edge is disabled.
+allowance.
 
 The pool distinguishes both local and remote socket addresses. A single neighbor
 using the same source port can therefore reach multiple local NIC addresses
-without those sockets being mistaken for duplicates. Linux real-socket regressions
-verify 32 independently configured IP endpoints and a hostname with 65 addresses:
-all Candidates remain healthy at both ends, complete key rotation without replacing
-their physical sessions, and agree on the preferred Link for payload delivery.
-The hostname test injects DNS answers; it does not depend on an external resolver.
+without those sockets being mistaken for duplicates.
 
-Linux native tests below verify source-port reuse and peer SYNs through restricted
-NATs. Unix adapters set `SO_REUSEADDR`/`SO_REUSEPORT`; Windows sets `SO_REUSEADDR`.
+Unix adapters set `SO_REUSEADDR`/`SO_REUSEPORT`; Windows sets `SO_REUSEADDR`.
 These options permit local port sharing and differ between operating systems.
 Run one Agent per configured listen address/port; do not use the port as a local
 process-ownership boundary. Other native platforms and NAT behavior remain
@@ -142,95 +130,6 @@ unverified, even where the code cross-compiles. TCP NAT traversal depends on the
 NAT's mapping, filtering and simultaneous-open behavior; it cannot be guaranteed
 for every router. [RFC 5382](https://www.rfc-editor.org/rfc/rfc5382) describes those
 TCP NAT requirements.
-
-## Native verification and current coverage
-
-```sh
-go build -o /tmp/graphwan-e2e ./cmd/graphwan
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --transport udp --nat
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --transport tcp --nat --mtu 9000 --underlay-mtu 1280
-```
-
-The test requires Linux TUN/network namespaces and `/usr/sbin/iptables` in
-addition to the ordinary [Linux test tools](linux-operation.md). Every routing
-and firewall change is confined to disposable network namespaces. A local
-test-only STUN responder avoids depending on an Internet service.
-
-Three real Agents run behind three separate SNAT/firewall routers. Each router
-translates 24752 to different external ports for TCP and UDP, and drops unsolicited
-incoming packets. The TCP case verifies independent TCP/UDP observations and
-outbound peer SYNs from both ends of each Edge. Tests verify those drops, the
-observed mapped ports, punch-only multi-hop ICMP and TCP, traffic after
-STUN/controller shutdown, offline transit-Agent restart
-from cache, and TUN cleanup. Transport tests separately cover IPv4/IPv6 STUN,
-spoofed-source/transaction rejection, retransmission, RFC 5769 response decoding,
-fingerprint errors, bounded transactions and cancellation. TCP tests additionally
-verify persistent observation connections, segmented/malformed responses, mutual
-TLS identity rejection in both roles and logical stream limits. Mesh tests exercise
-multiple Networks sharing one physical TCP connection, session renewal after
-observations are removed, then revocation of punching.
-
-This verifies the tested Linux NAT mapping/filtering behavior. It does not prove
-arbitrary symmetric NAT pairs, port prediction, NAT64, or an ICE/TURN deployment.
-Both IPv4 and IPv6 virtual networks pass over the verified IPv4 NAT fixture;
-use `--overlay-family 6` to reproduce the latter. This does not require IPv6
-support in the underlying NAT. The fixture does not model IPv6 NAT or NAT64.
-Non-Linux native punching runs remain optional under the agreed Linux-only
-runtime acceptance scope; the implementation review below covers their socket
-setup. Live mapped-port change/recovery is verified on Linux below.
-When punching cannot connect, configure another permitted reachable endpoint; no
-controller relay is supplied.
-
-
-## Mixed peers, IPv6 and scheduler acceptance
-
-The Linux fixture supports `--nat-nodes 1`, `2` or `3` with `--nat` (default 3).
-Two NAT nodes and one public node put both a NAT–NAT Edge and a NAT–public Edge in
-the same forwarding path. The public node keeps its interface endpoint when STUN
-returns that identical address; translated nodes advertise their independently
-mapped ports. Both TCP and UDP pass this scenario with IPv6 overlay MTU 9000,
-underlay MTU 1280 and the restricted Agent capability set:
-
-```sh
-for transport in udp tcp; do
-  sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-    --transport "$transport" --nat --nat-nodes 2 --restricted-agent \
-    --overlay-family 6 --mtu 9000 --underlay-mtu 1280
-done
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --punch-only --underlay-family 6 --overlay-family 4 --restricted-agent \
-  --mtu 9000 --underlay-mtu 1280
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --punch-only --peer-link-local-v6 --overlay-family 6 --restricted-agent \
-  --mtu 9000 --underlay-mtu 1280
-```
-
-`--punch-only` disables both direct methods and permits only the TCP/UDP punching
-method. It does not itself create NAT. The IPv6 global-address case establishes
-both transports without IPv4 underlay addresses. The link-local case uses two
-NICs per node, repeated IPv6 addresses and different NIC names; its firewall
-blocks IPv4 peer traffic on the management link. This is necessary because the
-punch switch is independent of the direct-family switches and enables attempts
-over both address families. Both IPv6 cases pass multi-hop traffic, controller
-outage, offline TUN repair, cached transit restart and cleanup. The scoped case
-also removes/restores one scope without replacing the other scope's sessions.
-
-The fixture compares exact healthy candidate IDs, including the punch method and
-both dialing directions. It cannot pass through an unintended direct connection
-or one-sided subset of the expected candidates. Mixed NAT cases additionally
-verify unsolicited packet rejection, translated STUN ports, outbound TCP SYNs
-and traffic after stopping STUN. These cases join the Linux CI matrix.
-
-Portable policy tests cover all eight combinations of the three connection
-switches, disabled Edges, transport exclusion, literal/manual DNS endpoints and
-observed leases. A real-socket scheduler test holds sixteen configured endpoints
-without answering their handshakes: only eight dials may be pending, failures
-must back off while every other endpoint gets attempted, and removing the
-endpoints cancels outstanding dials. The scheduler uses a 250 ms tick, twelve-second
-attempt deadlines and exponential delay limits from one to thirty seconds with
-half-to-full jitter. These timers continue without the controller.
 
 ## Cross-platform TCP socket review
 
@@ -245,61 +144,29 @@ chooses that role and each multiplexed stream still authenticates Network/Edge.
 The Go 1.26.8 `net` sources (`sock_posix.go`, `sockopt_windows.go`) were checked
 for hook ordering and default options. GraphWAN uses platform-specific constants
 through `x/sys`, propagates either socket-option error and never silently falls
-back to a different source port. All seven selected OS implementations were
-cross-compiled in the preceding scope change; this acceptance change does not
-alter production code.
+back to a different source port.
 
 | Platform | Binding implementation and reviewed contract |
 | --- | --- |
 | Windows | `SO_REUSEADDR` on listeners and dials, without `SO_EXCLUSIVEADDRUSE`. Go's listener default does not install an exclusive bind. [Winsock bind](https://learn.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-bind) and [reuse/exclusive rules](https://learn.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse). |
 | macOS | Both `SO_REUSEADDR` and `SO_REUSEPORT` before bind. [Apple socket options](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/setsockopt.2.html). |
 | FreeBSD, OpenBSD, NetBSD, DragonFly | Both reuse options before bind, as defined by the respective native socket API. [FreeBSD](https://man.freebsd.org/cgi/man.cgi?query=setsockopt&sektion=2), [OpenBSD](https://man.openbsd.org/setsockopt.2), [NetBSD](https://man.netbsd.org/setsockopt.2), [DragonFly](https://man.dragonflybsd.org/?command=setsockopt&section=2). |
-| Linux | Both reuse options, with the real-socket and namespace acceptance described above. |
+| Linux | Both reuse options before bind. |
 
 This review supports the implementation's port-sharing design; it does not claim
 native execution or successful traversal of every OS/router combination. In
 particular, port reuse is not an ownership boundary between local processes and
 cannot force a NAT to preserve mappings or permit simultaneous open.
 
-
 ## Live NAT mapping changes
 
-`--nat-remap` replaces the routers' live UDP and TCP SNAT ports after the first
-successful full-MTU exchange, then flushes connection tracking **inside each
-isolated router namespace**. This invalidates existing data flows and the
-persistent TCP STUN connection. The controller stays running; its connections
-may also reconnect after their NAT state is flushed. The fixture requires the
-old affected Link sessions to cease being healthy, new protocol-specific STUN
-endpoints to appear, and both dialing directions to establish exactly the newly
-expected punch candidates. It then repeats full-MTU ICMP and TCP echo without
-restarting any Agent. With `--nat-nodes 1`, the independent public-peer Edge must
-retain its original Link IDs.
+When a NAT mapping changes, STUN discovery publishes the new protocol-specific
+endpoint and adjacent Agents retry it. Discovery runs approximately every 20–25
+seconds. A failed persistent TCP observation is closed before a subsequent round
+opens a fresh connection, so recovery can require another discovery interval.
+Previously observed endpoints may remain advertised until their two-minute
+lease expires.
 
-Install the Linux `conntrack` tool for this case, or pass its absolute executable
-path with `--conntrack`. The test invokes it only through `nsenter` targeting the
-freshly created router processes; host connection tracking is never changed.
-
-```sh
-for transport in udp tcp; do
-  for count in 1 3; do
-    sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-      --transport "$transport" --nat --nat-nodes "$count" --nat-remap \
-      --restricted-agent --overlay-family 6 --mtu 9000 --underlay-mtu 1280
-  done
-done
-```
-
-All four combinations pass on Linux. After recovery they also pass STUN/controller
-outage, offline TUN repair, cached transit-Agent restart and cleanup. One recorded
-single-NAT run recovered UDP in 23.9 seconds and TCP in 44.0 seconds; these are
-observations, not a recovery-time guarantee. STUN probing runs every 20–25 seconds.
-A failed persistent TCP observation is closed before a subsequent round opens a
-fresh connection, so TCP recovery can require another discovery interval. The
-fixture permits up to ninety seconds for discovery and ninety for reconnection.
-Previously observed endpoints can remain advertised until their two-minute lease
-expires, but they cannot satisfy the new healthy-candidate checks.
-
-This proves online rediscovery after the tested mapping change. It does not make
-an undiscovered remote mapping recoverable while the controller is unavailable;
-peers still need an exchange of the new endpoint or another already reachable
-configured path. The earlier offline-cache checks use the freshly learned mapping.
+Peers need a controller exchange of the new endpoint or another already reachable
+configured path. An undiscovered remote mapping cannot be recovered solely from
+an offline cache.

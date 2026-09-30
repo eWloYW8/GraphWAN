@@ -1,12 +1,8 @@
 # macOS utun adapter
 
 The macOS adapter is implemented and cross-builds for `darwin/amd64` and
-`darwin/arm64`. Its route/configuration algorithms pass Linux race-enabled tests.
-**Native macOS execution has not been verified in the current development
-environment.** The native test binaries compile. Under the agreed validation
-scope, runtime acceptance is required on Linux; macOS source review and
-cross-compilation are required, while native execution is optional supplemental
-evidence. See the [implementation tracker](implementation-status.md).
+`darwin/arm64`. Native macOS execution has not been verified in the current
+development environment.
 
 ## Build and run
 
@@ -67,9 +63,8 @@ separate validated values, and command duration/output are bounded.
 
 Closing the owned control socket is the kernel mechanism for detaching utun and
 its associated addresses/routes; cleanup does not issue global route deletes.
-Apple's implementation detaches asynchronously. Native tests wait for interface
-removal and need to verify this behavior on the target macOS release. The API and
-lifetime design follow Apple's [utun control definitions](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h),
+Apple's implementation detaches asynchronously. The API and lifetime design
+follow Apple's [utun control definitions](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h),
 [utun implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)
 and [route utility documentation](https://github.com/apple-oss-distributions/network_cmds/blob/main/route.tproj/route.8).
 
@@ -92,64 +87,10 @@ interface if an ioctl is unavailable. Unknown families/subfamilies are excluded;
 an arbitrary third-party kernel driver that presents itself as standard hardware
 is not distinguishable from hardware through these ioctls.
 
-Classification rules have Linux tests covering accepted hardware, software
-exclusions, legacy TAP, cellular without MAC dependence and misleading name
-prefixes. Both Intel and Apple Silicon production/test binaries cross-compile
-and target vet passes. This is not a claim of execution on physical macOS NICs.
 The source reference is XNU revision
 `f6217f891ac0bb64f3d375211650a4c1ff8ca1ea`:
 [interface metadata and flags](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/net/if_private.h),
 [ioctl definitions](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/sys/sockio_private.h) and
 [kernel query/clone handling](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/net/if.c).
-IPv6 link-local scope mapping is implemented in the shared Mesh and verified
-with Linux multi-NIC fixtures; see [scope identities and policy](endpoint-resolution.md#ipv6-link-local-scopes).
-Native macOS scope behavior has not been exercised.
-
-## Optional native verification procedure
-
-Use a disposable Mac or macOS VM. These tests require root and install temporary
-test addresses/routes on their owned interfaces. The environment flag is an
-explicit opt-in; it does not prove that the host is isolated.
-
-```sh
-go test -c -tags integration -o tunnel.test ./internal/tunnel
-go test -c -tags integration -o agent.test ./internal/agent
-sudo env GRAPHWAN_TEST_MACOS=1 ./tunnel.test -test.v -test.timeout=60s
-sudo env GRAPHWAN_TEST_MACOS=1 ./agent.test \
-  -test.run=TestNativeBSDConfigurationReconcile -test.v -test.timeout=60s
-```
-
-The pending native tests cover IPv4/IPv6 at MTUs 1280 and 9000, connected routes,
-full-MTU UDP packets between kernel and adapter, duplicate-name rejection, idle
-read interruption and interface cleanup. Seven migration cases check prefix
-narrowing/widening, host address changes and IPv4/IPv6 switches. Route-conflict
-tests check failed creation/update, old-configuration restoration and preservation
-of another utun's route. The actual Agent test checks multiple Networks,
-configuration rollback and retention of readers and peer sessions.
-
-Tests already run on Linux cover route ownership, scoped/foreign/reject routes,
-command failures before and after mutation, failed route removal, restoration of
-a missing old route and failed rollback. These simulations and cross-builds do
-not prove macOS kernel behavior. Native socket/packet/route tests, multi-host
-transport/NAT tests and process-crash cleanup remain unverified.
-
-## Socket test fixtures
-
-The multi-address DNS, policy-update and UDP reply-source tests need explicit
-`127.0.0.2` and `127.0.0.3` loopback aliases on macOS. Unprivileged tests skip
-those cases if the aliases are absent. On a disposable test host where both
-addresses are reserved for these fixtures, configure them before the full suite:
-
-```sh
-sudo ifconfig lo0 inet 127.0.0.2/32 alias
-sudo ifconfig lo0 inet 127.0.0.3/32 alias
-python3 scripts/check.py go --logs /tmp/graphwan-checks
-env GRAPHWAN_TEST_MACOS=1 python3 scripts/check.py native --logs /tmp/graphwan-checks
-# Remove only the aliases added for this run, including after a failed test:
-sudo ifconfig lo0 inet 127.0.0.2 -alias
-sudo ifconfig lo0 inet 127.0.0.3 -alias
-```
-
-The [CI workflow](continuous-integration.md) includes these fixtures and cleanup
-on both macOS architectures. Hosted execution is still pending; its definition
-is not native test evidence.
+IPv6 link-local scope mapping is implemented in the shared Mesh; see
+[scope identities and policy](endpoint-resolution.md#ipv6-link-local-scopes).

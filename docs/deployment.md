@@ -2,7 +2,7 @@
 
 The same binary runs either `graphwan server` or `graphwan agent`. The React UI
 is embedded; no Node.js process, external web server or packet relay is required.
-Runtime acceptance is on Linux. Other platform adapters and their restrictions
+Other platform adapters and their restrictions
 are described in the linked operation guides; a successful cross-build alone
 does not establish native runtime support.
 
@@ -84,8 +84,7 @@ persisted controller CA and Agent identities remain Ed25519. Upgrading a control
 that previously served an Ed25519 HTTPS key preserves its CA, password and enrolled
 Agents. Some browser certificate verifiers also reject the Ed25519 signatures in
 the existing certificate chain. The server-key change addresses TLS negotiation,
-not that separate certificate-validation limitation. The HTTPS browser fixture
-ignores private-certificate errors; it does not establish browser CA trust.
+not that separate certificate-validation limitation.
 
 In the UI, create a one-time enrollment token. Edit `agent.env` with the exact
 HTTPS controller origin, CA file, initial display name and token. Then:
@@ -159,13 +158,3 @@ setup requires it. Use [macOS](macos-operation.md), [FreeBSD](freebsd-operation.
 is not a Windows Service Control Manager service; do not use `sc create` directly
 against it. Non-systemd supervisors must preserve the private state directory,
 provide the initial environment values and forward termination signals.
-
-Run `python3 scripts/check.py deployment --logs /tmp/graphwan-deployment-checks`
-to build a temporary executable and check copies of both units with
-`systemd-analyze verify`, changing only the install path to that executable.
-Process-level Linux
-network tests exercise enrollment, traffic, controller outage, cached restart
-and shutdown. Pass `--restricted-agent` to `tests/e2e_linux.py` to use the same
-capability bounding set and `NoNewPrivileges` policy as the Agent unit. CI uses
-that flag for its Linux network matrix. Service-manager installation itself is
-not performed on the developer host by these checks.

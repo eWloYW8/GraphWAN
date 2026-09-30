@@ -1,224 +1,31 @@
-# Build and verification
+# Development checks
 
-The [CI workflow](../.github/workflows/ci.yml) runs on pull requests, pushes to
-`main`/`master`, and manual dispatch. `Required checks` succeeds only when every
-required job and matrix entry succeeds; skipped or canceled dependencies fail that gate.
-Configure that check in repository branch protection after enabling Actions.
-The workflow has read-only repository permissions, does not retain checkout
-credentials, pins actions by commit, and retains logs for seven days. It does
-not publish releases or deploy services.
+CI runs two small jobs on Linux: the core Go tests and binary build, and the
+frontend production build. It checks that the embedded frontend assets match
+the source. Toolchains are pinned in `.go-version`, `.node-version` and
+`web/package.json`.
 
-Acceptance uses Linux runtime, integration and end-to-end tests. Other platforms
-require implementation review and cross-compilation; complete native execution
-is optional. The separate [native-platform workflow](../.github/workflows/native-platforms.yml)
-retains Windows, macOS and FreeBSD checks for manual dispatch only. It is not a
-dependency of `Required checks`. Existing native evidence remains useful but does
-not expand the required acceptance scope.
+## Core tests
 
-## Toolchains
+Six Go test files contain 15 test functions covering:
 
-CI uses the Go patch release in [`.go-version`](../.go-version), the Node.js patch
-release in [`.node-version`](../.node-version), and the pnpm version declared by
-[`web/package.json`](../web/package.json). Go dependencies and frontend dependencies
-use their committed lock data. Install these versions to reproduce CI locally.
-Python 3.10 or newer is used for the check and build scripts.
+- Topology validation and deterministic weighted routing.
+- Disabled edges, revoked Agents and loop-free forwarding tables.
+- Packet framing, malformed input and hop limits.
+- Four cipher suites, authenticated handshakes, tampering and replay rejection.
+- Durable configuration, transactional rollback and conflicting edits.
 
-## Checks
-
-| Job | Coverage |
-| --- | --- |
-| Backend | Ubuntu 24.04: Go formatting, module integrity, vet, uncached race tests, native kernel/Agent tests and systemd unit syntax |
-| Frontend | Locked install, formatting, TypeScript/Vite build, exact embedded-asset comparison, unit tests and Chromium integration/accessibility tests against a real controller |
-| Linux network | Twenty-four isolated three-Agent scenarios: automatic TCP/UDP, IPv4/IPv6 link-local scopes, all six IPv6 transports, listener changes with failed-bind rollback, mixed address families, punch-only policies, and restricted/mixed/remapped TCP/UDP NAT |
-| Optional native platforms (manual) | Windows 2025, macOS 15 arm64/Intel, and FreeBSD 15.1 amd64 VM. FreeBSD covers: TUN lifecycle and reconfiguration, Agent reconciliation, interface discovery, maximum-size UDP/wildcard replies and the complete Mesh test package |
-| Cross-build | Every advertised architecture for the seven operating systems below, with binary sizes, SHA-256 hashes and distribution archives |
-
-Linux network scenarios include controller/STUN outages, offline TUN repair,
-cached Agent restart, full-MTU traffic and resource cleanup. The underlay MTU is
-1280; the automatic IPv4 baseline uses overlay MTU 1280 and the other scenarios
-use 9000. See [Linux testing](linux-operation.md) for the fixtures and their limits.
-Agents run with the service example's `NET_ADMIN`/`NET_BIND_SERVICE` capability
-bounding set and `NoNewPrivileges`; the test inspects the actual process flags.
-See [deployment](deployment.md) for service installation and reproducible packages.
-
-The socket gate requires both address families for TCP, native UDP, QUIC and
-TCP/UDP STUN, plus failed-bind cleanup and shared UDP admission limits.
-On Linux it also requires `TestAuthenticatedCapacityAcrossNetworks`, including
-all of its UDP/QUIC/gRPC subtests. Each establishes 540 authenticated candidates
-across nine Networks, preserves existing Links during expansion and overlapping
-key generations, agrees on preferences, transfers data and removes memberships.
-Missing loopback aliases or skipped subtests fail this required gate.
-
-Native checks parse `test2json` output and require named tests to finish with
-`pass`, including a successful package result. Missing tests, failed tests,
-truncated results and skipped required tests or their subtests fail the gate.
-This prevents a missing administrator privilege, opt-in flag or loopback fixture
-from being counted as native acceptance. Ordinary unprivileged Go tests may still
-skip privileged integration cases.
-
-## Run locally
-
-From the repository root:
+They run locally without starting a controller or Agent, opening network ports,
+creating TUN devices or requiring administrator privileges. Store tests use
+private temporary files.
 
 ```sh
-python3 -B -m unittest discover -s scripts -p 'test_*.py' -v
-python3 scripts/check.py go --logs /tmp/graphwan-checks
-python3 scripts/check.py deployment --logs /tmp/graphwan-checks
-go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+go test ./...
+go build -o bin/graphwan ./cmd/graphwan
 pnpm --dir web install --frozen-lockfile
-pnpm --dir web exec playwright install --with-deps chromium
-python3 scripts/check.py frontend --logs /tmp/graphwan-checks
+pnpm --dir web build
 ```
 
-Frontend sources and their rebuilt embedded assets must be committed together.
-The check compares both the file set and contents, so newly generated hashed
-assets cannot silently escape verification through `.gitignore`.
-
-The browser fixture serves real HTTPS with a temporary private CA. Playwright
-ignores certificate trust errors for that fixture while still exercising Chromium's
-TLS negotiation, login, secure cookies and live streams. Go integration tests
-separately verify CA trust and mutual Agent authentication.
-
-On Linux, native tests require `sudo -n`, `unshare`, `ip` and the TUN driver. Each
-test binary runs inside a new network namespace:
-
-```sh
-python3 scripts/check.py native --logs /tmp/graphwan-native
-```
-
-The Linux gate includes `TestNativeLinuxConfigurationReconcile`: two actual TUNs,
-kernel route selection, address/prefix/family/MTU changes, failed multi-Network
-preparation, membership removal/re-addition and owned-resource cleanup. It also
-requires the native TUN packet-I/O and discovery fixtures to execute successfully.
-
-On disposable macOS hosts, configure the two loopback aliases documented in
-[macOS operation](macos-operation.md#socket-test-fixtures), then set `GRAPHWAN_TEST_MACOS=1` before
-running the same command. Windows requires an elevated terminal and
-`GRAPHWAN_TEST_WINDOWS=1`; use `python` if that is the installed command name.
-The script downloads the pinned, verified Wintun DLL into the test binary's
-temporary directory. See [Windows operation](windows-operation.md).
-OpenBSD can run the TUN/Agent/discovery `native` gate on a disposable root host
-with `GRAPHWAN_TEST_VM=1` and `GRAPHWAN_TEST_INTERFACE` naming a spare, down,
-unconfigured guest NIC; see [OpenBSD operation](openbsd-operation.md). Its complete
-transport and Mesh test binaries pass natively, including IPv6 wildcard listeners.
-No hosted OpenBSD job is enabled yet.
-
-NetBSD's disposable-root `native` gate covers TUN packet I/O, live configuration,
-route conflicts, MTU limits, ownership and process recovery, plus multi-Network
-Agent reconciliation and shutdown. Its physical discovery test requires a
-separate spare guest NIC, initially down and without unicast addresses or a
-description. Set `GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vioif1`; see
-[NetBSD operation](netbsd-operation.md). NetBSD 11.0/amd64 has local native
-evidence; no hosted NetBSD job is enabled. Broader physical hardware coverage and
-multi-host/NAT execution are optional supplemental checks.
-
-The optional FreeBSD CI job cross-compiles with the pinned Go toolchain and executes using
-[vmactions/freebsd-vm](https://github.com/vmactions/freebsd-vm/tree/a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff).
-The action is pinned; its `15.1` image selector permits updated 15.1 images.
-The guest needs neither a Go installation nor Python. To reproduce with your
-own disposable FreeBSD 15.1/amd64 VM:
-
-```sh
-python3 scripts/check.py prepare-freebsd \
-  --binaries /tmp/graphwan-freebsd --logs /tmp/graphwan-freebsd/build-logs
-# Copy that entire directory into the guest, then run there as root:
-env GRAPHWAN_TEST_VM=1 sh /root/graphwan-freebsd/run.sh
-# Copy its logs directory back to the host, then:
-python3 scripts/check.py verify-freebsd --logs /tmp/graphwan-freebsd/logs
-```
-
-NetBSD 11.0/amd64 has the equivalent `prepare-netbsd` and `verify-netbsd`
-commands. Its runner additionally requires `GRAPHWAN_TEST_INTERFACE` naming an
-unconfigured spare NIC. See the [NetBSD bundle instructions](netbsd-operation.md#complete-native-test-bundle).
-Both bundles execute the full transport and Mesh suites alongside the required
-native kernel, Agent and discovery tests. This local NetBSD support does not
-create or claim a hosted NetBSD CI job.
-
-The generated runner refuses pre-existing `127.0.0.2`/`127.0.0.3` fixtures,
-adds them for the socket tests, and removes only its own aliases on exit. Native
-test packages independently clean up their interfaces and routes. Always use
-a disposable guest; the opt-in flag does not itself provide isolation.
-
-## Cross-builds
-
-```sh
-python3 scripts/cross-build.py --output /tmp/graphwan-builds
-python3 scripts/cross-build.py --goos windows --output /tmp/windows-builds
-python3 scripts/cross-build.py --target linux/amd64 --output /tmp/linux-build
-```
-
-With Go 1.26.8, `go tool dist list` advertises 33 targets in this selection:
-
-| System | Architectures |
-| --- | --- |
-| Linux | 386, amd64, arm, arm64, loong64, mips, mipsle, mips64, mips64le, ppc64, ppc64le, riscv64, s390x |
-| Windows | 386, amd64, arm64 |
-| macOS | amd64, arm64 |
-| FreeBSD | 386, amd64, arm, arm64 |
-| OpenBSD | 386, amd64, arm, arm64, ppc64, riscv64 |
-| NetBSD | 386, amd64, arm, arm64 |
-| DragonFly BSD | amd64 |
-
-The script uses `CGO_ENABLED=0`, `-trimpath`, explicit CPU baselines (including
-RISC-V `rva20u64`) and a Git revision version. It ignores `go env -w` settings,
-local build flags, experiments and surrounding workspaces, fixes FIPS mode to
-`off`, and requires the locally installed Go toolchain rather than automatically
-switching toolchains. Module-cache and dependency-fetch environment settings
-remain available. A dirty checkout adds `-dirty`; build from a clean checkout
-for reproducible revision artifacts. Keep the output outside that checkout.
-`manifest.json` records the full revision, worktree state, Go version, build settings, baselines,
-binary paths, sizes and SHA-256 hashes. A manifest is written only after all
-selected builds succeed; failed builds remove any prior manifest at that output.
-
-For a reproducibility comparison, build the same committed revision from two
-clean checkouts in different absolute paths and compare the binaries and
-manifests. Keep output directories outside both checkouts. For example:
-
-```sh
-work=$(mktemp -d)
-git clone --no-hardlinks . "$work/first"
-git clone --no-hardlinks . "$work/second"
-python3 "$work/first/scripts/cross-build.py" --target linux/amd64 --output "$work/build-first"
-python3 "$work/second/scripts/cross-build.py" --target linux/amd64 --output "$work/build-second"
-cmp "$work/build-first/linux-amd64/graphwan" "$work/build-second/linux-amd64/graphwan"
-cmp "$work/build-first/manifest.json" "$work/build-second/manifest.json"
-```
-
-This comparison passes for `linux/amd64` at revision
-`29ed0f66cd2135fe2e684139dbc14a8586be76ea` with Go 1.26.8 on Linux amd64.
-One checkout path contains spaces; its environment also sets conflicting
-`GOAMD64`, `GOARM` and `GOFLAGS`, which the build script overrides. Both clean
-checkouts produce a 17,371,298-byte binary with SHA-256
-`4847a801d6fd16cd196f53e5679e0f8e6c11748cb228c3de45166e163415663c`
-and identical manifests. This is evidence for that target/toolchain/revision;
-the other 32 targets have successful build/hash verification, not repeated-build
-or cross-host reproducibility evidence.
-
-A subsequent build-environment check compares both `linux/amd64` and
-`linux/riscv64` from the same working tree, with and without a custom `GOENV`
-file and conflicting CPU, FIPS, module, target and compiler-flag settings. Both
-binaries and manifests remain identical. This tests configuration isolation;
-it is not an additional clean-checkout or native RISC-V execution claim.
-
-The cross-build output contains binaries and a manifest. Run
-[`scripts/package.py`](../scripts/package.py) to produce distribution archives
-with that manifest, documentation and deployment examples. Windows Agents also
-need the [Wintun DLL](windows-operation.md); its verified retrieval script is
-included. Cross-compilation does not establish native kernel behavior. The
-[acceptance audit](acceptance-audit.md) distinguishes Linux execution from
-other-platform review/build evidence, including the recorded FreeBSD i386
-compatibility-mode failure.
-
-## Local evidence
-
-Local runs with the pinned toolchains pass Go race tests/vet, Linux native tests,
-frontend build/embedded-asset/browser checks, all 24 Linux network
-scenarios and all 33 cross-build targets. The final
-[audit](acceptance-audit.md#current-local-validation) records the tested production
-revision and gate results. Historical supplemental evidence includes the generated FreeBSD runner passing
-all five packages on a disposable 15.1-p3/amd64 VM, with no skipped tests and
-verified interface/loopback cleanup. Its pre-existing-alias rejection also passes.
-The workflow definition passes actionlint. Hosted Actions execution has not been
-observed: this checkout has no
-Git remote configured. Defining a job does not claim that it has passed on a
-hosted Windows, macOS or FreeBSD runner.
+Commit rebuilt files in `internal/webui/dist` when frontend sources change.
+Cross-platform binaries can be built on demand with `scripts/cross-build.py`;
+packaging instructions are in [deployment](deployment.md).

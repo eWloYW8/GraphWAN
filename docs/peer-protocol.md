@@ -1,9 +1,7 @@
 # Peer data protocol v1
 
 This documents the packet/channel components shared by the Agent adapters.
-Runtime acceptance is on Linux; other platforms have source review and
-cross-build evidence. See the [acceptance audit](acceptance-audit.md) and
-[NAT limits](nat-operation.md) for the tested scope.
+See [NAT limits](nat-operation.md) for traversal constraints.
 
 ## Admission and handshake
 
@@ -141,7 +139,7 @@ Writes time out after two seconds; unacknowledged stream opens and graceful stre
 closes expire after three seconds. Keepalives run every five seconds. Canceling a
 stream does not close unrelated streams. Disabling the last TCP punch Edge to an
 identity closes its physical sessions. See [NAT operation](nat-operation.md) for
-source-port reuse, platform limits and native verification.
+source-port reuse and platform limits.
 
 UDP datagrams use four magic/version bytes (`GWD`, `1`), a random 16-byte
 connection token and one complete message. A data socket multiplexes independent
@@ -233,14 +231,6 @@ receive queue drops the arriving frame. Probes retain write priority and incomin
 control processing does not wait for TUN delivery. Stream writes have deadlines;
 transport failure closes that Link so the Edge can use a healthy standby. No
 unbounded application packet backlog or overlay data retransmission is added.
-
-Linux race tests exercise exact/oversized MTU packets at 1280, 1500 and 9000 for
-IPv4/IPv6 local delivery and transit, a three-node forwarding cycle assembled from
-different valid routing revisions, and outbound congestion/recovery with reused
-input buffers. Parser fuzz targets and malformed-transport tests complement
-these checks. [Native Linux scenarios](linux-operation.md#ipv4-and-ipv6-verification-matrix)
-verify actual TUN/transport traffic with overlay MTU 9000 over underlay MTU 1280;
-they do not establish automatic path-MTU adaptation or universal fragment delivery.
 
 ## Link control inside the authenticated channel
 

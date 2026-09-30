@@ -2,11 +2,8 @@
 
 The Windows adapter uses Wintun for packets and IP Helper APIs for addresses,
 routes and per-family MTUs. Native Windows execution is **not yet verified** in
-the current development environment. The production binary and native test
-binaries cross-build for Windows amd64, arm64 and 386. Linux race tests verify
-the shared ring lifetime and rollback algorithms; this does not establish that
-Windows kernel networking works. Native and multi-host checks are optional under
-the agreed [Linux runtime acceptance scope](acceptance-audit.md).
+the current development environment. The production binary supports Windows
+amd64, arm64 and 386 build targets.
 
 ## Build and install the DLL
 
@@ -86,54 +83,6 @@ drops the affected packet without retiring the device. Close signals a separate
 manual-reset event, waits for operations holding mapped packet storage, then ends
 the session and closes the adapter. It does not uninstall the shared Wintun driver.
 
-## Pending native verification
-
-Run on a disposable elevated Windows host with both IP stacks enabled. The tests
-create temporary adapters and routes; the opt-in flag does not prove isolation.
-Build the test binaries into the same directory as the matching DLL:
-
-```powershell
-go test -c -tags integration -o bin/tunnel.test.exe ./internal/tunnel
-go test -c -tags integration -o bin/agent.test.exe ./internal/agent
-$env:GRAPHWAN_TEST_WINDOWS = '1'
-$testProgram = (Resolve-Path .\bin\tunnel.test.exe).Path
-$ruleName = 'GraphWAN-test-' + [guid]::NewGuid().ToString()
-New-NetFirewallRule -Name $ruleName -DisplayName $ruleName -Direction Inbound `
-  -Action Allow -Program $testProgram -Protocol UDP -LocalPort 54321 `
-  -RemoteAddress '10.240.0.0/16','fd42::/16' -Profile Any -ErrorAction Stop
-try {
-  & $testProgram -test.run=TestNativeWindows -test.v -test.timeout=180s
-  if ($LASTEXITCODE -ne 0) { throw 'Native TUN tests failed' }
-  .\bin\agent.test.exe -test.run=TestNativeWindowsConfigurationReconcile -test.v -test.timeout=180s
-  if ($LASTEXITCODE -ne 0) { throw 'Native Agent test failed' }
-} finally {
-  Remove-NetFirewallRule -Name $ruleName
-  Remove-Item Env:GRAPHWAN_TEST_WINDOWS
-}
-```
-
-The test-specific firewall exception permits UDP delivery to the test receiver;
-it is removed in `finally` and does not disable the firewall. Existing block rules
-or endpoint-security policy may still prevent traffic and require investigation.
-
-Pending kernel tests cover full-MTU IPv4/IPv6 UDP in both directions at 1280 and
-9000 bytes, subnet routes, duplicate/case-insensitive names, simultaneous name
-creation, blocked-read interruption, idempotent Close and removal. Seven migration
-cases check prefix narrowing/widening, host addresses and family switches.
-Another case verifies that migrating and closing an adapter preserves a different
-adapter's route for the same prefix. The Agent test uses two real Wintun devices,
-checks in-place edits against the kernel, injects a second-Network rejection to
-verify first-Network rollback, and checks shutdown cleanup. That injected failure
-does not verify an actual Windows kernel error path.
-
-Already executed Linux checks cover ring storage lifetime, lost-wakeup shutdown,
-concurrent writes/Close, congestion recovery and configuration/route rollback.
-The downloader has been checked against all four official DLL architectures,
-including PE machine identifiers, unchanged DLL/license bytes and rejection of a
-corrupted archive. Native Windows tests above, process-crash cleanup, multi-host
-forwarding, endpoint discovery, NAT behavior and service deployment remain pending.
-
-
 ## UDP packet information
 
 Windows UDP listeners enable native `IP_PKTINFO` and `IPV6_PKTINFO` as appropriate
@@ -156,26 +105,6 @@ It uses Go's overlapped `ReadMsgUDPAddrPort`/`WriteMsgUDPAddrPort` operations an
 `x/sys/windows` socket options; it does not create a second data socket for STUN
 or reply traffic.
 
-Portable Linux tests verify independent 32/64-bit ABI byte fixtures, control
-chains/padding, interface-index preservation, mapped peers, owned output storage,
-invalid/truncated lengths, duplicate packet-info objects and invalid source
-addresses. A bounded fuzz run completed 81,043 executions without failure.
-Linux real sockets verify oversized-packet rejection followed by successful
-IPv4/IPv6 replies, with and without a shared QUIC listener. These checks do not
-prove Windows kernel behavior.
-
-On a Windows host with IPv4 and IPv6 enabled, the following native checks do not
-need Wintun or administrator rights:
-
-```powershell
-go test ./internal/transport -run 'TestWinsock|TestUDPWildcardReplySource' -count=10
-```
-
-The tests compare the Go Windows ABI structures, exercise the socket options,
-send to a secondary IPv4 loopback address and IPv6 loopback, inject oversized UDP
-packets and require replies from the intended address. Native execution remains
-pending, along with multi-interface/NAT acceptance.
-
 ## Automatic interface endpoints
 
 Discovery uses `GetIfTable2Ex` interface metadata. An adapter must report itself
@@ -185,14 +114,5 @@ presence do not determine eligibility. Ethernet, Wi-Fi and cellular interfaces
 can advertise their global-unicast and link-local IPv4/IPv6 addresses when up; each address gets
 TCP and UDP endpoints at the configured Agent port. Guest NIC eligibility depends
 on the hardware flag reported by its driver. Shared discovery attaches the owner's
-IPv6 scope, and Mesh maps it to local dialing interfaces. This behavior is
-Linux-tested and Windows-cross-built; native Windows scope tests are not claimed.
-
-Linux fixture tests cover the metadata decision, alias-independent classification,
-duplicate addresses, deterministic IDs and rejecting partial address snapshots.
-Production and discovery tests cross-compile for Windows amd64, arm64 and 386.
-Actual Windows enumeration and driver flags remain unverified. Native acceptance
-must compare advertised endpoints with Ethernet/Wi-Fi/cellular and guest NICs,
-confirm Wintun/TAP/bridge exclusion after alias changes, and exercise address
-addition/removal and down/up transitions while another Link keeps carrying data.
-See [discovery and live updates](endpoint-resolution.md#automatic-interface-discovery).
+IPv6 scope, and Mesh maps it to local dialing interfaces. See
+[discovery and live updates](endpoint-resolution.md#automatic-interface-discovery).

@@ -53,19 +53,3 @@ It retains the last report while disconnected; API consumers must check
 `connected` and `last_seen`. The UI shows Unavailable when the Agent is offline,
 the browser's live stream is stale/disconnected, or a field has not been reported.
 Unavailable CPU is never formatted as 0%.
-
-## Verification
-
-Unit tests cover interval normalization including >100% CPU, measured zero,
-initial/error/reset samples, cached/concurrent reads, ownership and malformed
-report rejection. A native process-counter test verifies that actual CPU work
-advances the counter. TLS controller/client tests verify nonempty resources and
-CPU intervals arriving in the actual management API. The Linux three-Agent TUN
-scenario requires valid resource samples from every Agent before forwarding
-acceptance; it also verifies offline TUN recovery and controller outage traffic.
-Browser tests cover table/Node detail rendering, absent versus zero CPU, and
-hiding historical data when either the Agent or live stream disconnects.
-
-Native CPU sampling is verified on Linux. Windows, macOS, FreeBSD, OpenBSD and
-NetBSD code cross-compiles; their native sampling checks are optional under the
-agreed Linux runtime acceptance scope and are not claimed here.

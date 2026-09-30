@@ -1,7 +1,7 @@
 package discovery
 
 // Windows reports these properties independently of an adapter's display name.
-// Keep the decision independent of platform APIs so it can be tested on Linux.
+// Keep the classification decision independent of platform APIs.
 type interfaceMetadata struct {
 	kind                       uint32
 	hardware, filter, endpoint bool

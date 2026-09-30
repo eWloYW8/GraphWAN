@@ -2,8 +2,7 @@
 
 The DragonFly/amd64 Agent implements an exclusive TUN, IPv4/IPv6 packet framing,
 subnet routes and live address/prefix/MTU reconciliation. This adapter is reviewed
-against kernel source and cross-compiled. Native DragonFly execution is not claimed
-or required by the Linux-only runtime acceptance scope.
+against kernel source and cross-compiled. Native DragonFly execution is not claimed.
 
 ## Requirements and lifecycle
 
@@ -60,16 +59,8 @@ Reproduce compile-time checks from Linux:
 
 ```sh
 GOOS=dragonfly GOARCH=amd64 CGO_ENABLED=0 go vet ./internal/tunnel ./internal/agent ./internal/discovery
-GOOS=dragonfly GOARCH=amd64 CGO_ENABLED=0 go test -c \
-  -o /tmp/graphwan-dragonfly-tunnel.test ./internal/tunnel
-GOOS=dragonfly GOARCH=amd64 CGO_ENABLED=0 go test -c \
-  -o /tmp/graphwan-dragonfly-discovery.test ./internal/discovery
 python3 scripts/cross-build.py --target dragonfly/amd64 --output /tmp/graphwan-dragonfly-build
 ```
-
-The platform-independent configuration/route rollback tests run on Linux, as do
-the existing Agent and discovery regression tests. DragonFly test binaries are
-only compiled, not executed on Linux.
 
 ## Physical-interface discovery
 
@@ -110,10 +101,7 @@ Review against the pinned revision covers the
 [LAGG handler](https://github.com/DragonFlyBSD/DragonFlyBSD/blob/d1f4fb943c73e2b61ddabff6aa48ce7551db72f4/sys/net/lagg/if_lagg.c),
 [Netgraph Ethernet](https://github.com/DragonFlyBSD/DragonFlyBSD/blob/d1f4fb943c73e2b61ddabff6aa48ce7551db72f4/sys/netgraph/eiface/ng_eiface.c)
 and [Wi-Fi ioctl dispatch](https://github.com/DragonFlyBSD/DragonFlyBSD/blob/d1f4fb943c73e2b61ddabff6aa48ce7551db72f4/sys/netproto/802_11/wlan/ieee80211_ioctl.c).
-Compile-time assertions check the 32/40/20-byte request layouts. Linux policy tests
-exercise the driver matrix, renamed software/hardware cases and probe failures;
-the DragonFly adapter and test binary cross-compile and pass target vet. Native
-DragonFly discovery remains unverified and is optional under the agreed scope.
+Compile-time assertions check the 32/40/20-byte request layouts.
 
 The earlier MIB investigation remains relevant:
 [`IFDATA_GENERAL`](https://github.com/DragonFlyBSD/DragonFlyBSD/blob/d1f4fb943c73e2b61ddabff6aa48ce7551db72f4/sys/net/if_mib.c)

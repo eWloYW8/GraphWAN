@@ -57,39 +57,30 @@ Windows uses `GetIfTable2Ex` hardware, filter, endpoint
 and interface-type metadata instead of adapter aliases or MAC-address presence.
 The hardware flag permits Ethernet, Wi-Fi and cellular devices, including guest
 NICs reported as hardware; software loopback, virtual, tunnel and bridge types
-are excluded. Windows API calls are cross-compiled; native NIC execution remains unverified
-and is optional under the Linux acceptance scope.
+are excluded. See [Windows operation](windows-operation.md).
+
 FreeBSD combines kernel interface types, original driver identities and registered
 cloners. Wi-Fi VAPs and jail epairs qualify; software overlays are excluded even
-after alias/group edits. Native tests cover guest NIC discovery and renamed
-epair/TUN/TAP/bridge fixtures with address changes. See
+after alias/group edits. See
 [FreeBSD operation](freebsd-operation.md).
 
 OpenBSD reads interface types from the routing interface snapshot and excludes
 all drivers listed by `SIOCIFGCLONERS`. It uses kernel driver-assigned names,
 not descriptions, editable groups or MAC-address presence. This rejects virtual
 Ethernet clones as well as TUN/TAP and bridges; Ethernet, Wi-Fi and OpenBSD's
-MBIM cellular type qualify. Native OpenBSD 7.9/amd64 tests use two guest NICs and
-seven clone drivers to verify exclusion, stable IDs, IPv4/IPv6 address updates
-and interface down/up behavior. Physical Wi-Fi/MBIM hardware has classification
-unit coverage but has not been tested natively. See
+MBIM cellular type qualify. See
 [OpenBSD operation](openbsd-operation.md#physical-interface-discovery).
 
-NetBSD shares the kernel type/cloner classifier with OpenBSD. Its native
-NetBSD 11.0/amd64 tests reject TAP, TUN, bridge, vether, VLAN, agr and lagg
-interfaces while observing IPv4/IPv6 changes on an independent virtio NIC.
+NetBSD shares the kernel type/cloner classifier with OpenBSD.
 Descriptions do not influence classification or endpoint IDs. See
 [NetBSD operation](netbsd-operation.md#physical-interface-discovery).
 
-macOS queries kernel interface type, family, subfamily and clone flags. Its
-classification policy is tested on Linux, and Intel/Apple Silicon adapters are
-cross-compiled; native macOS discovery is not claimed. See
+macOS queries kernel interface type, family, subfamily and clone flags. See
 [macOS operation](macos-operation.md#physical-interface-discovery).
 DragonFly combines routing-interface types with read-only driver queries. TAP and
 Netgraph Ethernet devices reject its hardware-address query; separate VLAN,
 bridge and LAGG queries exclude those software Ethernet drivers regardless of
-name/group edits. Linux policy tests and a DragonFly/amd64 cross-build cover this
-implementation; native DragonFly execution is unverified and optional. See
+name/group edits. See
 [DragonFly operation](dragonfly-operation.md#physical-interface-discovery).
 
 ## Live listener changes
@@ -112,8 +103,7 @@ old listener sockets and sessions are closed. The TUN and Agent process remain
 in place. Manual URLs and external proxies are administrator-managed: update
 their destination/advertised ports when appropriate. Peers reconnect under the
 new endpoint policy, so a successful port change may briefly interrupt traffic.
-See [Linux listener acceptance](linux-operation.md#live-listener-reconfiguration)
-for the real-process fault and recovery fixture.
+See [Linux listener reconfiguration](linux-operation.md#live-listener-reconfiguration).
 
 ## Live policy changes
 
@@ -201,7 +191,6 @@ normal single-address binding behavior. Native UDP, STUN and QUIC share the
 selected family's socket, peer/admission budgets remain shared across families,
 and close interrupts accepts/readers on both sockets.
 
-
 A wildcard native UDP listener records the destination IP of the first incoming
 datagram and uses it as the reply source. This prevents a request to a secondary
 local address from receiving its response from the host's default address. The
@@ -209,44 +198,9 @@ same behavior applies with or without a shared QUIC listener; socket sharing,
 STUN data-port reuse and IP fragmentation are preserved. The implementation uses
 `x/net` packet control messages on Unix and native Winsock packet information on
 Windows. Truncated datagrams/control data are discarded without stopping the
-listener, including Windows `WSAEMSGSIZE`. Native Windows wildcard/multiple-address
-checks are optional and unverified; its ABI codec is tested on Linux and cross-compiled.
-FreeBSD 15.1-p3/amd64 and OpenBSD 7.9/amd64 native tests verify reply sources, truncation recovery and
-maximum-size IPv4/IPv6 messages with both listeners. Owned BSD sockets reserve a
-64 KiB send buffer because the default may be below the protocol's 16 KiB message
-limit. Other BSD/macOS ancillary behavior still requires native verification. See the
-[Windows UDP verification procedure](windows-operation.md#udp-packet-information).
-
-Real-socket Linux tests cover all six transports with two live DNS answers,
-address-specific preference, a third answer added on refresh, withdrawn healthy
-address retention and rekey, traffic, endpoint removal, IPv6-only direct policy,
-TCP/UDP punch methods, and an unreachable first UDP answer. The DNS responses are
-controlled test fixtures; peer sockets, TLS, handshakes and Link reconciliation
-are real. Separate tests check bounded lookup concurrency/cancellation, cache
-pruning, transient failures versus name-not-found, and invalid introductions.
-TCP punch coverage additionally retains all 65 answers of one hostname at both
-Agents and renews every Candidate's keys without replacing its physical socket.
-Actual CA-trusted WSS/gRPC frontends verify SNI, authority, path and message echo.
-UDP tests check secondary IPv4 and IPv6 reply sources on standalone/shared sockets.
-Policy-edit tests retain exact Link IDs across endpoint addition/removal, URL
-replacement, IPv6 enablement, IPv4 revocation and transport changes on all six
-transports. They also verify canceled incomplete TCP handshakes and reject stale
-authenticated introductions. An isolated native Linux network namespace verifies
-renamed veth/TUN/TAP classification, dummy/bridge exclusion, IPv6 address removal
-and interface down/up discovery.
-
-The full Linux race suite and vet pass. Native three-Agent tests additionally
-pass for IPv6 UDP direct, IPv6 gRPC direct and IPv6 overlay over restricted IPv4
-UDP NAT, all at overlay MTU 9000 and underlay MTU 1280. These verify forwarding,
-controller/STUN outage continuity where applicable, offline TUN recovery, cached
-transit-Agent restart and cleanup. Those process tests use literal IP endpoints;
-they are regression evidence for the transport changes, not native DNS fixtures.
-Production cross-builds pass for Windows amd64/arm64/386, macOS arm64, FreeBSD
-amd64 and Linux arm64; the final [acceptance audit](acceptance-audit.md) records
-all 33 cross-builds. Resolver failure/withdrawal behavior is covered by Linux
-injected-resolver tests, without claiming an external DNS outage experiment.
-Complete non-Linux native checks are optional.
-
+listener, including Windows `WSAEMSGSIZE`. Owned BSD sockets reserve a 64 KiB
+send buffer because the default may be below the protocol's 16 KiB message
+limit. See [Windows UDP packet information](windows-operation.md#udp-packet-information).
 
 ## IPv6 link-local scopes
 
@@ -286,14 +240,4 @@ nodes, including healthy retained DNS sessions. Unaffected interfaces keep their
 existing sessions. Interface renaming changes the advertised scope and therefore
 its candidate identity.
 
-Linux acceptance uses three real Agents, two separate Ethernet links and the same
-IPv6 link-local IP on both NICs of each Agent. Every Agent uses different NIC
-names. IPv4 carries only the controller connection; Edge policy permits only
-IPv6, preventing data-plane fallback. Exact healthy candidate sets must contain
-both dialing directions on both links and exclude mismatched scopes. Automatic
-TCP/UDP and manual WS/WSS/gRPC/QUIC are exercised with overlay MTU 9000 over
-underlay MTU 1280, multi-hop traffic, controller outage, TUN repair, cached transit
-restart and cleanup. Removing/restoring the secondary NIC addresses checks scope
-revocation while primary sessions retain their Link IDs. Portable tests cover
-DNS scoping, invalid scope introduction, endpoint replacement and policy changes.
-These tests do not claim that link-local addresses can traverse routers or NAT.
+Link-local addresses cannot traverse routers or NAT.

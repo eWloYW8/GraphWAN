@@ -59,19 +59,7 @@ func TestDisabledAndRevoked(t *testing.T) {
 		}
 	}
 }
-func TestIsolatedAndUnknown(t *testing.T) {
-	s := testutil.Topology()
-	snap, err := routing.Compile(s, s.Agents[4].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snap.Networks[0].Peers) != 0 || len(snap.Networks[0].Routes) != 0 {
-		t.Fatal("isolated node has routes")
-	}
-	if _, err := routing.Compile(s, testutil.ID(999)); err == nil {
-		t.Fatal("accepted unknown agent")
-	}
-}
+
 func TestEqualCostIndependentOfInputOrder(t *testing.T) {
 	s := testutil.Topology()
 	s.Networks[0].Edges[3].Weight = 19

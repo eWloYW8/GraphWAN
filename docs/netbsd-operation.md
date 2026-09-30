@@ -1,11 +1,8 @@
-# NetBSD TUN adapter and verification
+# NetBSD TUN adapter
 
-The adapter has native TUN evidence on NetBSD 11.0/amd64: IPv4/IPv6 full-MTU
-packet I/O, live address/prefix/MTU changes, foreign-route conflict rollback,
-blocked-read cancellation and marked-interface recovery after SIGKILL.
-Multi-Network Agent migration, rollback and shutdown also pass.
-Complete NetBSD native validation is optional under the agreed
-[Linux runtime acceptance scope](acceptance-audit.md).
+The adapter supports IPv4/IPv6 packet I/O, live address/prefix/MTU changes,
+foreign-route conflict rollback, blocked-read cancellation and marked-interface
+recovery after process termination.
 
 ## Requirements and build
 
@@ -73,8 +70,7 @@ ownership of that interface. The creation-window review keeps this fail-closed
 boundary: a failed index lookup reports the interface name without attempting a
 name-only destroy. A marker-write failure cleans up only with the observed index;
 after marking, cleanup requires the matching token/index description as well.
-The shared publication routine is covered by Linux fault-injection tests, including
-failed cleanup. NetBSD's empty-description `ENOMSG` result is accepted only when
+NetBSD's empty-description `ENOMSG` result is accepted only when
 reading, never as a successful marker write.
 
 The [NetBSD 11 driver source](https://github.com/NetBSD/src/blob/netbsd-11/sys/net/if_tun.c)
@@ -86,83 +82,6 @@ and the marker registry. Privileged concurrent interface/route edits are not
 serialized with GraphWAN's transactions. This review and cross-compilation do not
 claim new native execution or automatic recovery of unmarked interfaces.
 
-## Native reproduction
-
-Run only in a disposable root NetBSD guest with explicit opt-in. With Go and Python in the guest:
-
-```sh
-GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vioif1 python3 scripts/check.py native --logs /tmp/graphwan-native
-```
-
-The gate requires named TUN, Agent and discovery tests and rejects skipped subtests.
-Discovery needs the spare NIC described below.
-Cross-compiling requires no Go installation in the guest:
-
-```sh
-CGO_ENABLED=0 GOOS=netbsd GOARCH=amd64 go test -c -tags integration -o tunnel.test ./internal/tunnel
-CGO_ENABLED=0 GOOS=netbsd GOARCH=amd64 go test -c -tags integration -o agent.test ./internal/agent
-# Copy the binaries to the guest, then run there:
-env GRAPHWAN_TEST_VM=1 ./tunnel.test -test.v -test.timeout=300s
-env GRAPHWAN_TEST_VM=1 ./agent.test -test.v -test.run NativeBSDConfigurationReconcile -test.timeout=180s
-```
-
-The native ABI probe compiled against NetBSD 11 headers confirms `ifreq=144`,
-`in6_ifreq=288`, and description-pointer offset 24 on amd64. TUN tests exercise
-both families at MTUs 1280 and 1500, seven address/prefix/family migrations,
-route conflicts, rejected oversized MTU updates, descriptor revocation,
-existing-device rejection, SIGKILL recovery, recovery without opening another
-TUN, record protection and concurrent close/recovery. These are kernel/component
-tests, not multi-host/NAT or other-architecture execution evidence.
-
-The verification guest uses the official NetBSD 11.0 amd64 live image,
-`NetBSD-11.0-amd64-live.img.gz`, checked against its published SHA-512:
-
-```text
-ad0bc2786b2cd8b7c140ae108fd780064465fe06337a3a2c3f3b694ed3a1e042b3d401c9a682be02c081f3eb3efeba1246cfd6a8803149468ebfbd9c0e7c77e8
-```
-
-A disposable qcow2 overlay was expanded to 8 GiB and booted with virtio networking
-and a virtio random source. The guest entropy requirement was zero before SSH
-host keys were regenerated. No host-network interfaces or routes were modified.
-
-
-## Complete native test bundle
-
-The cross-compiled amd64 bundle runs required TUN, Agent and discovery tests plus
-the **complete** transport and Mesh packages. The guest needs neither Go nor
-Python. Prepare the spare discovery NIC described below, then:
-
-```sh
-python3 scripts/check.py prepare-netbsd \
-  --binaries /tmp/graphwan-netbsd --logs /tmp/graphwan-netbsd/build-logs
-# Copy the entire directory into the disposable NetBSD guest, then run as root:
-env GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vioif1 \
-  sh /root/graphwan-netbsd/run.sh
-# Copy the guest's logs directory back to the host, then:
-python3 scripts/check.py verify-netbsd --logs /tmp/graphwan-netbsd/logs
-```
-
-The runner rejects pre-existing `127.0.0.2`/`127.0.0.3` loopback fixtures, creates
-them for the socket tests and removes only its own aliases on exit. It requires
-the expected guest OS, root, explicit VM opt-in and an explicit discovery NIC.
-Verification rejects failed packages, absent required roots and skipped required
-tests/subtests; the complete transport and Mesh suites may not skip any test.
-Run only in a disposable guest; the flag itself is not isolation.
-
-NetBSD 11.0/amd64 passes three consecutive full transport runs (270 tests/subtests,
-zero skips) and the complete Mesh suite (66 tests/subtests, zero skips). This
-covers IPv4/IPv6 wildcard TCP/UDP/QUIC and STUN, secondary-address UDP replies,
-maximum-size datagrams after truncation, bind-failure cleanup, shared connection
-limits, DNS refresh across all six transports, policy changes retaining permitted
-Links, preferred-link fallback, authenticated rekey and manual WS/WSS/gRPC proxy
-paths. These tests use actual sockets inside one guest; they do not establish
-multi-host/NAT acceptance or performance on physical networks. A later complete
-bundle run failed intermittently in `TestGRPCSharesListenerAndFallsBackToEstablishedLinks`
-with `edge has no healthy link`; the earlier passing runs do not establish a clean
-final bundle result. Linux subsequently passed 100 race-enabled repetitions of
-that test, without establishing the cause of the NetBSD failure. Native NetBSD
-execution is supplemental under the Linux-only runtime acceptance scope.
-
 ## Physical-interface discovery
 
 Automatic endpoints use the routing interface snapshot's kernel type/name and
@@ -172,37 +91,3 @@ software interfaces. It does not infer hardware from a MAC address or editable
 description. Interface names and indices must match the collected snapshot;
 a stale identity fails discovery rather than publishing a partial result.
 Automatic endpoints remain TCP/UDP only.
-
-Native NetBSD 11.0/amd64 tests use a separate configured management NIC and a
-spare `vioif1`, initially down, without global-unicast addresses or a description.
-Keep dynamic address managers off the spare NIC during testing. For the
-disposable live-image guest, `dhcpcd -k vioif1` releases that interface's lease
-without stopping management-interface DHCP; then `ifconfig vioif1 down` prepares
-it. Verify the fixture state before running the gate. These preparation commands
-belong only in the disposable guest.
-
-```sh
-CGO_ENABLED=0 GOOS=netbsd GOARCH=amd64 go test -c -tags integration -o discovery.test ./internal/discovery
-# Copy into the guest and run there:
-env GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vioif1 \
-  ./discovery.test -test.v -test.count=3 -test.timeout=90s
-```
-
-The tests create TAP, TUN, bridge, vether, VLAN, agr and lagg fixtures, including
-addressed Ethernet clones with misleading descriptions. They verify clone
-exclusion, stable endpoint IDs, IPv4/IPv6 address addition/removal, interface
-down/up and stale-identity rejection. Cleanup preserves original link-local
-addresses, removes only test-created resources and returns the spare NIC to its
-initial state. NetBSD's empty-description setter retains an empty description;
-the fixture uses `-description` to remove it completely.
-
-VLAN cleanup first detaches the parent and waits for the kernel to report link
-down. Direct destruction of an attached VLAN in the NetBSD 11.0 guest hung in
-`iflnkst`: [`if_detach` and the link worker](https://github.com/NetBSD/src/blob/netbsd-11/sys/net/if.c)
-acquire the same interface lock while destruction waits for queued work. Separating parent detachment and destruction avoids the
-observed wait. This is test-fixture cleanup; production discovery is read-only.
-
-The complete discovery package passes three consecutive native runs with no
-skips. Hardware Wi-Fi/MBIM and other physical NICs have classification-unit
-coverage but no native hardware evidence. IPv6 link-local scope mapping and
-multi-host/NAT acceptance remain open.

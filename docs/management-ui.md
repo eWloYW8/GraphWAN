@@ -41,9 +41,7 @@ TCP, UDP, QUIC, WS, WSS and gRPC data transports run in the Agent. WS/WSS requir
 [QUIC also requires a manual endpoint](quic-operation.md). Agent settings include
 [STUN servers for TCP/UDP hole punching](nat-operation.md). Use `host:port` for UDP
 and `tcp://host:port` for TCP; the two protocols can have different NAT mappings.
-See [NAT operation](nat-operation.md) for the verified Linux scenarios and
-traversal limits. Complete native testing on other platforms is optional under
-the [acceptance scope](acceptance-audit.md).
+See [NAT operation](nat-operation.md) for traversal behavior and limits.
 
 Agent rows show process CPU and Go-managed memory. Node details additionally show
 heap memory, goroutines, logical CPUs and uptime. CPU can exceed 100% when multiple
@@ -121,19 +119,13 @@ points. pnpm's committed lockfile fixes dependency versions.
 ```sh
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web run format:check
-pnpm --dir web test
 pnpm --dir web build
 go build -o bin/graphwan ./cmd/graphwan
-pnpm --dir web exec playwright install chromium
-pnpm --dir web test:e2e
 ```
 
 `internal/webui/dist` is generated, committed and embedded with `go:embed`. Always
 rebuild it after changing frontend sources. The build also preserves dependency
-license notices in `/THIRD_PARTY_LICENSES.txt`. TypeScript checks browser test code
-as part of the production build. Browser tests require Go and OpenSSL, start their
-own loopback controller in a temporary directory, and remove it on shutdown.
-Screenshots and retained failure traces live under ignored `web/test-results`.
+license notices in `/THIRD_PARTY_LICENSES.txt`.
 
 For hot reload, run a development controller on `127.0.0.1:8443` with `--http`,
 then `pnpm --dir web dev`. Vite proxies `/api` while preserving the request Host

@@ -1,4 +1,4 @@
-// Package testutil contains deterministic fixtures shared by integration tests.
+// Package testutil contains deterministic fixtures shared by core unit tests.
 package testutil
 
 import (

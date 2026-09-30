@@ -1,10 +1,8 @@
-# FreeBSD operation and native verification
+# FreeBSD operation
 
 The FreeBSD Agent creates kernel TUN interfaces, configures IPv4 or IPv6 addresses,
 MTUs and connected subnet routes, and carries IP packets through the same Agent
-runtime as Linux. FreeBSD 15.1/amd64 has been tested in a disposable QEMU/KVM VM.
-This is native kernel and Agent reconciliation evidence; the Linux three-host
-transport/NAT acceptance matrix has not yet been repeated on FreeBSD.
+runtime as Linux.
 
 ## Run
 
@@ -59,8 +57,7 @@ interface: deleting by name alone cannot establish ownership after a failed
 lookup. Later setup failures use the verified index or the owned transient
 descriptor. An administrator may remove an orphan only after confirming it is
 unused. Coordinate manual interface changes with the Agent; this is not an
-atomic creation-and-ownership API. Linux fault tests exercise the shared index
-validation, including failed lookups, absent/wrong names and invalid indices.
+atomic creation-and-ownership API.
 
 The TUN uses broadcast/multicast mode for subnet routes. IPv6 duplicate-address
 detection and automatic link-local configuration are disabled on this interface;
@@ -105,89 +102,5 @@ Up interfaces advertise global-unicast and link-local IPv4/IPv6 addresses,
 including private and ULA addresses, as TCP/UDP endpoints. Aliasing a TAP to an Ethernet-looking name,
 removing its group, or aliasing an epair to a TUN-looking name does not alter its
 classification. Errors reading kernel metadata reject the scan, preserving the
-last published snapshot. Shared IPv6 link-local discovery and scope mapping are
-Linux-tested and cross-built for FreeBSD; native FreeBSD scope checks are optional
-and are not claimed here.
-
-The native discovery test creates owned epair/TUN/TAP/bridge devices and changes
-their aliases and groups. It verifies exclusion, stable unaffected endpoints,
-IPv4/IPv6 additions/removals and down/up transitions, then destroys its fixtures.
-Ten consecutive runs pass on FreeBSD 15.1-p3/amd64. Portable decision tests run
-with the Linux race detector; production, integration tests and discovery vet
-pass for all four FreeBSD architectures listed above.
-
-## Reproduce the native checks
-
-Run these integration tests only as root in a disposable FreeBSD VM. They create
-interfaces and routes for test prefixes. The environment flag is explicit opt-in;
-it cannot prove VM isolation on behalf of the caller.
-
-```sh
-go test -c -tags integration -o tunnel.test ./internal/tunnel
-go test -c -tags integration -o agent.test ./internal/agent
-go test -c -tags integration -o discovery.test ./internal/discovery
-env GRAPHWAN_TEST_VM=1 ./tunnel.test -test.v -test.timeout=30s
-env GRAPHWAN_TEST_VM=1 ./agent.test -test.v -test.timeout=180s
-env GRAPHWAN_TEST_VM=1 ./discovery.test -test.v -test.timeout=60s
-```
-
-The binaries can also be cross-compiled with `GOOS=freebsd GOARCH=amd64` and copied
-to the VM. The adapter tests check both IP families at MTUs 1280 and 9000, exact
-connected routes, full-MTU kernel UDP traffic in both directions, exclusive
-ownership, cancellation of blocked reads, repeated close, MTU edits, replacement
-addresses, explicit cleanup and SIGKILL cleanup on supported kernels. The Agent
-test applies two Networks through the production TUN factory, increases and
-decreases their MTUs, changes prefixes/addresses/address families, verifies retained
-interface/runtime ownership and checks shutdown cleanup. Seven adapter migration
-cases check removal of old addresses/routes and full-MTU bidirectional kernel UDP
-traffic after each migration. A real duplicate-IPv6-address error on a second
-Network verifies rollback of the first Network's completed prefix/MTU edit.
-The complete Agent package also passes in the FreeBSD VM;
-its other tests include controller/cache and encrypted TCP/UDP forwarding with
-in-memory tunnel fixtures.
-
-Linux race tests cover MTU and full configuration transactions, failures before
-and after address operations mutate state, rollback failures, device retirement
-and recovery of the last applied configuration. Native FreeBSD tests above are
-not race-enabled.
-Full FreeBSD multi-host forwarding, NAT behavior and older kernel checks are
-optional supplemental validation. Other adapters and their reviewed constraints
-are listed in the [acceptance audit](acceptance-audit.md).
-
-## Native transport checks
-
-BSD requires explicit secondary loopback aliases for the multiple-address tests.
-Ordinary Go tests skip those cases with an explanation when aliases are absent;
-they never configure host interfaces. In a disposable VM where `127.0.0.2` and
-`127.0.0.3` are reserved for these fixtures, run as root:
-
-```sh
-go test -c -o transport.test ./internal/transport
-go test -c -o mesh.test ./internal/mesh
-sh <<'SH'
-set -eu
-trap 'ifconfig lo0 inet 127.0.0.2 -alias; ifconfig lo0 inet 127.0.0.3 -alias' EXIT
-ifconfig lo0 inet 127.0.0.2/32 alias
-ifconfig lo0 inet 127.0.0.3/32 alias
-./transport.test -test.run TestUDPWildcardReplySource -test.count=5 -test.v
-./mesh.test -test.timeout=120s
-SH
-```
-
-GraphWAN sets a 64 KiB send buffer on its owned BSD UDP socket. FreeBSD's default
-9216-byte limit cannot send the protocol's maximum 16 KiB message. This local
-socket option supports the message limit without changing global UDP sysctls.
-Native tests pass for full-size IPv4/IPv6 request/reply traffic, exact wildcard
-reply sources and rejecting oversized datagrams, both standalone and sharing a
-QUIC listener. All six transports pass DNS address refresh/retention and policy
-edit tests with real sockets. These loopback tests do not establish multi-host or
-NAT acceptance. macOS and the other BSD kernels still require native execution.
-
-The [CI build/check script](continuous-integration.md) now creates a self-contained
-FreeBSD amd64 test bundle, including Go's `test2json` executable. Its generated
-runner and host-side result verification pass on the disposable 15.1-p3 VM:
-TUN, Agent, discovery, wildcard UDP and the complete Mesh package execute with
-no skipped tests. Required roots and skipped subtests are checked explicitly.
-The runner rejects existing loopback fixture addresses; successful execution
-removes its aliases and the native tests remove their interfaces. GitHub-hosted
-execution of the new FreeBSD job has not yet been observed.
+last published snapshot. IPv6 link-local discovery and scope mapping use the
+shared Mesh implementation.

@@ -60,7 +60,7 @@ Origin header are rejected. Redirects and environment HTTP proxies are disabled
 for peer dialing, so the configured destination and address family determine the
 actual connection. Explicit reverse proxies remain supported as manual endpoints.
 
-## Wire behavior and verification
+## Wire behavior
 
 Each nonempty binary WebSocket message carries one peer protocol message, with
 a maximum of 16 KiB. Text and oversized messages terminate the connection.
@@ -69,11 +69,3 @@ Compression is disabled. Negotiated subprotocols are `graphwan.ws.v1` and
 Noise and session rekey apply to both WS and WSS.
 Peer admission limits cover slow TCP/TLS prefaces and incomplete HTTP headers;
 an incomplete upgrade cannot escape the eight-slot classifier limit.
-
-Real-socket tests cover binary boundaries, cancellation, TLS pin and CA validation,
-TLS proxy termination, IPv6-to-IPv4 proxying, wrong-path introduction rejection,
-shared-port transport selection and endpoint removal. The native Linux E2E test
-has separate `--transport ws` and `--transport wss` modes. Each starts three real
-Agents and TUNs, verifies multi-hop IP traffic, then verifies controller outage,
-offline transit-Agent restart and interface cleanup. See
-[the native verification commands](linux-operation.md#reproduce-native-verification).

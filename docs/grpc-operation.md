@@ -91,16 +91,3 @@ context cancellation, including when flow control blocks a writer. Canceling an
 operation closes that RPC. The dial timeout only bounds establishment and cannot
 expire an already established Link. A failed Link reconnects with fresh Noise
 keys through the common bounded Mesh scheduler.
-
-## Verification
-
-Real TLS/gRPC tests cover both directions through the maximum message size,
-empty/oversized input, unknown methods, dial and per-operation cancellation,
-flow control, independent CA-trusted TLS frontends and pinned direct identities.
-Mesh tests cover the shared TCP/WS/WSS/gRPC listener, configured paths and
-candidate binding, endpoint removal, standby fallback, IPv6-to-IPv4 TLS proxying,
-and shutdown with incomplete HTTP/2 prefaces.
-
-Run the Linux process test with `--transport grpc` for three real Agents and TUNs,
-multi-hop ICMP/TCP, controller outage, offline transit-Agent restart and cleanup.
-See [the native verification commands](linux-operation.md#reproduce-native-verification).

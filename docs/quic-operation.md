@@ -62,12 +62,11 @@ connection, each bounded to 16 KiB. Records expire after two seconds, with expir
 records discarded when the next datagram is processed. Header/length/offset
 errors are discarded before allocating an assembly.
 
-QUIC does not use IP fragmentation for the tested IPv4/IPv6 path budgets. A native
-test carries 9000-byte virtual IP packets across a 1280-byte underlay using these
-datagram fragments. This does not claim to support underlays unable to carry
-QUIC's minimum 1200-byte UDP payload. Large overlay packets require more fragments
-and are more likely to be lost if any individual datagram drops. TCP inside the
-overlay can retransmit its own lost data.
+QUIC uses bounded datagram fragmentation for overlay packets that exceed its
+underlay packet budget. The underlay must carry QUIC's minimum 1200-byte UDP
+payload. Large overlay packets require more fragments and are more likely to be
+lost if any individual datagram drops. TCP inside the overlay can retransmit
+its own lost data.
 
 ## Sharing the native UDP socket
 
@@ -86,30 +85,6 @@ preserves correctness; no optimized-throughput claim is made. See
 [quic-go's transport documentation](https://quic-go.net/docs/quic/transport/) for
 the underlying API and optimization tradeoffs.
 
-## Verification
-
-Real UDP/QUIC tests verify IPv4/IPv6, TLS identity rejection, same-port native
-UDP compatibility through 16 KiB, bidirectional datagram fragmentation, receive
-timeouts, actual packet loss without data retransmission, blocked-send
-cancellation and shutdown. Parser tests cover reordered/duplicate fragments,
-missing-fragment expiry, malformed input and bounded allocation. Mesh tests
-retain all six transports, fail the QUIC route while preserving existing standby
-Links, and repeatedly rotate QUIC peer sessions while forwarding traffic.
-
-The Linux process test verifies real three-Agent TUN routing, full-MTU ICMP,
-TCP transfer, controller outage, offline transit-Agent restart and cleanup:
-
-```sh
-go build -o /tmp/graphwan-e2e ./cmd/graphwan
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport quic
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --transport quic --mtu 9000 --underlay-mtu 1280
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --transport quic --overlay-family 6 --underlay-family 6 \
-  --mtu 9000 --underlay-mtu 1280
-```
-
 [STUN and UDP punching](nat-operation.md) also use the shared socket. QUIC itself
 currently uses direct manual endpoints. TCP punching has its own authenticated
-transport described in [NAT operation](nat-operation.md); arbitrary NAT
-connectivity remains unverified.
+transport described in [NAT operation](nat-operation.md).

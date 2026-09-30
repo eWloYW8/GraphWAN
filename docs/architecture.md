@@ -81,12 +81,9 @@ TUN adapters own interface addresses/routes and clean up only their own resource
 
 ## Verification
 
-Unit tests cover graph invariants, disconnected graphs, route tie breaking,
-packet parsing, replay handling and transactional rollback. Integration tests
-exercise authenticated control, restart persistence and actual peer transports.
-End-to-end tests exercise multi-hop packets, standby failover, controller outage
-and config changes. Build matrices cover supported operating systems/architectures;
-a cross-compile is not evidence of working platform TUN behavior.
+The small core unit suite covers graph invariants, deterministic routing, packet
+framing, authenticated encryption, replay handling and transactional rollback.
+CI also builds the Go binary and frontend; see [development checks](continuous-integration.md).
 
 Standards consulted: [ICE (RFC 8445)](https://www.rfc-editor.org/rfc/rfc8445),
 [STUN (RFC 8489)](https://www.rfc-editor.org/rfc/rfc8489), and

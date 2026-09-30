@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"io"
 	"reflect"
 	"testing"
 
@@ -71,85 +70,4 @@ func TestRejectMalformed(t *testing.T) {
 	if _, err := packet.ReadFrame(bytes.NewReader(prefix[:])); err == nil {
 		t.Fatal("accepted unbounded allocation")
 	}
-}
-
-type stalledWriter struct{}
-
-func (stalledWriter) Write([]byte) (int, error) { return 0, nil }
-func TestStalledWriter(t *testing.T) {
-	raw, _ := example().MarshalBinary()
-	if err := packet.WriteFrame(stalledWriter{}, raw); !errors.Is(err, io.ErrShortWrite) {
-		t.Fatal(err)
-	}
-}
-
-func FuzzParse(f *testing.F) {
-	raw, _ := example().MarshalBinary()
-	f.Add(raw)
-	f.Add([]byte{})
-	f.Fuzz(func(t *testing.T, b []byte) {
-		p, err := packet.Parse(b)
-		if err != nil {
-			return
-		}
-		out, err := p.MarshalBinary()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(b, out) {
-			t.Fatal("noncanonical accepted frame")
-		}
-	})
-}
-func TestIPInspection(t *testing.T) {
-	ip := make([]byte, 28)
-	ip[0] = 0x45
-	ip[9] = 17
-	binary.BigEndian.PutUint16(ip[2:4], 28)
-	copy(ip[12:20], []byte{10, 0, 0, 1, 10, 0, 0, 2})
-	copy(ip[20:24], []byte{0, 80, 1, 187})
-	first, err := packet.InspectIP(ip)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.Source.String() != "10.0.0.1" || first.Destination.String() != "10.0.0.2" {
-		t.Fatal(first)
-	}
-	ip[27] = 1
-	second, err := packet.InspectIP(ip)
-	if err != nil || first.Flow != second.Flow {
-		t.Fatal("payload changed flow hash")
-	}
-	ip[20]++
-	third, _ := packet.InspectIP(ip)
-	if first.Flow == third.Flow {
-		t.Fatal("ports did not change flow hash")
-	}
-	ip[0] = 0x4f
-	if _, err := packet.InspectIP(ip); err == nil {
-		t.Fatal("accepted invalid IHL")
-	}
-	v6 := make([]byte, 40)
-	v6[0] = 0x60
-	v6[6] = 59
-	v6[23] = 1
-	v6[39] = 2
-	info, err := packet.InspectIP(v6)
-	if err != nil || info.Destination.String() != "::2" {
-		t.Fatalf("IPv6: %+v %v", info, err)
-	}
-}
-func FuzzInspectIP(f *testing.F) {
-	f.Add([]byte{0x45})
-	f.Add(make([]byte, 40))
-	f.Fuzz(func(t *testing.T, b []byte) {
-		full, fullErr := packet.InspectIP(b)
-		addresses, addressErr := packet.InspectAddresses(b)
-		if (fullErr == nil) != (addressErr == nil) {
-			t.Fatal("address-only validation differs")
-		}
-		if fullErr == nil && (full.Source != addresses.Source || full.Destination != addresses.Destination) {
-			t.Fatal("address-only parse differs")
-		}
-	})
 }

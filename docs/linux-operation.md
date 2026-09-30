@@ -1,10 +1,8 @@
-# Linux operation and native verification
+# Linux operation
 
 The Linux Agent currently supports TUN interfaces, IPv4/IPv6 packet parsing,
 weighted forwarding, authenticated TCP/UDP/QUIC/WS/WSS/gRPC peer channels, multiple retained Links,
-health probes and durable controller configuration. Native tests verify IPv4 and
-IPv6 overlays and underlays independently, including all six transports over IPv6.
-The address-family verification matrix below records the tested combinations.
+health probes and durable controller configuration.
 
 ## Start and configure
 
@@ -25,8 +23,7 @@ TCP, UDP, QUIC, WS, WSS and gRPC direct connectivity are operational. Configure 
 using [manual endpoints](websocket-operation.md); gRPC has its own
 [endpoint guide](grpc-operation.md). See [QUIC setup](quic-operation.md) for
 QUIC manual endpoints and datagram MTU behavior. [STUN and TCP/UDP hole punching](nat-operation.md)
-are operational for the verified Linux NAT scenarios. That guide describes the
-traversal limits; the [acceptance audit](acceptance-audit.md) records platform scope.
+are described with their traversal limits in that guide.
 
 ## Runtime behavior
 
@@ -72,185 +69,13 @@ traversal limits; the [acceptance audit](acceptance-audit.md) records platform s
 Other implemented adapters are documented for [FreeBSD](freebsd-operation.md),
 [macOS](macos-operation.md), [Windows](windows-operation.md),
 [OpenBSD](openbsd-operation.md), [NetBSD](netbsd-operation.md) and
-[DragonFly](dragonfly-operation.md). Complete runtime acceptance is required on
-Linux; other platforms use source review and cross-builds, with any native test
-evidence recorded separately.
-
-## Reproduce native verification
-
-Native tests require Linux, root privileges and network namespace support. The
-scripts enforce namespace isolation; their interface/route changes are confined
-to disposable namespaces.
-
-```sh
-go test -race ./...
-go vet ./...
-python3 scripts/check.py native --logs /tmp/graphwan-native
-go test -c -tags integration -o /tmp/graphwan-tunnel-test ./internal/tunnel
-sudo unshare --net env GRAPHWAN_TEST_NETNS=1 /tmp/graphwan-tunnel-test -test.v
-
-go build -o /tmp/graphwan-e2e ./cmd/graphwan
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport ws
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport wss
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport grpc
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport quic
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport quic --mtu 9000 --underlay-mtu 1280
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport udp --nat
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --transport tcp --nat --mtu 9000 --underlay-mtu 1280
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e --link-local --restricted-agent --overlay-family 6 --mtu 9000 --underlay-mtu 1280
-```
-
-The process test needs Python 3.8+, `ip`, `unshare`, `nsenter`, `ping`, and `sleep`.
-It creates three child namespaces, connects their veth NICs to an isolated bridge,
-runs the actual controller and Agent binaries, and transfers traffic through their
-native TUNs. It then stops the controller, restarts the transit Agent offline,
-deletes an endpoint TUN while offline and verifies automatic interface/route/MTU
-recovery and traffic, then checks that TUNs disappear on shutdown. All child
-processes and namespaces are cleaned up on success or failure.
-
-The `native` check runs race-enabled TUN, discovery and Agent test binaries in
-separate namespaces and rejects skipped/missing results. The Agent fixture owns
-two real TUNs, verifies actual kernel addresses, MTUs and route selection, and
-changes their prefixes, host addresses and IPv4/IPv6 families. It exercises MTUs
-1280 and 9000, preserves the Mesh, and reuses unchanged devices. Injecting only
-the second Network's allocation failure verifies that the first newly prepared
-TUN is cleaned up while both previous TUNs and routes remain valid. Removing all
-memberships, adding them again and closing the Agent leave no owned interfaces;
-an unrelated interface remains untouched. Linux currently replaces a TUN when
-its address/MTU changes; preserving the same interface identity is not required
-for that adapter's configuration transaction.
+[DragonFly](dragonfly-operation.md).
 
 ## Live listener reconfiguration
 
-`--listen-port-change` first establishes three Agents and native multi-hop traffic.
-It occupies UDP port 25752 in the transit Agent's namespace, then patches that
-Agent's `listen_port` from 24752 to 25752 through the controller API. The test
-requires a reported bind error, unchanged applied revision and TUN identity, the
-original healthy Link IDs at adjacent Agents, and working full-MTU ICMP/TCP
-traffic. Both IPv4 and IPv6 TCP binds must be released after the failed setup.
-
-After releasing the conflicting UDP socket, the same desired configuration must
-apply automatically. Discovery must republish the new port; manual URLs are
-updated explicitly while preserving their endpoint IDs and paths. The test
-requires the expected healthy Candidate IDs in both dialing directions on every
-Edge, common active Links, traffic, unchanged Agent PIDs/TUN identity, and
-both old TCP/UDP ports available on both address families. Controller outage,
-offline TUN repair, cached transit-Agent restart and cleanup then run using the
-new listener configuration. All six transports pass locally on Linux at overlay
-MTU 9000 and underlay MTU 1280, with the restricted Agent capability set.
-
-```sh
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --transport auto --listen-port-change --restricted-agent \
-  --overlay-family 6 --mtu 9000 --underlay-mtu 1280
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --transport grpc --listen-port-change --restricted-agent \
-  --overlay-family 6 --underlay-family 6 --mtu 9000 --underlay-mtu 1280
-```
-
-Use `ws`, `wss` or `quic` in the second command for the other manual transports.
-The fixture excludes NAT, punch-only and scoped IPv6 combinations; those have
-separate fault tests. Successful listener replacement reconnects peer sessions;
-the test verifies recovery, not uninterrupted delivery during the replacement.
-
-## IPv4 and IPv6 verification matrix
-
-`--overlay-family 4|6` chooses the virtual subnet and inner ICMP/TCP traffic.
-`--underlay-family 4|6` chooses peer addresses, the controller's HTTPS address and
-its certificate IP SAN. Both default to 4. Automatic TCP/UDP scenarios use the
-Agent's discovered addresses; QUIC/WS/WSS/gRPC scenarios configure explicit URLs.
-Edges enable only the chosen direct address family, preventing a silent fallback.
-The IPv6 fixture uses `2001:db8:42::/64` for the isolated underlay and
-`fd42:6777::/64` for the overlay. Test addresses disable DAD to avoid setup delays.
-
-`--link-local` replaces every underlay/controller address with an address from
-`169.254.42.0/16`. It requires IPv4 underlay and cannot be combined with NAT. The
-three Agents share one Ethernet link and have no other unicast underlay addresses.
-The test requires exactly the discovered TCP/UDP link-local endpoints before
-creating the topology; automatic mode then requires both transports to become
-healthy. It verifies full-MTU IPv6 overlay traffic, controller outage, offline
-TUN repair, cached transit-Agent restart and shutdown cleanup. IPv4 link-local
-connectivity is intended for peers on the same link, not as a public/NAT endpoint.
-
-`--peer-link-local-v6` keeps IPv4 for controller access and enables only IPv6 peer
-traffic. Each Agent has two NICs on separate links with identical link-local IPs,
-but different interface names across Agents. Mesh maps owner scopes to each
-initiator's local NICs and checks the receiving scope during admission. The test
-requires every viable candidate in both directions, rejects mismatched scopes,
-and verifies address removal/restoration without replacing unaffected sessions.
-It works with automatic TCP/UDP and manual QUIC/WS/WSS/gRPC endpoints. See
-[scope identities and policy](endpoint-resolution.md#ipv6-link-local-scopes).
-Unspecified, loopback, multicast and broadcast interface addresses remain excluded.
-
-```sh
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --peer-link-local-v6 --restricted-agent --overlay-family 6 \
-  --mtu 9000 --underlay-mtu 1280
-# Repeat with --transport ws, wss, grpc or quic for manual ingress.
-```
-
-| Overlay | Underlay | Transports | Overlay/underlay MTU | Result |
-| --- | --- | --- | --- | --- |
-| IPv4 | IPv4 | TCP + UDP | 1280 / 1500 | Passed |
-| IPv6 | IPv6 | TCP + UDP | 1280 / 1500 | Passed |
-| IPv6 | IPv6 | Each of TCP, UDP, QUIC, WS, WSS, gRPC alone | 9000 / 1280 | Passed |
-| IPv4 | IPv6 | TCP + UDP | 1280 / 1500 | Passed |
-| IPv6 | IPv6 link-local, two NICs | TCP + UDP; WS, WSS, gRPC, QUIC separately | 9000 / 1280 | Passed |
-| IPv6 | IPv4 | TCP + UDP | 1280 / 1500 | Passed |
-| IPv6 | IPv4 restricted SNAT | UDP alone, TCP alone; punch-only | 9000 / 1280 | Passed |
-| IPv6 | Two IPv4 NAT peers + one public peer | UDP alone, TCP alone; punch-only | 9000 / 1280 | Passed |
-| IPv6 | One or three IPv4 NATs, ports changed during traffic | UDP alone, TCP alone; automatic rediscovery | 9000 / 1280 | Passed |
-| IPv4 | IPv6 global | TCP + UDP; punch-only | 9000 / 1280 | Passed |
-| IPv6 | IPv6 link-local, two NICs | TCP + UDP; punch-only | 9000 / 1280 | Passed |
-
-Punch-only and mixed NAT reproduction commands are in [NAT operation](nat-operation.md#mixed-peers-ipv6-and-scheduler-acceptance).
-
-Every row uses three actual Agents and TUN interfaces. Checks include a full-MTU
-ICMP/ICMPv6 packet, a 155,648-byte TCP echo, resource reports, controller outage,
-offline replacement of a deleted endpoint TUN, offline transit-Agent restart and
-owned-interface cleanup. NAT cases additionally stop STUN. `--nat-remap` also
-requires the Linux `conntrack` utility and verifies automatic recovery after
-changing mapped ports; `--nat-nodes 1` checks preservation of the unaffected
-public-peer Edge. These fault injections stay within the isolated router namespaces. The native adapter
-integration test independently checks IPv4/IPv6 connected routes, exclusive
-ownership, bidirectional kernel UDP delivery and interrupting idle reads on close.
-
-```sh
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --overlay-family 6 --underlay-family 6
-for transport in tcp udp quic ws wss grpc; do
-  sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-    --overlay-family 6 --underlay-family 6 --transport "$transport" \
-    --mtu 9000 --underlay-mtu 1280
-done
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --overlay-family 4 --underlay-family 6
-sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-  --overlay-family 6 --underlay-family 4
-for transport in udp tcp; do
-  sudo unshare --net python3 tests/e2e_linux.py --binary /tmp/graphwan-e2e \
-    --overlay-family 6 --transport "$transport" --nat \
-    --mtu 9000 --underlay-mtu 1280
-done
-```
-
-These are Linux scenarios with fixed underlay MTUs. They do not establish native
-support on other systems, changing path MTUs,
-NAT64 or arbitrary NAT behavior. The NAT fixture models IPv4 SNAT and explicitly
-rejects `--nat --underlay-family 6`; either virtual address family can use it.
-
-### Controller cluster failover
-
-Run the existing native fixture with three independent controller processes:
-
-```sh
-sudo unshare --net python3 tests/e2e_linux.py --binary "$PWD/bin/graphwan" \
-  --cluster --server-transports websocket grpc wss --transport udp --restricted-agent
-```
-
-This joins two replicas through the authenticated management API, waits for three
-voters, then verifies Agent failover, configuration writes after coordinator loss,
-minority write rejection, and uninterrupted native multi-hop traffic. It also
-restarts a transit Agent without bootstrap flags or a CA file while all controllers
-are offline. Network namespaces keep the test separate from the host network.
+Change an Agent's listen port through its settings. It prepares replacement
+listeners before switching the applied configuration. A bind failure retains the
+old listeners and reports a configuration error; reconciliation retries the
+requested configuration. Successful replacement reconnects peer sessions while
+retaining Network interfaces. Discovery republishes automatic endpoints with the
+new port. Update manual endpoint URLs explicitly.

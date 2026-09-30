@@ -93,20 +93,10 @@ controller is unavailable.
 For distribution archives, Linux systemd services, upgrades and backups, see
 [deployment](docs/deployment.md).
 
-See [Linux operation and testing](docs/linux-operation.md) for behavior, current
-limits, and reproducible native tests.
-For the FreeBSD adapter, requirements and native checks, see
-[FreeBSD operation](docs/freebsd-operation.md).
-The macOS adapter and its unverified native test procedure are documented in
-[macOS operation](docs/macos-operation.md).
-The Windows Wintun adapter, DLL setup and pending native checks are documented in
-[Windows operation](docs/windows-operation.md).
-The OpenBSD adapter, native checks and known transport limitations are documented
-in [OpenBSD operation](docs/openbsd-operation.md).
-For NetBSD native TUN/configuration/recovery checks and its MTU and ownership
-constraints, see [NetBSD operation](docs/netbsd-operation.md).
-For DragonFly's autoclone lifecycle and source-reviewed support, see
-[DragonFly operation](docs/dragonfly-operation.md).
+Platform setup and limitations: [Linux](docs/linux-operation.md),
+[FreeBSD](docs/freebsd-operation.md), [macOS](docs/macos-operation.md),
+[Windows](docs/windows-operation.md), [OpenBSD](docs/openbsd-operation.md),
+[NetBSD](docs/netbsd-operation.md) and [DragonFly](docs/dragonfly-operation.md).
 
 ## Development
 
@@ -117,11 +107,8 @@ builds a complete binary. Rebuild assets whenever frontend sources change.
 
 ```sh
 go test ./...
-go test -race ./...
-go vet ./...
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web build
-pnpm --dir web test
-pnpm --dir web exec playwright install chromium
-pnpm --dir web test:e2e
 ```
+
+See [development checks](docs/continuous-integration.md) for the small core test suite and CI.

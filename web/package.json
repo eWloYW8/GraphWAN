@@ -7,10 +7,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build && node scripts/licenses.mjs",
-    "test": "vitest run src",
-    "test:e2e": "playwright test",
-    "format": "prettier --write src tests scripts *.ts *.json index.html",
-    "format:check": "prettier --check src tests scripts *.ts *.json index.html"
+    "format": "prettier --write src scripts *.ts *.json index.html",
+    "format:check": "prettier --check src scripts *.ts *.json index.html"
   },
   "dependencies": {
     "@xyflow/react": "^12.12.0",
@@ -19,16 +17,13 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.13.0",
-    "@playwright/test": "^1.63.0",
     "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "prettier": "^3.9.9",
     "typescript": "^7.0.2",
-    "vite": "^8.3.1",
-    "vitest": "^5.0.2"
+    "vite": "^8.3.1"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

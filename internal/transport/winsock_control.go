@@ -7,7 +7,7 @@ import (
 
 // WSACMSGHDR is SIZE_T followed by two INTs. The data and each next header
 // are aligned to SIZE_T; cmsg_len excludes trailing padding. Windows targets
-// supported by Go are little-endian. Keep the codec portable for ABI tests.
+// supported by Go are little-endian. The codec handles both 32-bit and 64-bit layouts.
 func winsockReplyControl(raw []byte, remote netip.AddrPort, word int) []byte {
 	if word != 4 && word != 8 || !remote.IsValid() {
 		return nil

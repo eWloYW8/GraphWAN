@@ -1,12 +1,8 @@
-# OpenBSD TUN adapter and verification
+# OpenBSD TUN adapter
 
-The OpenBSD TUN adapter has native kernel and Agent configuration evidence on
-OpenBSD 7.9/amd64. It supports IPv4/IPv6 packet I/O, live address/prefix/MTU changes,
-route-conflict rollback and owned-interface cleanup. Configured TUN crash recovery
-and historical native transport/Mesh tests pass for both IP families. Current
-acceptance requires Linux execution plus implementation review and cross-builds
-for OpenBSD; further native multi-host/NAT checks are optional. The creation-window
-ownership boundary is documented below. See the [acceptance tracker](implementation-status.md).
+The adapter supports IPv4/IPv6 packet I/O, live address/prefix/MTU changes,
+route-conflict rollback and owned-interface cleanup. The creation-window
+ownership boundary is documented below.
 
 ## Build and run
 
@@ -16,7 +12,7 @@ Build with Go 1.26 or newer on OpenBSD, or cross-build using the pinned toolchai
 CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go build -o graphwan ./cmd/graphwan
 ```
 
-Production, TUN-test and Agent-test binaries cross-build for OpenBSD amd64, 386,
+Production binaries cross-build for OpenBSD amd64, 386,
 arm, arm64, ppc64 and riscv64; only amd64 has native execution evidence.
 The controller's setup and enrollment flow are the same as in the
 [README](../README.md). An Agent requires root, writable `/dev`, the standard
@@ -75,49 +71,6 @@ replacement is not adopted or removed. Commands have bounded runtime and output.
 Other privileged administrators can still race configuration operations;
 GraphWAN does not lock the kernel's interface/routing configuration globally.
 
-## Native tests
-
-Run only as root in a disposable OpenBSD VM; these tests create addresses and
-routes. The discovery test also needs a separate spare guest NIC, initially
-down and without global-unicast addresses or a description. Keep the management
-NIC configured separately. For example, an extra QEMU user network and virtio
-NIC (`-netdev user,id=discovery -device virtio-net-pci,netdev=discovery`) supplies
-`vio1` in the local fixture. With Python and Go installed in the guest:
-
-```sh
-env GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vio1 \
-  python3 scripts/check.py native --logs /tmp/graphwan-native
-```
-
-The script requires named TUN, Agent and discovery tests and rejects skipped subtests. A
-cross-compiled test bundle avoids needing either toolchain inside the guest:
-
-```sh
-CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go test -c -tags integration -o tunnel.test ./internal/tunnel
-CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go test -c -tags integration -o agent.test ./internal/agent
-CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go test -c -tags integration -o discovery.test ./internal/discovery
-# Copy the binaries into the disposable guest and run there:
-env GRAPHWAN_TEST_VM=1 ./tunnel.test -test.v -test.run "NativeOpenBSD|NativePersistentBSD" -test.timeout=180s
-env GRAPHWAN_TEST_VM=1 ./agent.test -test.v -test.run NativeBSDConfigurationReconcile -test.timeout=180s
-env GRAPHWAN_TEST_VM=1 GRAPHWAN_TEST_INTERFACE=vio1 ./discovery.test -test.v -test.run NativeOpenBSDInterfaceDiscovery -test.timeout=90s
-```
-
-Tests cover both IP families at MTUs 1280 and 9000, exact subnet routes,
-bidirectional full-MTU kernel UDP packets, duplicate-name rejection, blocked-read
-cancellation, repeated close and cleanup. Seven migration cases cover narrowing
-and widening prefixes, changing IPv6 addresses, and IPv4/IPv6 transitions while
-retaining the interface index. Conflict tests verify preservation of another
-interface's routes and continued traffic on the restored configuration.
-A replacement test revokes an open descriptor, recreates its name and verifies
-that update/close of the old device cannot alter the replacement.
-
-Native TUN tests pass repeatedly on the disposable OpenBSD 7.9/amd64 VM. The
-Agent's real factory passes multi-Network configuration migration, rollback and
-shutdown cleanup. Linux race tests and vet pass; the shared routing tests reject
-foreign equal-prefix routes independently of enumeration order. Both Darwin
-architectures also cross-build after extracting the common BSD route reader.
-These are kernel/component checks, not three-host forwarding acceptance.
-
 ## Physical-interface discovery
 
 Automatic endpoints use routing-interface metadata and the kernel cloner list,
@@ -129,23 +82,6 @@ defines the cloner enumeration and driver/unit naming used by this check.
 A changed interface identity rejects the scan instead of publishing a partial
 snapshot. Global-unicast addresses, including private IPv4 and ULA IPv6, are
 advertised only as TCP/UDP endpoints; down and loopback interfaces are excluded.
-
-Native tests on OpenBSD 7.9/amd64 keep one guest NIC configured and use a second,
-unconfigured NIC as `GRAPHWAN_TEST_INTERFACE`. They create TAP, TUN, bridge,
-veb, vport, pair and VLAN fixtures, then remove their driver groups and apply
-hardware-like descriptions. All seven remain excluded. The real guest NIC
-remains eligible with a tunnel-like description/group; description changes
-preserve endpoint IDs. IPv4/IPv6 address addition/removal and interface down/up
-withdraw or restore the expected endpoints while retaining unrelated NIC IDs.
-The test destroys only its own clone indexes and restores the spare NIC.
-Missing fixtures fail the required native gate after opt-in, rather than skip.
-
-The full discovery package passes three consecutive native runs on both
-OpenBSD 7.9/amd64 and FreeBSD 15.1-p3/amd64. Each has 93 test/subtest passes and
-no skips. The shared cloner ioctl request is checked against its ABI size on
-both kernels. Ethernet guest NICs have native evidence; Wi-Fi and MBIM cellular
-classification have portable unit coverage only. No scoped IPv6 link-local
-endpoint support or broader hardware acceptance is inferred from these tests.
 
 ## Recovery after process termination
 
@@ -173,14 +109,6 @@ remain for reuse; do not delete records or the registry lock while Agents run.
 Privileged administrators must coordinate with the Agent;
 these checks do not lock out concurrent root changes to the kernel.
 
-Native subprocess tests send SIGKILL after IPv4/IPv6 configuration, then verify
-cleanup and reuse of the same address/subnet with bidirectional full-MTU kernel
-traffic. They also verify a surviving concurrent owner, same-name replacements,
-changed descriptions, interrupted record publication, and Agent startup without
-opening any new TUN. Thirty concurrent close/recovery iterations and rejection
-of symlinked, hard-linked, public or non-root records also pass. These historical
-native checks remain available as optional supplemental verification.
-
 ## Creation-window review and platform limits
 
 - **Interruption before ownership marking:** interfaces created through
@@ -205,40 +133,4 @@ native checks remain available as optional supplemental verification.
   `SIOCIFCREATE` to refuse existing interfaces, followed by ownership marking.
   Source review used [OpenBSD if_tun.c](https://github.com/openbsd/src/blob/master/sys/net/if_tun.c)
   revision 1.258, including `tun_create`, `tun_dev_open` and `tun_dev_close`.
-- Linux fault-injection tests exercise publication success, failed/invalid index
-  lookup without mutation, marker failure with index-bound cleanup, and cleanup
-  error propagation. Both BSD adapters call this shared ownership-publication
-  routine before creating addresses or routes. Cross-compiled native tests remain
-  available; this review does not claim a new OpenBSD execution or atomic cleanup
-  after every possible SIGKILL timing.
-- Native Wi-Fi/MBIM hardware, multi-host forwarding/NAT, other OpenBSD releases
-  and CPU architectures remain optional supplemental checks. Scoped IPv6 paths
-  are implemented and verified on Linux. Nonzero OpenBSD routing domains remain
-  an explicitly rejected runtime configuration.
-
-## Native transport checks
-
-Compile `./internal/transport` and `./internal/mesh` with `go test -c` for
-OpenBSD, copy both test binaries to the disposable VM, and add the reserved
-`127.0.0.2/32` and `127.0.0.3/32` aliases to `lo0` as in the
-[BSD socket fixture procedure](freebsd-operation.md#native-transport-checks).
-Run `transport.test -test.v -test.count=3 -test.timeout=120s` and
-`mesh.test -test.v -test.timeout=180s`, retaining exit statuses and removing the
-fixture aliases afterwards. Capture results through `go tool test2json` (or a
-cross-built `cmd/test2json`) to enforce the named roots in `SOCKET_GATES` from
-`scripts/check.py`; a timeout, missing test or required skip is not a pass.
-
-The complete transport package passes three consecutive native runs with no
-skips. Tests cover wildcard TCP accepts, native UDP reply-source selection and
-maximum-size messages, bidirectional QUIC datagrams, and TCP/UDP STUN data-port
-reuse in both address families. Partial-bind failure cleanup, same-port retry,
-unavailable-family fallback and UDP peer bounds are also covered. The complete
-Mesh package passes all 66 tests/subtests without skips, including the previously
-failing IPv6 DNS/punch and live policy-update cases across all six transports.
-These local socket checks do not establish multi-host or NAT acceptance.
-
-The VM used the official OpenBSD 7.9 amd64 `install79.iso`, verified against the
-release's [SHA-256 file](https://cdn.openbsd.org/pub/OpenBSD/7.9/amd64/SHA256):
-`7a4a92e953618035097c796a90b54424a0f3ae775552e1e7d102cf8a5130449f`.
-Its kernel reports `OpenBSD 7.9 GENERIC.MP#449 amd64`. No hosted OpenBSD CI
-execution or complete platform acceptance is claimed.
+- Nonzero OpenBSD routing domains are an explicitly rejected runtime configuration.

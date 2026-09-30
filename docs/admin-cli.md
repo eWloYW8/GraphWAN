@@ -73,9 +73,3 @@ rerunning after a conflict. If a mutation's response is lost, times out or canno
 be decoded, it may already have committed; inspect `network list` before retrying
 to avoid creating a duplicate Network. Likewise, an output-write failure after
 success does not roll back the controller transaction.
-
-Linux integration coverage in [admin_test.go](../cmd/graphwan/admin_test.go) uses
-a real TLS controller and durable store for creation, membership listing,
-configuration preservation, stale-revision rejection, authentication and session
-invalidation. HTTP fixtures exercise redirect refusal, deadlines and malformed
-responses. Other platforms use the same Go HTTP client and are cross-built.

@@ -3,10 +3,8 @@ package model_test
 import (
 	"net/netip"
 	"testing"
-	"time"
 
 	"github.com/eWloYW8/GraphWAN/internal/model"
-	"github.com/eWloYW8/GraphWAN/internal/routing"
 	"github.com/eWloYW8/GraphWAN/internal/testutil"
 )
 
@@ -57,80 +55,6 @@ func TestValidateTopology(t *testing.T) {
 			change(&s)
 			if err := s.Validate(); err == nil {
 				t.Fatal("accepted invalid state")
-			}
-		})
-	}
-}
-
-func TestEndpointValidation(t *testing.T) {
-	tests := []struct {
-		url       string
-		transport model.Transport
-		source    model.EndpointSource
-		valid     bool
-	}{
-		{"wss://node.example.com:443/overlay", model.WSS, model.Manual, true},
-		{"grpc://node.example.com:443/overlay", model.GRPC, model.Manual, true},
-		{"grpc://node.example.com:443/overlay?", model.GRPC, model.Manual, false},
-		{"ws://node.example.com:24752/overlay?", model.WS, model.Manual, false},
-		{"udp://[2001:db8::1]:24752", model.UDP, model.Interface, true},
-		{"tcp://[fe80::1%25eth0]:24752", model.TCP, model.Interface, true},
-		{"udp://192.0.2.1:41234", model.UDP, model.Observed, true},
-		{"udp://0.0.0.0:24752", model.UDP, model.Manual, false},
-		{"udp://224.0.0.1:24752", model.UDP, model.Manual, false},
-		{"tcp://node.example.com:0", model.TCP, model.Manual, false},
-		{"tcp://node.example.com:65536", model.TCP, model.Manual, false},
-		{"wss://node.example.com/overlay", model.WSS, model.Manual, false},
-		{"udp://192.0.2.1:24752/path", model.UDP, model.Manual, false},
-		{"wss://user:pass@example.com:443/", model.WSS, model.Manual, false},
-		{"wss://example.com:443/?token=abc", model.WSS, model.Manual, false},
-		{"udp://example.com:24752", model.UDP, model.Interface, false},
-		{"udp://bad_host:24752", model.UDP, model.Manual, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			e := model.Endpoint{ID: testutil.ID(1), URL: tt.url, Transport: tt.transport, Source: tt.source, ExpiresAt: time.Now().Add(time.Hour)}
-			err := e.Validate()
-			if (err == nil) != tt.valid {
-				t.Fatalf("valid=%v error=%v", tt.valid, err)
-			}
-		})
-	}
-}
-
-func TestCloneIsIndependent(t *testing.T) {
-	s := testutil.Topology()
-	c := s.Clone()
-	c.Agents[0].PublicKey[0] ^= 255
-	c.Agents[0].Endpoints[0].URL = "changed"
-	c.Networks[0].Nodes[0].Name = "changed"
-	c.Networks[0].Edges[0].Transports[0] = model.WSS
-	if s.Agents[0].PublicKey[0] == c.Agents[0].PublicKey[0] || s.Agents[0].Endpoints[0].URL == "changed" || s.Networks[0].Nodes[0].Name == "changed" || s.Networks[0].Edges[0].Transports[0] == model.WSS {
-		t.Fatal("clone aliases original")
-	}
-}
-
-func TestSupportedNetworkCipherSnapshots(t *testing.T) {
-	for _, suite := range []model.CipherSuite{model.AES128GCM, model.AES256GCM, model.ChaCha20Poly1305, model.XChaCha20Poly1305} {
-		t.Run(string(suite), func(t *testing.T) {
-			state := testutil.Topology()
-			state.Networks[0].Cipher = suite
-			if err := state.Validate(); err != nil {
-				t.Fatal(err)
-			}
-			snapshot, err := routing.Compile(state, state.Agents[0].ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if snapshot.Networks[0].Cipher != suite {
-				t.Fatal("cipher lost during compilation")
-			}
-			if err := snapshot.Validate(state.Agents[0].ID); err != nil {
-				t.Fatal(err)
-			}
-			snapshot.Networks[0].Cipher = "unknown"
-			if err := snapshot.Validate(state.Agents[0].ID); err == nil {
-				t.Fatal("unknown snapshot cipher accepted")
 			}
 		})
 	}

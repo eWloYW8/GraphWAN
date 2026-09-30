@@ -16,7 +16,7 @@ const (
 // Instead use the read-only ioctl contracts: TAP and Netgraph Ethernet drivers
 // reject SIOCGHWADDR; bridge, vlan and lagg implement their own query as well as
 // the generic Ethernet hardware-address query. Ordinary NICs reject those three
-// software-driver queries. Keep this policy executable in Linux tests.
+// software-driver queries. The classification policy is independent of native queries.
 func dragonFlyPhysical(kind int, probe func(dragonFlyProbe) (bool, error)) (bool, error) {
 	switch kind {
 	case 6, 7, 9, 15, 62, 69, 71, 117, 199, 237, 243, 244:
