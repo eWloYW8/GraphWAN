@@ -15,8 +15,10 @@ import {
   type Node as FlowNode,
 } from '@xyflow/react'
 import { Server, Plus, Settings2, Cable, MousePointer2 } from 'lucide-react'
-import { FloatingEdge, FloatingConnection } from './FloatingEdge'
+import { FloatingEdge, FloatingConnection, LineConnection } from './FloatingEdge'
 import { planAnchors } from './edgeGeometry'
+import { planRoutes, planLabels, type LineStyle } from './edgeRouting'
+import { activePath } from './activePath'
 import { ResourceDetails } from './Resources'
 import { Badge, Field } from './components'
 import {
@@ -33,7 +35,8 @@ import {
   rate,
   shortID,
 } from './model'
-export type Selection = { type: 'node' | 'edge'; id: string } | null
+export type Selection =
+  { type: 'node' | 'edge'; id: string } | { type: 'path'; id: string; target: string } | null
 
 // Keep the entire graph visible when the canvas changes size or membership.
 // Metrics and ordinary edits do not reset a user's pan/zoom position.
@@ -53,13 +56,13 @@ function FitLayout({ count }: { count: number }) {
 }
 
 type GraphNode = FlowNode<
-  { name: string; address: string; state: string; connecting: boolean },
+  { name: string; address: string; state: string; connecting: boolean; path: boolean },
   'agent'
 >
 function AgentNode({ data, isConnectable }: NodeProps<GraphNode>) {
   return (
     <div
-      className={`graph-node ${data.state.toLowerCase()} ${data.connecting ? 'connect-mode' : ''}`}
+      className={`graph-node ${data.state.toLowerCase()} ${data.connecting ? 'connect-mode' : ''} ${data.path ? 'active-path-node' : ''}`}
     >
       <Handle
         id="surface"
@@ -115,7 +118,23 @@ export default function Topology({
   addNode: () => void
   addEdge: () => void
 }) {
+  const [lineStyle, setLineStyle] = useState<LineStyle>(() => {
+    try {
+      return localStorage.getItem('graphwan:line-style') === 'bezier' ? 'bezier' : 'line'
+    } catch {
+      return 'line'
+    }
+  })
+  const chooseLineStyle = (style: LineStyle) => {
+    setLineStyle(style)
+    try {
+      localStorage.setItem('graphwan:line-style', style)
+    } catch {
+      /* Browsing without storage remains supported. */
+    }
+  }
   const [connecting, setConnecting] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const connected = useRef(false)
   useEffect(() => {
     setConnecting(false)
@@ -136,6 +155,28 @@ export default function Topology({
       (edge) =>
         (edge.a === source && edge.b === target) || (edge.a === target && edge.b === source),
     )
+  const path = useMemo(
+    () =>
+      selection?.type === 'path'
+        ? activePath(network, selection.id, selection.target, state, statuses, live)
+        : undefined,
+    [network, selection, state, statuses, live],
+  )
+  const selectNode = (id: string, multiple = false) => {
+    if (selection?.type === 'path') {
+      if (id === selection.id) select({ type: 'node', id: selection.target })
+      else if (id === selection.target) select({ type: 'node', id: selection.id })
+      else select(multiple ? { ...selection, target: id } : { type: 'node', id })
+    } else if (selection?.type === 'node') {
+      select(
+        selection.id === id
+          ? null
+          : multiple
+            ? { type: 'path', id: selection.id, target: id }
+            : { type: 'node', id },
+      )
+    } else select({ type: 'node', id })
+  }
   const status = useMemo(() => new Map(statuses.map((s) => [s.agent_id, s])), [statuses])
   const desiredNodes = useMemo<GraphNode[]>(
     () =>
@@ -143,9 +184,13 @@ export default function Topology({
         id: n.id,
         type: 'agent',
         position: n.position,
-        selected: selection?.type === 'node' && selection.id === n.id,
+        selected:
+          selection?.type === 'path'
+            ? selection.id === n.id || selection.target === n.id
+            : selection?.type === 'node' && selection.id === n.id,
         data: {
           connecting,
+          path: path?.nodes.includes(n.id) ?? false,
           name: n.name,
           address: n.address,
           state: nodeState(
@@ -156,7 +201,7 @@ export default function Topology({
         },
         ariaLabel: `${n.name}, ${n.address}`,
       })),
-    [network.nodes, selection, state.agents, status, live, connecting],
+    [network.nodes, selection, state.agents, status, live, connecting, path],
   )
   const [nodes, setNodes, applyNodeChanges] = useNodesState<GraphNode>([])
   useEffect(() => {
@@ -167,21 +212,49 @@ export default function Topology({
       return desiredNodes.map((node) => ({ ...byID.get(node.id), ...node }))
     })
   }, [desiredNodes, setNodes])
-  const anchors = planAnchors(
-    new Map(
-      nodes.map((node) => [
-        node.id,
-        {
-          ...node.position,
-          width: node.measured?.width ?? 198,
-          height: node.measured?.height ?? 64,
-        },
+  const geometryKey = JSON.stringify(
+    nodes.map((n) => [n.id, n.position.x, n.position.y, n.measured?.width, n.measured?.height]),
+  )
+  const edgeKey = JSON.stringify(network.edges.map((e) => [e.id, e.a, e.b]))
+  const geometry = useMemo(() => {
+    const rectangles = new Map(
+      nodes.map((n) => [
+        n.id,
+        { ...n.position, width: n.measured?.width ?? 198, height: n.measured?.height ?? 64 },
       ]),
-    ),
-    network.edges,
+    )
+    const anchors = planAnchors(rectangles, network.edges)
+    return {
+      rectangles,
+      anchors,
+      routes: planRoutes(rectangles, network.edges, anchors, dragging, lineStyle),
+    }
+  }, [geometryKey, edgeKey, dragging, lineStyle])
+  const focus = new Set(
+    network.edges
+      .filter((e) =>
+        selection?.type === 'node'
+          ? e.a === selection.id || e.b === selection.id
+          : selection?.type === 'path'
+            ? path?.edges.includes(e.id)
+            : selection?.type === 'edge' && e.id === selection.id,
+      )
+      .map((e) => e.id),
+  )
+  const focusKey = [...focus].sort().join('/')
+  const labels = useMemo(
+    () =>
+      dragging
+        ? new Map(
+            [...geometry.routes].map(([id, route]) => [id, { x: route.labelX, y: route.labelY }]),
+          )
+        : planLabels(geometry.routes, geometry.rectangles, focus),
+    [geometry, focusKey, dragging],
   )
   const edges = network.edges.map((e) => {
     const view = edgeView(network, e, statuses, rates, live)
+    const focused = focus.has(e.id)
+    const dimmed = selection !== null && !focused
     return {
       id: e.id,
       source: e.a,
@@ -190,15 +263,23 @@ export default function Topology({
       type: 'floating',
       sourceHandle: 'surface',
       targetHandle: 'target',
-      data: { anchors: anchors.get(e.id)! },
+      data: {
+        anchors: geometry.anchors.get(e.id)!,
+        route: geometry.routes.get(e.id)!,
+        labelPoint: labels.get(e.id)!,
+        focused,
+        dimmed,
+      },
+      zIndex: focused ? 100 : dimmed ? -1 : 0,
       label: editing
         ? `Weight ${e.weight}`
         : view.state === 'Connected'
-          ? `${view.active!.transport.toUpperCase()} · ${view.active!.rtt_ms.toFixed(1)} ms · ${rate(view.tx)}`
+          ? `${view.active!.transport.toUpperCase()} · ${view.active!.rtt_ms.toFixed(1)} ms${(view.tx ?? 0) > 0 ? ` · ${rate(view.tx)}` : ''}`
           : view.state,
       style: {
-        stroke: view.state === 'Connected' ? '#278f79' : '#91a3a0',
-        strokeWidth: 2,
+        stroke: focused ? '#087b66' : view.state === 'Connected' ? '#278f79' : '#91a3a0',
+        strokeWidth: focused ? 3.5 : 1.8,
+        opacity: dimmed ? 0.12 : 1,
         strokeDasharray: view.state === 'Connected' ? undefined : '5 5',
       },
       labelStyle: { fill: '#35514b', fontSize: 11 },
@@ -223,6 +304,19 @@ export default function Topology({
   return (
     <div className="workspace">
       <section className="canvas-card" aria-label="Network topology">
+        <div className="topology-view-toolbar">
+          <label>
+            Drawing{' '}
+            <select
+              aria-label="Line drawing"
+              value={lineStyle}
+              onChange={(event) => chooseLineStyle(event.target.value as LineStyle)}
+            >
+              <option value="line">Line</option>
+              <option value="bezier">Bezier</option>
+            </select>
+          </label>
+        </div>
         {editing && (
           <div className="canvas-toolbar">
             <div className="actions">
@@ -259,7 +353,7 @@ export default function Topology({
             edges={edges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
-            connectionLineComponent={FloatingConnection}
+            connectionLineComponent={lineStyle === 'line' ? LineConnection : FloatingConnection}
             connectionMode={ConnectionMode.Loose}
             connectOnClick={false}
             isValidConnection={validConnection}
@@ -267,7 +361,15 @@ export default function Topology({
             nodesConnectable={editing}
             edgesReconnectable={false}
             deleteKeyCode={null}
-            onNodeClick={(_, n) => select({ type: 'node', id: n.id })}
+            onNodeDragStart={() => setDragging(true)}
+            onNodeDragStop={() => setDragging(false)}
+            onNodeClick={(event, n) => selectNode(n.id, event.ctrlKey || event.metaKey)}
+            onNodeContextMenu={(event, n) => {
+              if (event.ctrlKey) {
+                event.preventDefault()
+                selectNode(n.id, true)
+              }
+            }}
             onEdgeClick={(_, e) => select({ type: 'edge', id: e.id })}
             onPaneClick={() => select(null)}
             onNodesChange={(changes) => {
@@ -335,6 +437,21 @@ export default function Topology({
           )}
         </div>
         <div className="canvas-footer">
+          {path ? (
+            <span className="active-path-summary" role="status">
+              {path.nodes.map((id) => network.nodes.find((n) => n.id === id)?.name).join(' → ')}
+              {' · '}
+              {path.rtt_ms !== undefined && `${path.rtt_ms.toFixed(1)} ms · `}
+              {path.state === 'Active'
+                ? 'Active path'
+                : path.state === 'Unknown'
+                  ? 'Unconfirmed'
+                  : 'Unavailable'}
+            </span>
+          ) : (
+            <span className="muted">Ctrl-click two nodes to show their active path</span>
+          )}
+
           <span>
             <i className="dot online" />
             Connected
@@ -348,9 +465,70 @@ export default function Topology({
       <aside className="inspector" aria-label="Inspector">
         <div className="inspector-title">
           <Settings2 size={17} />
-          <h2>{node ? 'Node details' : edge ? 'Edge details' : 'Network details'}</h2>
+          <h2>
+            {path
+              ? 'Active path'
+              : node
+                ? 'Node details'
+                : edge
+                  ? 'Edge details'
+                  : 'Network details'}
+          </h2>
         </div>
-        {node ? (
+        {path ? (
+          <>
+            <div className="inspector-intro">
+              <h3>
+                {network.nodes.find((n) => n.id === selection?.id)?.name} →{' '}
+                {selection?.type === 'path' &&
+                  network.nodes.find((n) => n.id === selection.target)?.name}
+              </h3>
+              <Badge>
+                {path.state === 'Active'
+                  ? 'Active'
+                  : path.state === 'Unknown'
+                    ? 'Unknown'
+                    : 'Unavailable'}
+              </Badge>
+            </div>
+            <div className="path-latency">
+              <span>Total latency</span>
+              <strong>{path.rtt_ms === undefined ? '—' : `${path.rtt_ms.toFixed(1)} ms`}</strong>
+              <small>Hop RTT sum</small>
+            </div>
+            {path.reason && <p className="muted">{path.reason}</p>}
+            <p className="muted">
+              {path.edges.length} hops · Weight {path.weight}
+            </p>
+            <ol className="active-path-hops">
+              {path.nodes.map((id, index) => {
+                const hop = network.edges.find((e) => e.id === path.edges[index])
+                const view = hop ? edgeView(network, hop, statuses, rates, live) : undefined
+                return (
+                  <li key={id}>
+                    <strong>{network.nodes.find((n) => n.id === id)?.name}</strong>
+                    {view && (
+                      <small>
+                        {view.state === 'Connected'
+                          ? `${view.active!.transport.toUpperCase()} · ${view.active!.rtt_ms.toFixed(1)} ms`
+                          : view.state}
+                      </small>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+            <button
+              className="wide subtle"
+              onClick={() =>
+                selection?.type === 'path' &&
+                select({ type: 'path', id: selection.target, target: selection.id })
+              }
+            >
+              Reverse direction
+            </button>
+          </>
+        ) : node ? (
           <>
             <div className="inspector-intro">
               <h3>{node.name}</h3>
@@ -634,7 +812,10 @@ export default function Topology({
             </h4>
             <div className="object-list">
               {network.nodes.map((n) => (
-                <button key={n.id} onClick={() => select({ type: 'node', id: n.id })}>
+                <button
+                  key={n.id}
+                  onClick={(event) => selectNode(n.id, event.ctrlKey || event.metaKey)}
+                >
                   <Server size={15} />
                   <span>
                     {n.name}

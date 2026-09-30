@@ -72,6 +72,26 @@ while retaining the latest configuration for reference. Fifteen seconds of silen
 forces a fresh event connection. It does not assert that
 Agent data forwarding stopped. The Agent continues independently of the controller.
 
+## Topology drawing and paths
+
+Use **Drawing** to choose **Line** (straight segments with short detours around
+Node cards) or **Bezier** curves. This browser preference persists across reloads
+and does not change the Network configuration. Clicking a selected Node again
+clears its selection.
+
+Ctrl-click two Nodes (Command-click also works on macOS) to highlight their
+forwarding path, in selection order. The inspector lists the hops and their
+active transports, and shows the sum of hop RTTs. This sum is not an end-to-end
+latency probe. **Reverse direction** shows the opposite route. Clicking an
+endpoint again removes it from the pair.
+
+The displayed route follows the controller's configured weights and deterministic
+next-hop tie breaking. It is marked active only when every Agent confirms the
+current revision and both endpoints of each Edge report the same healthy active
+Link. Offline hops, stale configuration, unsaved routing changes and disconnected
+telemetry are shown as unavailable or unconfirmed; they do not invent alternate
+forwarding paths.
+
 ## Concurrent edits and session behavior
 
 Topology edits remain in browser memory until saved. Navigation or closing the
