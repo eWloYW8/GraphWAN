@@ -63,7 +63,7 @@ The default peer listen port is 24752. No controller packet relay is
 used. Agents keep forwarding and can restart from cached configuration while the
 controller is unavailable.
 
-For distribution archives, Linux systemd services, upgrades and backups, see
+For release binaries, Linux systemd services, upgrades and backups, see
 [deployment](docs/deployment.md).
 
 Platform setup and limitations: [Linux](docs/linux-operation.md),
@@ -85,4 +85,4 @@ pnpm --dir web build
 ```
 
 Version tags such as `v1.2.3` trigger cross-platform builds and a GitHub Release
-with binaries and checksums. See [release CI and local checks](docs/continuous-integration.md).
+with one standalone binary per target. See [release CI and local checks](docs/continuous-integration.md).

@@ -68,11 +68,8 @@ jobs:
           pnpm --dir web build
       - name: Cross-compile all supported targets
         run: python3 scripts/cross-build.py --version "$RELEASE_TAG" --output "$BUILD_DIR"
-      - name: Package binaries and checksums
-        run: |
-          python3 scripts/package.py --builds "$BUILD_DIR" --output "$RELEASE_DIR"
-          cd "$RELEASE_DIR"
-          sha256sum -c SHA256SUMS
+      - name: Prepare standalone release binaries
+        run: python3 scripts/package.py --builds "$BUILD_DIR" --output "$RELEASE_DIR"
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

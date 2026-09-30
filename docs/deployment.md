@@ -6,7 +6,7 @@ Other platform adapters and their restrictions
 are described in the linked operation guides; a successful cross-build alone
 does not establish native runtime support.
 
-## Build and package
+## Build and prepare release binaries
 
 Use the pinned Go version from `.go-version`. Checked-in UI assets allow Go-only
 builds. After editing the frontend, use the pinned Node/pnpm versions and run
@@ -15,8 +15,6 @@ builds. After editing the frontend, use the pinned Node/pnpm versions and run
 ```sh
 python3 scripts/cross-build.py --target linux/amd64 --output /tmp/graphwan-builds
 python3 scripts/package.py --builds /tmp/graphwan-builds --output /tmp/graphwan-release
-cd /tmp/graphwan-release
-sha256sum -c SHA256SUMS
 ```
 
 The output directory must not already exist. Omit `--target` to compile all
@@ -27,30 +25,30 @@ The binary's `version` command reports the revision and `-dirty` where applicabl
 Pass `--version v1.2.3` to embed a release version instead; the manifest still
 records the exact source revision and worktree state.
 
-Packaging verifies every binary's size/hash before publishing a complete output
-directory. Unix targets use `.tar.gz`; Windows targets use `.zip`. Each archive
-contains the binary, build manifest, README, tracked operation documents, Linux
-service examples and the pinned Wintun retrieval script. Archives normalize file
-order, permissions, owners and timestamps. `SOURCE_DATE_EPOCH` overrides the
-default timestamp (the current Git commit time). The same inputs, epoch and
-Python/compression implementation produce byte-identical archives. Packaging uses
-the current tracked documentation contents, so regenerate packages after edits.
-`release.json` records document and archive hashes; `SHA256SUMS` covers it and every archive.
-These hashes check integrity; obtain the checksum file through a trusted channel.
-This script creates local artifacts and does not publish releases.
+Release preparation verifies every binary's size and SHA-256 against the internal
+build manifest, then writes one executable per target:
+`graphwan-<version>-<os>-<arch>` (`.exe` on Windows). Output files contain exactly
+the compiled binary; no archives, documents, manifests or checksum files are
+included. Unix files have executable permissions. This script prepares local
+files and does not publish releases.
 
 The [release workflow](../.github/workflows/release.yml) builds and publishes these
-archives automatically when a version tag is pushed. See [release CI](continuous-integration.md)
+binaries automatically when a version tag is pushed. See [release CI](continuous-integration.md)
 for tag formats, architecture coverage and release contents.
 
-Windows archives intentionally require the separate, verified Wintun download:
-run `python scripts/fetch-wintun.py --arch amd64 --output .` from the extracted
-directory, substituting `arm64` or `386` for the matching executable. The script
-installs the DLL and its distribution license together. See [Windows operation](windows-operation.md).
+Download the matching binary and rename it to `graphwan` or `graphwan.exe`.
+On Unix, run `chmod +x graphwan` after downloading. Documentation, service examples
+and helper scripts remain in the repository at the matching version tag.
+
+Windows Agents also require Wintun. From a checkout of the matching tag, run
+`python scripts/fetch-wintun.py --arch amd64 --output <binary-directory>`,
+substituting `arm64` or `386` for the matching executable. The script installs
+the DLL and its distribution license together. See [Windows operation](windows-operation.md).
 
 ## Linux systemd installation
 
-Extract the matching Linux archive. The examples target a systemd-based Linux
+Download and rename the matching Linux binary. Obtain the `deploy/linux` examples
+from a checkout of the same tag. The examples target a systemd-based Linux
 host with `/dev/net/tun`. The controller and Agent may run separately or together.
 Install only the unit and configuration needed on each host. Commands below are
 administrator actions on the deployment host, not part of the build process.
@@ -132,7 +130,7 @@ controller. Service logs go to the journal; status and traffic appear in the UI.
 
 ## Upgrade, back up and remove
 
-Verify the new archive's checksums first. Stop the corresponding service before
+Download the new binary from the release. Stop the corresponding service before
 replacing its binary; stopping the Agent temporarily removes its owned TUN devices
 and routes. Install the replacement to `/usr/local/bin/graphwan.new`, then rename
 it to `/usr/local/bin/graphwan` on the same filesystem and restart the service.

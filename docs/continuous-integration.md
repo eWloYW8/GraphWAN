@@ -28,7 +28,7 @@ on the seven supported operating systems. Go 1.26.8 currently supplies 33 target
 | NetBSD | 386, amd64, arm, arm64 |
 | DragonFly | amd64 |
 
-The binary's `version` command and archive names use the exact tag. CPU baselines
+The binary's `version` command and filenames use the exact tag. CPU baselines
 remain in `scripts/cross-build.py` (including amd64 v1, ARMv7 and soft-float MIPS).
 Cross-compilation does not establish native runtime support on every target;
 platform restrictions remain documented in the operation guides.
@@ -37,11 +37,13 @@ small bbolt adapter in `internal/boltcompat`, allowing MIPS, RISC-V and LoongArc
 builds. GraphWAN's live Raft store continues to use the same bbolt implementation
 and file format.
 
-Windows packages use ZIP; Unix packages use tar.gz. Every archive contains the
-binary, build manifest, documentation and deployment examples. Release assets
-also include `release.json` and `SHA256SUMS`. Packaging verifies all binary
-hashes, then CI verifies archive checksums before uploading. All targets must
-build successfully. No tests, browser automation or live deployments run in CI.
+Each target produces one standalone binary, named
+`graphwan-<tag>-<os>-<arch>` with `.exe` appended for Windows. CI uploads these
+33 executables directly: no compressed packages, documentation, deployment
+examples, manifests or checksum files. The build manifest remains internal;
+release preparation checks every binary's size and SHA-256 against it before
+uploading. All targets must build successfully. No tests, browser automation or
+live deployments run in CI.
 
 Publication uses the repository's `GITHUB_TOKEN` with `contents: write` and
 automatically generated release notes. Assets are uploaded to a draft before
