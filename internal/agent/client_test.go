@@ -21,6 +21,7 @@ import (
 
 	"github.com/eWloYW8/GraphWAN/internal/agent"
 	"github.com/eWloYW8/GraphWAN/internal/control"
+	"github.com/eWloYW8/GraphWAN/internal/controltransport"
 	"github.com/eWloYW8/GraphWAN/internal/model"
 	"github.com/eWloYW8/GraphWAN/internal/store"
 )
@@ -28,13 +29,14 @@ import (
 type controller struct {
 	app            *control.Server
 	server         *httptest.Server
+	carrier        *controltransport.Server
 	admin          *http.Client
 	roots          *x509.CertPool
 	csrf           string
 	dropEnrollment atomic.Bool
 }
 
-func newController(t *testing.T) *controller {
+func newController(t *testing.T, multiplex ...bool) *controller {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "controller.db"))
 	if err != nil {
@@ -63,7 +65,24 @@ func newController(t *testing.T) *controller {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.server.StartTLS()
+	if len(multiplex) > 0 && multiplex[0] {
+		carrier := controltransport.NewServer(h.server.Listener, h.server.Config.Handler, h.server.TLS)
+		h.carrier = carrier
+		h.server.URL = "https://" + h.server.Listener.Addr().String()
+		done := make(chan error, 1)
+		go func() { done <- carrier.Serve() }()
+		t.Cleanup(func() {
+			carrier.Close()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Error("carrier did not stop")
+			}
+			carrier.Wait()
+		})
+	} else {
+		h.server.StartTLS()
+	}
 	jar, _ := cookiejar.New(nil)
 	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: h.roots, MinVersion: tls.VersionTLS13}}
 	h.admin = &http.Client{Jar: jar, Transport: transport, Timeout: 5 * time.Second}

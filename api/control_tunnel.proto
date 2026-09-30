@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package graphwan.control.v1;
+
+option go_package = "github.com/eWloYW8/GraphWAN/api/controlv1";
+
+import "google/protobuf/wrappers.proto";
+
+// Concatenated values form a TLS byte stream, not GraphWAN peer messages.
+// Each value must contain 1..32768 bytes. TLS authenticates the controller
+// and, after enrollment, the Agent. HTTP/WebSocket runs *inside* this TLS.
+service Tunnel {
+  rpc Connect(stream google.protobuf.BytesValue) returns (stream google.protobuf.BytesValue);
+}

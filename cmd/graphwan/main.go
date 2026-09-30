@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/eWloYW8/GraphWAN/internal/control"
+	"github.com/eWloYW8/GraphWAN/internal/controltransport"
 	"github.com/eWloYW8/GraphWAN/internal/store"
 )
 
@@ -91,18 +92,27 @@ func runServer(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	var carriers *controltransport.Server
+	if !*insecure {
+		listener, err := net.Listen("tcp", *listen)
+		if err != nil {
+			return err
+		}
+		carriers = controltransport.NewServer(listener, app, server.TLSConfig)
+		defer carriers.Close()
+	}
 	done := make(chan error, 1)
 	go func() {
 		if *insecure {
 			done <- server.ListenAndServe()
 		} else {
-			done <- server.ListenAndServeTLS("", "")
+			done <- carriers.Serve()
 		}
 	}()
 	slog.Info("GraphWAN controller starting", "listen", *listen, "tls", !*insecure, "ca", filepath.Join(*data, "ca.pem"))
 	select {
 	case err := <-done:
-		if errors.Is(err, http.ErrServerClosed) {
+		if controltransport.Closed(err) {
 			return nil
 		}
 		return err
@@ -111,6 +121,15 @@ func runServer(args []string) error {
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	app.Close()
+	if carriers != nil {
+		carriers.Close()
+		err := <-done
+		carriers.Wait()
+		if controltransport.Closed(err) {
+			return nil
+		}
+		return err
+	}
 	if err := server.Shutdown(shutdown); err != nil {
 		server.Close()
 		return err

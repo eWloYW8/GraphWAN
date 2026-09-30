@@ -102,6 +102,13 @@ configuration persist in `/var/lib/graphwan-agent`; do not reuse that directory
 on another machine. The Agent's controller origin cannot be changed while retaining
 an identity enrolled against a different origin.
 
+Set `GRAPHWAN_SERVER_TRANSPORT` to `tcp` (default), `websocket`, `grpc` or `wss`
+and restart the Agent to change its control carrier. The CLI equivalent is
+`--server-transport`. All carriers use the existing controller port and the same
+inner TLS identity; changing this setting needs no new enrollment token. Upgrade
+the controller first when adding carriers to an existing installation. See the
+[control transport wire contract](control-api.md#control-transport-carriers).
+
 The Agent runs as root with only `CAP_NET_ADMIN` and `CAP_NET_BIND_SERVICE` in its
 capability bounding set. Its device policy permits the TUN device and standard
 pseudo-devices. It shares the host network namespace so applications can use the

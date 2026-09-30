@@ -85,6 +85,69 @@ returned in a response is not a substitute for authenticating the server.
 
 ## Agent connection
 
+### Control transport carriers
+
+The Agent selects its controller carrier with `--server-transport` or
+`GRAPHWAN_SERVER_TRANSPORT`; an explicit flag overrides the environment.
+The default is `tcp`. The controller automatically accepts all four carriers
+on its one configured TCP listen port (8443 by default):
+
+| Selection | Control protocol, from inside to outside |
+| --- | --- |
+| `tcp` | WebSocket → mTLS → TCP |
+| `websocket` | WebSocket → mTLS → WebSocket → TCP |
+| `grpc` | WebSocket → mTLS → gRPC → HTTP/2 → TCP |
+| `wss` | WebSocket → mTLS → WebSocket → outer TLS → TCP |
+
+For example:
+
+```sh
+graphwan agent --server https://controller.example.com:8443 \
+  --server-transport grpc --ca ./ca.pem --data-dir ./agent-data
+```
+
+`--server` remains an HTTPS origin identifying the inner authenticated service,
+even when the outer carrier is plaintext WebSocket or HTTP/2. Enrollment HTTPS
+requests use that same carrier: the Agent verifies the server before sending a
+token, then uses its issued certificate for subsequent mTLS control connections.
+Changing carriers preserves the cached identity and configuration. There is no
+automatic transport downgrade. WSS verifies the outer server certificate using
+the same trusted roots and hostname, independently of inner TLS verification.
+
+The outer WebSocket endpoint is `/api/v1/agent/tunnel`, with required subprotocol
+`graphwan.control.v1`. Binary message payloads are concatenated into a TLS byte
+stream; each message contains 1–32,768 bytes. Text messages, empty/oversized
+messages, URL queries and browser Origin headers are rejected. Compression is
+disabled. WebSocket message boundaries have no meaning to the inner TLS protocol.
+
+Outer gRPC uses plaintext HTTP/2 (h2c) with the bidirectional method
+`/graphwan.control.v1.Tunnel/Connect`, defined in
+[control_tunnel.proto](../api/control_tunnel.proto). Each `BytesValue` contains
+1–32,768 TLS bytes; encoded protobuf messages are capped at 32,772 bytes.
+Compression is not enabled. The response metadata must include
+`graphwan-protocol: graphwan-control-v1`. This only acknowledges the carrier;
+it never authenticates an Agent. A separate HTTP/2 connection carries each
+underlying control connection. This schema differs from the Agent-to-Agent gRPC
+peer protocol, whose values contain complete peer messages rather than TLS bytes.
+
+The public listener classifies direct TLS and plaintext HTTP. Plaintext HTTP
+exposes only the outer tunnels, never the panel, enrollment or management APIs.
+The normal HTTPS panel remains available on the same port. Inner TLS is handled
+by the original controller API and does not expose another tunnel endpoint.
+Client-certificate headers from proxies are never used as Agent authentication.
+Initial classification has a five-second deadline, inner TLS setup ten seconds,
+and at most 128 classifications/inner TLS handshakes may be pending. Established
+tunnels do not consume this pending allowance. Byte adapters use bounded chunks
+and backpressure, honor deadlines and close with their inner connection.
+
+An explicit reverse proxy must preserve the WebSocket path/subprotocol or the
+gRPC method, trailers and response metadata. Its upstream can be plaintext
+WS/h2c because the inner TLS remains intact. The configured controller hostname
+must still validate against the inner server certificate (`--tls-hosts`). The
+loopback-only `server --http` development mode does not provide these TLS tunnels.
+
+### Control messages
+
 `GET /agent/control` upgrades to a WebSocket after validating the client
 certificate against the CA **and** the current Agent identity/revocation state.
 The controller sends `ControlMessage` JSON envelopes:

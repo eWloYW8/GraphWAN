@@ -39,6 +39,13 @@ sudo --preserve-env=GRAPHWAN_ENROLLMENT_TOKEN ./bin/graphwan agent \
   --ca ./ca.pem --name laptop --data-dir /var/lib/graphwan-agent
 ```
 
+Agent control connections accept `--server-transport tcp|websocket|grpc|wss`
+(default `tcp`, also configurable with `GRAPHWAN_SERVER_TRANSPORT`). All four
+carriers share the controller's existing listen port and preserve the inner
+TLS 1.3 authentication and WebSocket control protocol. Keep `--server` as the
+same HTTPS origin when switching carriers; no re-enrollment is needed.
+See [control transport configuration](docs/control-api.md#control-transport-carriers).
+
 TUN setup requires root or `CAP_NET_ADMIN`. Add the enrolled Agent to a Network
 with a fixed virtual address, then create the desired Edges. Linux automatically
 advertises TCP/UDP endpoints from underlay interfaces; manual endpoints are also

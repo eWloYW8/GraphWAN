@@ -21,11 +21,13 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/eWloYW8/GraphWAN/internal/controltransport"
 	"github.com/eWloYW8/GraphWAN/internal/model"
 )
 
 type Options struct {
 	Server          string
+	ServerTransport string
 	Name            string
 	EnrollmentToken string
 	// Roots authenticates the server before any enrollment token is sent. Nil
@@ -64,6 +66,9 @@ func NewClient(cache *Cache, runtime Runtime, options Options) (*Client, error) 
 	if err != nil {
 		return nil, err
 	}
+	if err := controltransport.Validate(options.ServerTransport); err != nil {
+		return nil, err
+	}
 	existing, err := cache.Registration()
 	if err != nil {
 		return nil, err
@@ -83,6 +88,7 @@ func NewClient(cache *Cache, runtime Runtime, options Options) (*Client, error) 
 		return nil, errors.New("version too long")
 	}
 	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: options.Roots, MinVersion: tls.VersionTLS13}, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 15 * time.Second, MaxIdleConnsPerHost: 2}
+	transport.DialContext = controltransport.DialContext(options.ServerTransport, options.Roots)
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return &Client{cache: cache, reconcile: NewReconciler(cache, runtime), options: options, server: server, http: client, transport: transport, endpointsChanged: make(chan struct{}, 1)}, nil
 }

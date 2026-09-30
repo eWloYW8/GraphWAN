@@ -18,6 +18,11 @@ import (
 func runAgent(args []string) error {
 	fs := flag.NewFlagSet("agent", flag.ContinueOnError)
 	server := fs.String("server", "", "controller HTTPS origin")
+	defaultTransport := os.Getenv("GRAPHWAN_SERVER_TRANSPORT")
+	if defaultTransport == "" {
+		defaultTransport = "tcp"
+	}
+	serverTransport := fs.String("server-transport", defaultTransport, "controller carrier: tcp, websocket, grpc or wss (inner TLS always enabled)")
 	data := fs.String("data-dir", "./graphwan-agent-data", "private persistent agent directory")
 	name := fs.String("name", "", "agent display name for first enrollment")
 	ca := fs.String("ca", "", "PEM CA certificate to trust for controller HTTPS")
@@ -68,7 +73,7 @@ func runAgent(args []string) error {
 		return err
 	}
 	defer runtime.Close()
-	client, err = agent.NewClient(cache, runtime, agent.Options{Server: *server, Name: *name, EnrollmentToken: os.Getenv("GRAPHWAN_ENROLLMENT_TOKEN"), Roots: roots, Version: version})
+	client, err = agent.NewClient(cache, runtime, agent.Options{Server: *server, ServerTransport: *serverTransport, Name: *name, EnrollmentToken: os.Getenv("GRAPHWAN_ENROLLMENT_TOKEN"), Roots: roots, Version: version})
 	if err != nil {
 		return err
 	}

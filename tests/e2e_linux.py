@@ -39,6 +39,8 @@ def eventually(fn, timeout=30):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", required=True)
+    parser.add_argument("--server-transports", nargs=3, choices=("tcp", "websocket", "grpc", "wss"), default=["tcp"] * 3,
+                        help="controller carrier for each of the three agents")
     parser.add_argument("--transport", choices=("auto", "udp", "tcp", "ws", "wss", "grpc", "quic"), default="auto",
                         help="auto/udp/tcp use discovered endpoints; other transports require manual endpoints")
     parser.add_argument("--cipher", choices=("aes-128-gcm", "aes-256-gcm", "chacha20-poly1305", "xchacha20-poly1305"), default="chacha20-poly1305", help="network authenticated encryption suite")
@@ -233,7 +235,7 @@ def main():
                 argv = ["nsenter", "-t", str(holder.pid), "-n"]
                 if args.restricted_agent:
                     argv += ["setpriv", "--bounding-set=-all,+net_admin,+net_bind_service", "--no-new-privs"]
-                argv += [binary, "agent", "--server", server_url, "--ca", str(ca), "--name", f"node-{index}", "--data-dir", str(root / f"agent-{index}")]
+                argv += [binary, "agent", "--server", server_url, "--server-transport", args.server_transports[index], "--ca", str(ca), "--name", f"node-{index}", "--data-dir", str(root / f"agent-{index}")]
                 agent_commands.append(argv)
                 agents.append(spawn(f"agent-{index}", argv, dict(os.environ, GRAPHWAN_ENROLLMENT_TOKEN=token, HTTP_PROXY="", HTTPS_PROXY="", ALL_PROXY="")))
             state = eventually(lambda: (s if len(s["agents"]) == 3 and all(a["endpoints"] for a in s["agents"]) else None) if (s := api("GET", "/state")) else None)
