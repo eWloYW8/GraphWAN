@@ -1,6 +1,18 @@
 package agent
 
-import "github.com/eWloYW8/GraphWAN/internal/model"
+import (
+	"time"
+
+	"github.com/eWloYW8/GraphWAN/internal/model"
+)
+
+func reportDue(compact, force, settling, changed bool, elapsed time.Duration) bool {
+	interval := 15 * time.Second
+	if compact {
+		interval = time.Minute
+	}
+	return force || settling || changed || elapsed >= interval
+}
 
 // Idle resource/RTT samples ride on the periodic report. Configuration, errors,
 // link transitions and user-data counters still trigger the next two-second tick.

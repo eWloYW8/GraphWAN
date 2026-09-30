@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
+	"github.com/eWloYW8/GraphWAN/internal/controlwire"
 	"github.com/eWloYW8/GraphWAN/internal/discovery"
 	"github.com/eWloYW8/GraphWAN/internal/model"
 	"github.com/eWloYW8/GraphWAN/internal/routing"
@@ -72,7 +72,7 @@ func (s *Server) agentControl(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionNoContextTakeover})
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{controlwire.Subprotocol}, CompressionMode: websocket.CompressionNoContextTakeover})
 	if err != nil {
 		return
 	}
@@ -135,7 +135,7 @@ func (s *Server) agentControl(w http.ResponseWriter, r *http.Request) {
 			first = false
 		}
 		writeCtx, stop := context.WithTimeout(ctx, 10*time.Second)
-		err = wsjson.Write(writeCtx, conn, message)
+		err = controlwire.Write(writeCtx, conn, message)
 		stop()
 		if err != nil {
 			conn.CloseNow()
@@ -159,12 +159,25 @@ func (s *Server) readAgent(ctx context.Context, conn *websocket.Conn, id model.I
 	for {
 		var message model.ControlMessage
 		readCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-		err := wsjson.Read(readCtx, conn, &message)
+		err := controlwire.Read(readCtx, conn, &message)
 		cancel()
 		if err != nil {
 			return err
 		}
 		switch message.Type {
+		case "heartbeat":
+			if !controlwire.Compact(conn) {
+				return errors.New("unnegotiated agent heartbeat")
+			}
+			// A liveness reply preserves the last validated report. It cannot
+			// acknowledge a configuration or replace a newer control connection.
+			s.mu.Lock()
+			if s.streams[id] == conn {
+				status := s.statuses[id]
+				status.LastSeen = time.Now()
+				s.statuses[id] = status
+			}
+			s.mu.Unlock()
 		case "ack":
 			if message.Report == nil {
 				return errors.New("missing agent report")

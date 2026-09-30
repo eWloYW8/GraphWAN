@@ -18,10 +18,11 @@ import (
 )
 
 type introduction struct {
-	Candidate string `json:"candidate"`
-	Target    string `json:"target,omitempty"`
-	Endpoint  string `json:"endpoint"`
-	Scope     string `json:"scope,omitempty"`
+	Candidate     string `json:"candidate"`
+	Target        string `json:"target,omitempty"`
+	Endpoint      string `json:"endpoint"`
+	Scope         string `json:"scope,omitempty"`
+	CompactProbes bool   `json:"compact_probes,omitempty"`
 }
 
 func receiveIntroduction(ctx context.Context, channel *peer.Channel) (introduction, error) {
@@ -195,7 +196,7 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 	if err != nil {
 		return err
 	}
-	intro := introduction{Candidate: candidate.ID, Endpoint: endpointFingerprint(candidate.Endpoint), Scope: link.ScopeIdentity(candidate.Scope)}
+	intro := introduction{Candidate: candidate.ID, Endpoint: endpointFingerprint(candidate.Endpoint), Scope: link.ScopeIdentity(candidate.Scope), CompactProbes: true}
 	if candidate.Target.IsValid() {
 		intro.Target = candidate.Target.String()
 	}
@@ -204,7 +205,9 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 		channel.Close()
 		return err
 	}
-	g.register(channel, candidate)
+	// Wait for the responder's compact ping to confirm support. Old responders
+	// ignore the introduction capability and continue using legacy probes.
+	g.register(channel, candidate, false)
 	return nil
 }
 

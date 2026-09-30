@@ -34,6 +34,23 @@ func TestIdlePublication(t *testing.T) {
 			t.Fatalf("suppressed %s update", name)
 		}
 	}
+	for _, tc := range []struct {
+		name                              string
+		compact, force, settling, changed bool
+		elapsed                           time.Duration
+		want                              bool
+	}{
+		{"legacy idle", false, false, false, false, 15 * time.Second, true},
+		{"compact idle", true, false, false, false, 15 * time.Second, false},
+		{"idle refresh", true, false, false, false, time.Minute, true},
+		{"configuration ack", true, true, false, false, 0, true},
+		{"zero final rate", true, false, true, false, 2 * time.Second, true},
+		{"traffic or state", true, false, false, true, 2 * time.Second, true},
+	} {
+		if got := reportDue(tc.compact, tc.force, tc.settling, tc.changed, tc.elapsed); got != tc.want {
+			t.Fatalf("%s: reportDue = %v, want %v", tc.name, got, tc.want)
+		}
+	}
 	c := &Client{endpointsChanged: make(chan struct{}, 1)}
 	endpoint := model.Endpoint{ID: "11111111111111111111111111111111", Transport: model.UDP, Source: model.Observed, URL: "udp://192.0.2.1:24752", ExpiresAt: time.Now().Add(2 * time.Minute)}
 	publish := func(e []model.Endpoint, want bool) {

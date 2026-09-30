@@ -80,6 +80,8 @@ This development protocol now requires the endpoint fingerprint for all Links;
 Agents predating that requirement must be upgraded together with their peers.
 Link-local scope introductions also require updated peers; existing unscoped
 global-address candidate identities and introductions are unchanged.
+The optional `compact_probes: true` field advertises support for the shortened
+probe format below. Older receivers ignore this field.
 
 ## Encrypted messages
 
@@ -245,6 +247,25 @@ by the established peer session.
 
 The Link then uses plaintext type 1 followed by an overlay frame for user data,
 and type 2/type 3 followed by an eight-byte big-endian probe sequence for ping/pong.
+With compact probes enabled, type 8/type 9 carry a two-byte big-endian sequence,
+reducing the plaintext from nine bytes to three. The responder enables this only
+when the encrypted introduction advertises `compact_probes`; the dialer starts
+with legacy probes and enables compact sending after receiving an authenticated
+type-8 ping. Every ping is echoed with its matching pong format. Missing support
+on either side therefore retains legacy probes without reconnecting.
+
+Probe sequences are monotonic within a Link. After sequence 65535, sending falls
+back to the eight-byte sequence rather than wrapping and letting an old reply
+acknowledge a new probe. Normal sessions rekey before that boundary. The AEAD tag,
+encrypted-channel sequence and replay checks are unchanged; only a pong matching
+an outstanding probe establishes bidirectional health.
+
+For native UDP, the transport prefix (20 bytes), peer type (1 byte), security
+sequence (8 bytes) and authentication tag (16 bytes) remain. A compact probe is
+48 bytes of UDP payload instead of 54, or 76 bytes instead of 82 including IPv4
+and UDP headers, excluding Ethernet. This saves approximately 7.3% at the IPv4
+layer per probe; the three-byte plaintext is not the total wire size. Other
+carriers retain their own framing and transport acknowledgments.
 
 Link probes run every second during user traffic and every ten seconds while
 idle (including standby Links). A missing response resumes one-second probes;
@@ -254,7 +275,7 @@ while idle, versus approximately five to six seconds during traffic. Initial
 admission still requires a valid pong within five seconds. User data restores
 fast probes on the next tick; after ten seconds without user data the Link
 returns to idle cadence. Ping/pong traffic itself does not count as user activity.
-Wire framing is unchanged, and peers with the old probe cadence interoperate.
+Transport framing and probe cadence are unchanged; legacy peers interoperate.
 Probes have priority over queued user frames. Standby Links run the same probes;
 only the selected sending Link receives user frames from the routing engine.
 
