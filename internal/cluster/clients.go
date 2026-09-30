@@ -78,7 +78,7 @@ func (r *Runtime) peer(id model.ID) (model.Server, error) {
 	}
 	return model.Server{}, errors.New("unknown server")
 }
-func (r *Runtime) request(ctx context.Context, id model.ID, path string, input, output any) error {
+func (r *Runtime) requestDirect(ctx context.Context, id model.ID, path string, input, output any) error {
 	p, err := r.peer(id)
 	if err != nil {
 		return err
@@ -127,7 +127,7 @@ func (r *Runtime) request(ctx context.Context, id model.ID, path string, input, 
 	}
 	return err
 }
-func (r *Runtime) dial(ctx context.Context, id model.ID) (*websocket.Conn, error) {
+func (r *Runtime) dial(ctx context.Context, id model.ID, multiplex bool) (*websocket.Conn, error) {
 	p, err := r.peer(id)
 	if err != nil {
 		return nil, err
@@ -137,10 +137,18 @@ func (r *Runtime) dial(ctx context.Context, id model.ID) (*websocket.Conn, error
 			continue
 		}
 		attempt, cancel := context.WithTimeout(ctx, 3*time.Second)
-		ws, resp, e := websocket.Dial(attempt, ep.Origin()+"/api/v1/cluster/raft", &websocket.DialOptions{HTTPClient: r.clients.client(p, ep), CompressionMode: websocket.CompressionDisabled})
+		options := &websocket.DialOptions{HTTPClient: r.clients.client(p, ep), CompressionMode: websocket.CompressionDisabled}
+		if multiplex {
+			options.Subprotocols = []string{channelProtocol}
+		}
+		ws, resp, e := websocket.Dial(attempt, ep.Origin()+"/api/v1/cluster/raft", options)
 		cancel()
 		if e == nil {
 			r.clients.remember(p, ep, true)
+			if multiplex && ws.Subprotocol() != channelProtocol {
+				ws.CloseNow()
+				return nil, errLegacyPeer
+			}
 			return ws, nil
 		}
 		if resp != nil {
@@ -187,4 +195,36 @@ func (c *clients) remember(p model.Server, e model.ServerEndpoint, success bool)
 			return
 		}
 	}
+}
+
+// Control RPCs share the same channel as Raft, including reverse requests to
+// peers whose listeners are unreachable. Only old peers use the HTTP fallback.
+func (r *Runtime) request(ctx context.Context, id model.ID, path string, input, output any) error {
+	request := channelRequest{Path: path}
+	if command, ok := input.(store.Command); ok {
+		request.Command = &command
+	}
+	raw, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	if len(raw) > maxStateBytes {
+		return errors.New("cluster request too large")
+	}
+	conn, err := r.layer.open(ctx, id, requestStream)
+	if errors.Is(err, errLegacyPeer) {
+		return r.requestDirect(ctx, id, path, input, output)
+	}
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
+	deadline, _ := ctx.Deadline()
+	conn.SetDeadline(deadline)
+	if _, err = conn.Write(append(raw, '\n')); err != nil {
+		return err
+	}
+	return json.NewDecoder(io.LimitReader(conn, maxStateBytes+1)).Decode(output)
 }

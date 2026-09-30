@@ -78,6 +78,13 @@ func (r *Runtime) StartMembership(local func() []model.AgentStatus) {
 			if err != nil {
 				continue
 			}
+			allowed := make(map[model.ID]bool)
+			for _, p := range state.Servers {
+				if p.ID != r.Identity.ID && !p.Revoked {
+					allowed[p.ID] = true
+				}
+			}
+			r.layer.channels.prune(allowed)
 			// Probe in parallel: an unreachable member must not delay healthy peers.
 			var wg sync.WaitGroup
 			for _, p := range state.Servers {

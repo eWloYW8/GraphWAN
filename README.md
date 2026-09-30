@@ -52,6 +52,12 @@ local development. TCP STUN uses the actual listening port. Add manual
 an explicit port. Automatic discovery only declares TCP. Inter-server replication
 uses the same listen port and authenticated control carriers. Each data directory
 contains that Server's private identity and Raft log; keep it unique per replica.
+
+Each pair of Servers shares a bidirectional connection: either side may establish
+it, and Raft replication, elections, write forwarding and status queries reuse it
+in both directions. The other Server does not need to dial back. Both Servers
+must support this channel protocol; older peers retain the original connection
+behavior during rolling upgrades.
 See [Server management API](docs/control-api.md#server-clusters).
 
 ## Run a Linux agent

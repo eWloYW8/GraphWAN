@@ -273,3 +273,24 @@ Server membership plus an authenticated Server certificate. Agent credentials
 cannot invoke replication RPCs. These routes share the existing HTTPS/carrier
 port; no separate Raft listener is needed. Plaintext development mode has no
 cluster management or Agent control.
+
+Upgraded Servers negotiate the WebSocket subprotocol `graphwan.cluster.v1` on
+`/cluster/raft`. The authenticated byte stream carries yamux streams, and both
+ends can open streams on that same physical connection. A stream starts with
+one type byte: `1` carries the existing Raft network-transport framing; `2`
+carries a JSON request with `path` and an optional `command`, followed by one
+JSON response. Only the cluster status and commit operations use type `2`.
+These streams inherit the authenticated Server identity, with membership checks
+before use; they do not expose the general administrative API.
+
+Either Server can initiate the connection. Incoming channels are immediately
+available for reverse Raft RPCs, forwarded writes and status queries. Simultaneous
+dials converge on the connection initiated by the lower Server ID. Keepalives
+detect dead channels, and membership polling reconnects using the available
+entrances. Removing or revoking a member closes its channel. For each pair,
+at least one direction must be reachable; there is no inter-Server relay.
+
+A peer that does not negotiate this subprotocol uses the original Raft stream
+and HTTPS commit/status requests. This permits rolling upgrades, but one-way
+reachability requires both peers to run the upgraded version. The transport
+change preserves Raft's existing majority-write and election rules.
