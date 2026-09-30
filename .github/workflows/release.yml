@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+      - '[0-9]*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Cross-build and publish
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate version tag
+        id: version
+        shell: python
+        run: |
+          import os
+          import re
+
+          tag = os.environ['RELEASE_TAG']
+          match = re.fullmatch(
+              r'v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+              r'(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?'
+              r'(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?', tag)
+          if not match or len(tag) > 80:
+              raise SystemExit('Expected a SemVer tag such as v1.2.3 or v1.2.3-rc.1 (up to 80 characters)')
+          prerelease = match.group(4)
+          if prerelease and any(part.isdigit() and len(part) > 1 and part.startswith('0') for part in prerelease.split('.')):
+              raise SystemExit('Numeric prerelease identifiers cannot contain leading zeroes')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'prerelease={str(prerelease is not None).lower()}\n')
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write(f"BUILD_DIR={os.environ['RUNNER_TEMP']}/graphwan-builds\n")
+              output.write(f"RELEASE_DIR={os.environ['RUNNER_TEMP']}/graphwan-release\n")
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: web/package.json
+          cache: true
+          cache_dependency_path: web/pnpm-lock.yaml
+      - name: Build embedded frontend
+        run: |
+          pnpm --dir web install --frozen-lockfile
+          pnpm --dir web build
+      - name: Cross-compile all supported targets
+        run: python3 scripts/cross-build.py --version "$RELEASE_TAG" --output "$BUILD_DIR"
+      - name: Package binaries and checksums
+        run: |
+          python3 scripts/package.py --builds "$BUILD_DIR" --output "$RELEASE_DIR"
+          cd "$RELEASE_DIR"
+          sha256sum -c SHA256SUMS
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft'); then
+            if [[ "$draft" != true ]]; then
+              echo "Release $RELEASE_TAG is already published; leaving its assets intact."
+              exit 0
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "$RELEASE_TAG" --generate-notes --prerelease="$PRERELEASE"
+          fi
+          gh release upload "$RELEASE_TAG" "$RELEASE_DIR"/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease="$PRERELEASE"

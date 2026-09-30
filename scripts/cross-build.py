@@ -29,9 +29,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--goos", choices=SYSTEMS, action="append", help="repeat to select systems; default: all")
     parser.add_argument("--target", action="append", help="limit to explicit goos/goarch pairs")
+    parser.add_argument("--version", help="embed a release version instead of the Git revision")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     try:
+        if args.version is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,79}", args.version):
+            raise ValueError("invalid build version")
         build_env = os.environ.copy()
         build_env.update(BUILD_ENV)
         build_env.update(BASELINES)
@@ -51,7 +54,7 @@ def main():
         if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
             raise ValueError("invalid Git revision")
         dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=normal"], cwd=ROOT))
-        version = revision[:12] + ("-dirty" if dirty else "")
+        version = args.version if args.version is not None else revision[:12] + ("-dirty" if dirty else "")
         args.output.mkdir(parents=True, exist_ok=True)
         manifest_path = args.output / "manifest.json"
         manifest_path.unlink(missing_ok=True)

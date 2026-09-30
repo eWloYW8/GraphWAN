@@ -24,6 +24,8 @@ advertised architectures across the seven selected systems, or repeat it to
 select specific targets. Builds use no CGO; the build manifest records the Git
 revision, dirty-worktree flag, toolchain, CPU baselines, binary sizes and hashes.
 The binary's `version` command reports the revision and `-dirty` where applicable.
+Pass `--version v1.2.3` to embed a release version instead; the manifest still
+records the exact source revision and worktree state.
 
 Packaging verifies every binary's size/hash before publishing a complete output
 directory. Unix targets use `.tar.gz`; Windows targets use `.zip`. Each archive
@@ -36,6 +38,10 @@ the current tracked documentation contents, so regenerate packages after edits.
 `release.json` records document and archive hashes; `SHA256SUMS` covers it and every archive.
 These hashes check integrity; obtain the checksum file through a trusted channel.
 This script creates local artifacts and does not publish releases.
+
+The [release workflow](../.github/workflows/release.yml) builds and publishes these
+archives automatically when a version tag is pushed. See [release CI](continuous-integration.md)
+for tag formats, architecture coverage and release contents.
 
 Windows archives intentionally require the separate, verified Wintun download:
 run `python scripts/fetch-wintun.py --arch amd64 --output .` from the extracted

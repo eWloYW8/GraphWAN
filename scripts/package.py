@@ -51,7 +51,7 @@ def package(builds, destination, common, epoch):
     manifest_raw = (builds / "manifest.json").read_bytes()
     manifest = json.loads(manifest_raw)
     version = manifest["version"]
-    if not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", version):
+    if not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,79}", version):
         raise ValueError("invalid build version")
     if not isinstance(manifest["builds"], list) or not manifest["builds"]:
         raise ValueError("build manifest is empty")

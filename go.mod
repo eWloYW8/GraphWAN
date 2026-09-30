@@ -2,6 +2,10 @@ module github.com/eWloYW8/GraphWAN
 
 go 1.26.0
 
+// raft-boltdb imports legacy Bolt only for its migration helper. Reuse the
+// maintained bbolt API so this unused helper does not exclude newer GOARCHs.
+replace github.com/boltdb/bolt => ./internal/boltcompat
+
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/flynn/noise v1.1.0

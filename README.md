@@ -84,4 +84,5 @@ pnpm --dir web install --frozen-lockfile
 pnpm --dir web build
 ```
 
-See [development checks](docs/continuous-integration.md) for the small core test suite and CI.
+Version tags such as `v1.2.3` trigger cross-platform builds and a GitHub Release
+with binaries and checksums. See [release CI and local checks](docs/continuous-integration.md).

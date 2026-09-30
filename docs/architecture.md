@@ -83,7 +83,8 @@ TUN adapters own interface addresses/routes and clean up only their own resource
 
 The small core unit suite covers graph invariants, deterministic routing, packet
 framing, authenticated encryption, replay handling and transactional rollback.
-CI also builds the Go binary and frontend; see [development checks](continuous-integration.md).
+Version-tag CI builds the frontend and cross-platform binaries, then publishes a
+Release; see [release CI and local checks](continuous-integration.md).
 
 Standards consulted: [ICE (RFC 8445)](https://www.rfc-editor.org/rfc/rfc8445),
 [STUN (RFC 8489)](https://www.rfc-editor.org/rfc/rfc8489), and
