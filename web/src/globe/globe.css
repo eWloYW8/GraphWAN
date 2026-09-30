@@ -8,6 +8,49 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
+  isolation: isolate;
+}
+.network-globe .globe-label-leaders {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.network-globe .globe-label-leader {
+  fill: none;
+  stroke: #719b9d;
+  stroke-width: 1;
+  stroke-opacity: 0.65;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.network-globe .globe-label-leader[data-selected='true'],
+.network-globe .globe-label-leader[data-hover='true'] {
+  stroke: #ffd184;
+  stroke-opacity: 1;
+}
+.network-globe .globe-label-column {
+  position: absolute;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #3a5867 transparent;
+  z-index: 1;
+}
+.network-globe .globe-label-column[data-side='left'] {
+  left: 12px;
+}
+.network-globe .globe-label-column[data-side='right'] {
+  right: 12px;
+}
+.network-globe .globe-label-column[hidden] {
+  display: none;
+}
+.network-globe .globe-label-content {
+  position: relative;
 }
 .network-globe canvas {
   display: block;
@@ -31,9 +74,15 @@
   border-radius: 4px;
   white-space: nowrap;
   box-shadow: 0 3px 10px #0003;
-  max-width: 200px;
+  display: block;
+  width: 100%;
+  height: 26px;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.network-globe .globe-label-column[data-side='left'] .globe-node-label {
+  text-align: right;
 }
 .network-globe .globe-node-label:hover,
 .network-globe .globe-node-label[data-selected='true'] {

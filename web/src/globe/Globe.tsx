@@ -142,8 +142,29 @@ export default function Globe({
       'Interactive globe. Drag to rotate, scroll to zoom, select a node for details.',
     )
     renderer.domElement.setAttribute('role', 'img')
+    // Screen-space leaders span the globe viewport and the two label gutters.
+    // They do not participate in raycasting or intercept orbit gestures.
+    const svgNS = 'http://www.w3.org/2000/svg'
+    const leaders = document.createElementNS(svgNS, 'svg')
+    leaders.classList.add('globe-label-leaders')
+    leaders.setAttribute('aria-hidden', 'true')
+    element.appendChild(leaders)
+    const makeColumn = (side: 'left' | 'right') => {
+      const viewport = document.createElement('div')
+      viewport.className = 'globe-label-column'
+      viewport.dataset.side = side
+      viewport.setAttribute('role', 'group')
+      viewport.setAttribute('aria-label', `${side === 'left' ? 'Left' : 'Right'} globe nodes`)
+      const content = document.createElement('div')
+      content.className = 'globe-label-content'
+      viewport.appendChild(content)
+      element.appendChild(viewport)
+      return { viewport, content }
+    }
+    const columns = { left: makeColumn('left'), right: makeColumn('right') }
+    const gutterFor = (canvasWidth: number) => Math.min(180, canvasWidth * 0.23)
     const scene = new THREE.Scene()
-    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100)
+    const camera = new THREE.PerspectiveCamera(42, cameraAspect.current, 0.1, 100)
     const home = position(24, 48).multiplyScalar(3.75)
     camera.position.copy(cameraPosition.current || home)
     const controls = new OrbitControls(camera, renderer.domElement)
@@ -177,15 +198,15 @@ export default function Globe({
     )
 
     const picks: THREE.Object3D[] = []
-    const markers = new Map<
-      string,
-      {
-        mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>
-        halo: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>
-        point: THREE.Vector3
-        label: HTMLButtonElement
-      }
-    >()
+    type Marker = {
+      mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>
+      halo: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>
+      point: THREE.Vector3
+      label: HTMLButtonElement
+      leader: SVGPathElement
+      side?: 'left' | 'right'
+    }
+    const markers = new Map<string, Marker>()
     const groups: GlobeNode[][] = []
     for (const node of [...nodes].sort((a, b) => a.id.localeCompare(b.id))) {
       const group = groups.find(
@@ -250,8 +271,17 @@ export default function Globe({
         label.title = `${node.name} · ${node.city} · ${node.ip}`
         label.onclick = (event) =>
           options.current.select({ type: 'node', id: node.id }, event.ctrlKey || event.metaKey)
-        element.appendChild(label)
-        markers.set(node.id, { mesh, halo, point, label })
+        const leader = document.createElementNS(svgNS, 'path')
+        leader.classList.add('globe-label-leader')
+        leaders.appendChild(leader)
+        label.onpointerenter = () => {
+          leader.dataset.hover = 'true'
+        }
+        label.onpointerleave = () => {
+          leader.dataset.hover = 'false'
+        }
+        columns.left.content.appendChild(label)
+        markers.set(node.id, { mesh, halo, point, label, leader })
       })
     }
     const lines = edges.flatMap((edge) => {
@@ -286,13 +316,16 @@ export default function Globe({
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
     const project = new THREE.Vector3()
     const updateLabels = () => {
-      const boxes: { x: number; y: number; w: number; h: number }[] = []
-      const ordered = [...markers.entries()].sort(
-        ([a], [b]) =>
-          Number(options.current.selection?.id === b) - Number(options.current.selection?.id === a),
-      )
-      for (const [id, marker] of ordered) {
-        const { label, point } = marker
+      const gutter = gutterFor(width)
+      const globeWidth = width - gutter * 2
+      const top = Math.min(96, height * 0.2)
+      const bottom = Math.min(118, height * 0.24)
+      const available = Math.max(1, height - top - bottom)
+      const labelHeight = 26
+      const step = labelHeight + 8
+      const visibleNodes: { id: string; marker: Marker; x: number; y: number }[] = []
+      for (const [id, marker] of markers) {
+        const { label, point, leader } = marker
         project.copy(point).project(camera)
         const visible =
           options.current.labels &&
@@ -300,45 +333,77 @@ export default function Globe({
           Math.abs(project.x) < 0.98 &&
           Math.abs(project.y) < 0.96
         label.hidden = !visible
+        leader.style.display = 'none'
         if (!visible) continue
-        const x = (project.x * 0.5 + 0.5) * width,
+        const x = gutter + (project.x * 0.5 + 0.5) * globeWidth,
           y = (-project.y * 0.5 + 0.5) * height
-        const w = label.offsetWidth || 110,
-          h = 26
-        const shifts = [
-          [14, -14],
-          [14, 15],
-          [-w - 14, -14],
-          [-w - 14, 15],
-          [14, -44],
-          [-w / 2, -58],
-        ]
-        const spot = shifts
-          .map(([dx, dy]) => ({ x: x + dx, y: y + dy, w, h }))
-          .find(
-            (r) =>
-              r.x > 8 &&
-              r.x + w < width - 8 &&
-              r.y > 8 &&
-              r.y + h < height - 8 &&
-              !boxes.some(
-                (b) =>
-                  r.x < b.x + b.w + 5 &&
-                  r.x + w + 5 > b.x &&
-                  r.y < b.y + b.h + 3 &&
-                  r.y + h + 3 > b.y,
-              ),
-          )
-        label.hidden = !spot
-        if (spot) {
-          boxes.push(spot)
-          label.style.transform = `translate(${spot.x}px, ${spot.y}px)`
-          label.dataset.selected = String(
-            options.current.appearance
-              ? options.current.appearance.focusedNodes.includes(id)
-              : options.current.selection?.type === 'node' && options.current.selection.id === id,
+        visibleNodes.push({ id, marker, x, y })
+      }
+      // Balance the two gutters, preferring the previous side near the split
+      // to avoid labels flickering left/right as adjacent markers move.
+      const sideBias = (side?: 'left' | 'right') =>
+        side === 'left' ? -10 : side === 'right' ? 10 : 0
+      visibleNodes.sort(
+        (a, b) =>
+          a.x + sideBias(a.marker.side) - b.x - sideBias(b.marker.side) || a.id.localeCompare(b.id),
+      )
+      const split =
+        visibleNodes.length === 1
+          ? Number(visibleNodes[0].x < width / 2)
+          : Math.ceil(visibleNodes.length / 2)
+      const sides = { left: visibleNodes.slice(0, split), right: visibleNodes.slice(split) }
+      for (const side of ['left', 'right'] as const) {
+        const column = columns[side]
+        const items = sides[side].sort((a, b) => a.y - b.y || a.id.localeCompare(b.id))
+        column.viewport.hidden = items.length === 0
+        column.viewport.style.top = `${top}px`
+        column.viewport.style.height = `${available}px`
+        column.viewport.style.width = `${Math.max(1, gutter - 24)}px`
+        const contentHeight = Math.max(available, items.length * step)
+        column.content.style.height = `${contentHeight}px`
+        // Forward/backward sweeps keep vertical order and guarantee separation.
+        const centers: number[] = []
+        items.forEach((item, i) => {
+          const target =
+            THREE.MathUtils.clamp((item.y - top) / available, 0, 1) *
+              (contentHeight - labelHeight) +
+            labelHeight / 2
+          centers.push(Math.max(target, i ? centers[i - 1] + step : labelHeight / 2))
+        })
+        for (let i = centers.length - 1; i >= 0; i--) {
+          centers[i] = Math.min(
+            centers[i],
+            i + 1 < centers.length ? centers[i + 1] - step : contentHeight - labelHeight / 2,
           )
         }
+        items.forEach(({ id, marker }, i) => {
+          const on = options.current.appearance
+            ? options.current.appearance.focusedNodes.includes(id)
+            : options.current.selection?.type === 'node' && options.current.selection.id === id
+          const wasSelected = marker.label.dataset.selected === 'true'
+          marker.side = side
+          if (marker.label.parentElement !== column.content)
+            column.content.appendChild(marker.label)
+          marker.label.style.transform = `translateY(${centers[i] - labelHeight / 2}px)`
+          marker.label.dataset.selected = String(on)
+          marker.leader.dataset.selected = String(on)
+          if (on && !wasSelected) {
+            if (centers[i] - labelHeight / 2 < column.viewport.scrollTop)
+              column.viewport.scrollTop = centers[i] - labelHeight / 2
+            else if (centers[i] + labelHeight / 2 > column.viewport.scrollTop + available)
+              column.viewport.scrollTop = centers[i] + labelHeight / 2 - available
+          }
+        })
+        const endX = side === 'left' ? 12 + column.viewport.clientWidth : width - gutter + 12
+        const scrollTop = column.viewport.scrollTop
+        items.forEach(({ marker, x, y }, i) => {
+          const center = centers[i] - scrollTop
+          if (center < labelHeight / 2 || center > available - labelHeight / 2) return
+          const endY = top + center
+          const elbowX = side === 'left' ? gutter + 8 : width - gutter - 8
+          marker.leader.setAttribute('d', `M ${x} ${y} L ${elbowX} ${endY} L ${endX} ${endY}`)
+          marker.leader.style.display = ''
+        })
       }
     }
     const render = (time: number) => {
@@ -439,10 +504,11 @@ export default function Globe({
     }
     const resize = new ResizeObserver(([entry]) => {
       if (!entry.contentRect.width || !entry.contentRect.height) return
-      const previousAspect = width / height
+      const previousAspect = camera.aspect
       width = entry.contentRect.width
       height = entry.contentRect.height
-      camera.aspect = width / height
+      const gutter = gutterFor(width)
+      camera.aspect = (width - 2 * gutter) / height
       camera.updateProjectionMatrix()
       // Fit the whole sphere even in a narrow, tall panel. Preserve the user's
       // relative zoom when the panel dimensions change.
@@ -460,6 +526,8 @@ export default function Globe({
       fly = null
       controls.update()
       renderer.setSize(width, height)
+      renderer.setViewport(gutter, 0, width - 2 * gutter, height)
+      leaders.setAttribute('viewBox', `0 0 ${width} ${height}`)
       invalidate()
     })
     resize.observe(element)
@@ -470,11 +538,13 @@ export default function Globe({
     let source: string | undefined
     const pick = (e: PointerEvent) => {
       const bounds = renderer.domElement.getBoundingClientRect()
+      const gutter = gutterFor(width)
+      const x = e.clientX - bounds.left - gutter
+      const globeWidth = width - gutter * 2
+      if (x < 0 || x > globeWidth || e.clientY < bounds.top || e.clientY > bounds.bottom)
+        return null
       raycaster.setFromCamera(
-        new THREE.Vector2(
-          ((e.clientX - bounds.left) / width) * 2 - 1,
-          (-(e.clientY - bounds.top) / height) * 2 + 1,
-        ),
+        new THREE.Vector2((x / globeWidth) * 2 - 1, (-(e.clientY - bounds.top) / height) * 2 + 1),
         camera,
       )
       // Include the opaque earth so nodes/edges on the back cannot be selected.
@@ -518,6 +588,8 @@ export default function Globe({
     window.addEventListener('pointercancel', cancelPointer)
     document.addEventListener('visibilitychange', invalidate)
     reducedMotion.addEventListener('change', invalidate)
+    columns.left.viewport.addEventListener('scroll', invalidate)
+    columns.right.viewport.addEventListener('scroll', invalidate)
     refresh()
     return () => {
       disposed = true
@@ -533,6 +605,9 @@ export default function Globe({
       window.removeEventListener('pointerup', pointerUp)
       window.removeEventListener('pointercancel', cancelPointer)
       for (const { label } of markers.values()) label.remove()
+      leaders.remove()
+      columns.left.viewport.remove()
+      columns.right.viewport.remove()
       scene.traverse((object) => {
         if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
           object.geometry.dispose()
