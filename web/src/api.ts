@@ -28,7 +28,12 @@ export async function request<T>(
   })
   if (response.status === 204) return undefined as T
   const data = await response.json().catch(() => {
-    throw new APIError(response.status, 'The server returned an unreadable response.')
+    throw new APIError(
+      response.status,
+      [502, 503, 504].includes(response.status)
+        ? 'Cannot reach the controller. Check the backend connection and retry.'
+        : 'The server returned an unreadable response.',
+    )
   })
   if (!response.ok)
     throw new APIError(response.status, data.error ?? `Request failed (${response.status})`)

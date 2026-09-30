@@ -414,7 +414,7 @@ test('live view: agreeing paths, report-time rates, preference editing and conne
   )
   await login(page)
   await page.getByRole('button', { name: 'Production backbone', exact: true }).click()
-  await expect(page.locator('.react-flow__edge')).toContainText('UDP · 17.5 ms')
+  await expect(page.locator('.graph-edge-label')).toContainText('UDP · 17.5 ms')
   const update = structuredClone(fixture)
   for (const status of update.agents) {
     status.last_seen = '2026-01-01T00:00:02Z'
@@ -584,4 +584,137 @@ test('server management persists manual entry points and creates a join invitati
       (ep: { url: string }) => ep.url === 'ws://127.0.0.1:18543',
     ),
   ).toBeTruthy()
+})
+
+test('topology: drawing preference, Ctrl node pairs, forwarding hops and total RTT', async ({
+  page,
+}) => {
+  const network = {
+    id: 'path-network',
+    name: 'Path test',
+    cidr: '10.42.0.0/24',
+    mtu: 1280,
+    cipher: 'aes-128-gcm',
+    nodes: ['Alpha', 'Beta', 'Gamma'].map((name, i) => ({
+      id: `node${i}`,
+      agent_id: `agent${i}`,
+      name,
+      address: `10.42.0.${i + 1}`,
+      position: { x: i * 360, y: 100 },
+    })),
+    edges: [
+      { id: 'ab', a: 'node0', b: 'node1', weight: 1, rtt: 10 },
+      { id: 'bc', a: 'node1', b: 'node2', weight: 1, rtt: 15 },
+      { id: 'ac', a: 'node0', b: 'node2', weight: 10, rtt: 1 },
+    ].map((e) => ({
+      ...e,
+      enabled: true,
+      transports: ['tcp'],
+      methods: { ipv4_direct: true, ipv6_direct: false, hole_punch: false },
+    })),
+  }
+  const fixture = {
+    at: '2026-01-01T00:00:00Z',
+    revision: 1,
+    state: {
+      schema: 1,
+      revision: 1,
+      networks: [network],
+      agents: network.nodes.map((n) => ({
+        id: n.agent_id,
+        name: n.name,
+        public_key: '',
+        listen_port: 24752,
+        revoked: false,
+        endpoints: [],
+      })),
+    },
+    agents: network.nodes.map((n) => ({
+      agent_id: n.agent_id,
+      connected: true,
+      last_seen: '2026-01-01T00:00:00Z',
+      version: 'fixture',
+      applied_revision: 1,
+      links: network.edges
+        .filter((e) => e.a === n.id || e.b === n.id)
+        .map((e) => ({
+          network_id: network.id,
+          edge_id: e.id,
+          link_id: e.id,
+          candidate_id: e.id,
+          transport: 'tcp',
+          remote: '192.0.2.1:24752',
+          healthy: true,
+          active: true,
+          rtt_ms: e.rtt,
+          loss: 0,
+          rx_bytes: 0,
+          tx_bytes: 0,
+        })),
+    })),
+  }
+  await page.addInitScript((sample) => {
+    class Source extends EventTarget {
+      onerror = null
+      timer: ReturnType<typeof setInterval>
+      constructor() {
+        super()
+        const emit = () =>
+          this.dispatchEvent(new MessageEvent('snapshot', { data: JSON.stringify(sample) }))
+        queueMicrotask(emit)
+        this.timer = setInterval(emit, 1000)
+      }
+      close() {
+        clearInterval(this.timer)
+      }
+    }
+    Object.defineProperty(window, 'EventSource', { value: Source })
+  }, fixture)
+  await login(page)
+  await page.getByRole('button', { name: 'Path test', exact: true }).click()
+  const drawing = page.getByLabel('Line drawing')
+  await expect(drawing).toHaveValue('line')
+  await drawing.selectOption('bezier')
+  await expect
+    .poll(() =>
+      page
+        .locator('.react-flow__edge-path')
+        .evaluateAll((paths) => paths.every((p) => p.getAttribute('d')!.includes('C'))),
+    )
+    .toBe(true)
+  await page.reload()
+  await page.getByRole('button', { name: 'Path test', exact: true }).click()
+  await expect(drawing).toHaveValue('bezier')
+  await drawing.selectOption('line')
+  await expect
+    .poll(() =>
+      page
+        .locator('.react-flow__edge-path')
+        .evaluateAll((paths) => paths.every((p) => !p.getAttribute('d')!.includes('C'))),
+    )
+    .toBe(true)
+  const alpha = page.locator('.react-flow__node').filter({ hasText: 'Alpha' })
+  const gamma = page.locator('.react-flow__node').filter({ hasText: 'Gamma' })
+  await alpha.click()
+  await gamma.click({ modifiers: ['Control'] })
+  await expect(page.locator('.react-flow__node.selected')).toHaveCount(2)
+  await expect(page.locator('.graph-edge-label.focused')).toHaveCount(2)
+  await expect(page.locator('.active-path-hops li')).toHaveText([
+    'AlphaTCP · 10.0 ms',
+    'BetaTCP · 15.0 ms',
+    'Gamma',
+  ])
+  await expect(page.locator('.path-latency strong')).toHaveText('25.0 ms')
+  await page.getByRole('button', { name: 'Reverse direction', exact: true }).click()
+  await expect(page.locator('.active-path-summary')).toContainText('Gamma → Beta → Alpha')
+  // macOS Ctrl-click is delivered as contextmenu. Suppress its menu and remove
+  // that endpoint; normal right-clicks retain the browser's context menu.
+  await gamma.click({ modifiers: ['Control'] })
+  await expect(page.locator('.react-flow__node.selected')).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: 'Node details', exact: true })).toBeVisible()
+  await alpha.click()
+  await expect(page.locator('.react-flow__node.selected')).toHaveCount(0)
+  await alpha.click()
+  await gamma.click({ modifiers: ['Meta'] })
+  await expect(page.locator('.react-flow__node.selected')).toHaveCount(2)
 })
