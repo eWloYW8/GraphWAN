@@ -27,39 +27,6 @@ The [administrative CLI](docs/admin-cli.md) supports `graphwan network create`,
 `graphwan network list`, `graphwan node list` and `graphwan edge add`, with JSON
 output, verified HTTPS and revision-checked updates.
 
-## Multiple controllers
-
-Each HTTPS controller starts as a one-member Raft cluster. In **Servers → Add
-server**, create an invitation. Start an empty controller on another machine,
-open **Servers → Join cluster**, and paste the invitation. It restarts
-with the shared configuration, CA and administrator password. All Servers expose
-the same management APIs and can enroll Agents; the coordinator is elected
-without a permanent primary. Invitations expire after one hour and authorize one
-Server identity. Adding a Server first synchronizes it as a nonvoter, then promotes it.
-
-Configuration and enrollment changes require a majority of voting Servers.
-Use at least three for one-failure write availability. With two Servers, losing
-either pauses writes; Agent connections and existing data forwarding continue.
-A minority returns HTTP 503 for writes. Reads show the local committed state and
-may briefly lag another replica. Browser sessions remain local to each Server.
-
-Servers persist their entrances and discover TCP addresses using the same physical
-interface rules as Agents, with container filtering enabled. TUN/TAP, WireGuard,
-bridges and container attachment interfaces are excluded; a containerized Server
-retains its default-route uplink. Explicit loopback listeners remain usable for
-local development. TCP STUN uses the actual listening port. Add manual
-`tcp://`, `ws://`, `grpc://` or `wss://` entrances in **Servers → Edit**; all require
-an explicit port. Automatic discovery only declares TCP. Inter-server replication
-uses the same listen port and authenticated control carriers. Each data directory
-contains that Server's private identity and Raft log; keep it unique per replica.
-
-Each pair of Servers shares a bidirectional connection: either side may establish
-it, and Raft replication, elections, write forwarding and status queries reuse it
-in both directions. The other Server does not need to dial back. Both Servers
-must support this channel protocol; older peers retain the original connection
-behavior during rolling upgrades.
-See [Server management API](docs/control-api.md#server-clusters).
-
 ## Run a Linux agent
 
 Create an enrollment token from **Agents → Enroll agent** or the
