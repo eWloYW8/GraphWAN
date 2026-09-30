@@ -230,6 +230,18 @@ def main():
 
             eventually(lambda: api("GET", "/health")["status"] == "ok")
             csrf = api("POST", "/login", {"password": password})["csrf_token"]
+            def declare_fixture_entrance():
+                # The fixture controller binds a synthetic bridge, deliberately
+                # excluded by production discovery. Declare that test entrance.
+                current = api("GET", "/state")
+                local_id = api("GET", "/servers/status")["id"]
+                local = next(s for s in current["servers"] if s["id"] == local_id)
+                entrance = server_url.replace("https://", "tcp://", 1)
+                if not any(e["url"] == entrance for e in local["endpoints"]):
+                    manual = [e for e in local["endpoints"] if e["source"] == "manual"]
+                    manual.append({"transport": "tcp", "url": entrance})
+                    api("PATCH", f"/servers/{local_id}", {"manual_endpoints": manual}, current["revision"])
+            eventually(lambda: (declare_fixture_entrance(), True)[1])
             replicas = []
             if args.cluster:
                 source_connection = (server_url, opener, csrf)
@@ -244,6 +256,7 @@ def main():
                     opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=str(replica_ca))), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), urllib.request.ProxyHandler({}))
                     eventually(lambda: api("GET", "/health")["status"] == "ok")
                     csrf = api("POST", "/login", {"password": password})["csrf_token"]
+                    eventually(lambda: (declare_fixture_entrance(), True)[1])
                     assert api("POST", "/servers/join", {"invitation": invitation})["restarting"]
                     eventually(lambda: replica_ca.read_bytes() == ca.read_bytes())
                     opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), urllib.request.ProxyHandler({}))

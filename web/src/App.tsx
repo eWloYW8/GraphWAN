@@ -353,11 +353,11 @@ export default function App() {
         <div className="sidebar-caption">WORKSPACE</div>
         <nav>
           <button
-            className={view === 'networks' ? 'selected' : ''}
-            onClick={() => navigate('networks')}
+            className={view === 'servers' ? 'selected' : ''}
+            onClick={() => navigate('servers')}
           >
-            <NetworkIcon size={18} />
-            Networks<span>{state?.networks.length ?? 0}</span>
+            <Server size={18} />
+            Servers<span>{state?.servers?.length ?? 0}</span>
           </button>
           <button
             className={view === 'agents' ? 'selected' : ''}
@@ -367,11 +367,11 @@ export default function App() {
             Agents<span>{state?.agents.length ?? 0}</span>
           </button>
           <button
-            className={view === 'servers' ? 'selected' : ''}
-            onClick={() => navigate('servers')}
+            className={view === 'networks' ? 'selected' : ''}
+            onClick={() => navigate('networks')}
           >
-            <Server size={18} />
-            Servers<span>{state?.servers?.length ?? 0}</span>
+            <NetworkIcon size={18} />
+            Networks<span>{state?.networks.length ?? 0}</span>
           </button>
         </nav>
         <div className="sidebar-caption">YOUR NETWORKS</div>

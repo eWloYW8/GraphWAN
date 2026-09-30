@@ -43,8 +43,11 @@ either pauses writes; Agent connections and existing data forwarding continue.
 A minority returns HTTP 503 for writes. Reads show the local committed state and
 may briefly lag another replica. Browser sessions remain local to each Server.
 
-Servers persist their entrances and discover TCP addresses from active interfaces
-(including VPN interfaces) and TCP STUN on the actual listening port. Add manual
+Servers persist their entrances and discover TCP addresses using the same physical
+interface rules as Agents, with container filtering enabled. TUN/TAP, WireGuard,
+bridges and container attachment interfaces are excluded; a containerized Server
+retains its default-route uplink. Explicit loopback listeners remain usable for
+local development. TCP STUN uses the actual listening port. Add manual
 `tcp://`, `ws://`, `grpc://` or `wss://` entrances in **Servers → Edit**; all require
 an explicit port. Automatic discovery only declares TCP. Inter-server replication
 uses the same listen port and authenticated control carriers. Each data directory

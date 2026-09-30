@@ -8,8 +8,8 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"net/url"
 	"reflect"
-	"sort"
 	"strconv"
 	"time"
 
@@ -19,64 +19,50 @@ import (
 	"github.com/eWloYW8/GraphWAN/internal/transport"
 )
 
-// InterfaceEndpoints intentionally includes VPN interfaces: these addresses can
-// be valid controller entrances even when excluded from overlay peer discovery.
+// InterfaceEndpoints shares the Agent's physical-interface and container
+// filtering. An explicitly bound loopback listener remains usable for local
+// development; wildcard listeners never advertise loopback or virtual NICs.
 func InterfaceEndpoints(identity Identity, addr net.Addr) ([]model.ServerEndpoint, error) {
-	host, port, err := net.SplitHostPort(addr.String())
+	host, portText, err := net.SplitHostPort(addr.String())
 	if err != nil {
 		return nil, err
 	}
-	ip, err := netip.ParseAddr(host)
+	bound, err := netip.ParseAddr(host)
 	if err != nil {
 		return nil, err
 	}
-	hosts := []string{}
-	if !ip.IsUnspecified() {
-		hosts = append(hosts, ip.String())
-	} else {
-		interfaces, err := net.Interfaces()
-		if err != nil {
-			return nil, err
-		}
-		for _, iface := range interfaces {
-			if iface.Flags&net.FlagUp == 0 {
-				continue
-			}
-			addresses, err := iface.Addrs()
-			if err != nil {
-				continue
-			}
-			for _, address := range addresses {
-				prefix, err := netip.ParsePrefix(address.String())
-				if err != nil {
-					continue
-				}
-				a := prefix.Addr().Unmap()
-				if a.IsUnspecified() || a.IsMulticast() || a.IsLinkLocalUnicast() {
-					continue
-				}
-				hosts = append(hosts, a.String())
-			}
-		}
+	port, err := strconv.ParseUint(portText, 10, 16)
+	if err != nil || port == 0 {
+		return nil, errors.New("server discovery requires a nonzero listen port")
 	}
-	sort.Slice(hosts, func(i, j int) bool {
-		a, _ := netip.ParseAddr(hosts[i])
-		b, _ := netip.ParseAddr(hosts[j])
-		if a.IsLoopback() != b.IsLoopback() {
-			return !a.IsLoopback()
-		}
-		return hosts[i] < hosts[j]
-	})
+	if bound.IsLoopback() {
+		endpointURL := "tcp://" + net.JoinHostPort(bound.String(), portText)
+		sum := sha256.Sum256([]byte(string(identity.ID) + "/interface/" + endpointURL))
+		return []model.ServerEndpoint{{ID: model.ID(hex.EncodeToString(sum[:16])), URL: endpointURL, Transport: "tcp", Source: model.Interface}}, nil
+	}
+	endpoints, err := discovery.InterfacesWithOptions(identity.Public(), uint16(port), discovery.InterfaceOptions{ExcludeContainerIPs: true})
+	if err != nil {
+		return nil, err
+	}
 	out := []model.ServerEndpoint{}
-	seen := map[string]bool{}
-	for _, host := range hosts {
-		u := "tcp://" + net.JoinHostPort(host, port)
-		if seen[u] {
+	for _, endpoint := range endpoints {
+		if endpoint.Transport != model.TCP {
 			continue
 		}
-		seen[u] = true
-		sum := sha256.Sum256([]byte(string(identity.ID) + "/interface/" + u))
-		out = append(out, model.ServerEndpoint{ID: model.ID(hex.EncodeToString(sum[:16])), URL: u, Transport: "tcp", Source: model.Interface})
+		if !bound.IsUnspecified() {
+			parsed, err := url.Parse(endpoint.URL)
+			if err != nil {
+				return nil, err
+			}
+			address, err := netip.ParseAddr(parsed.Hostname())
+			if err != nil {
+				return nil, err
+			}
+			if address != bound.Unmap() {
+				continue
+			}
+		}
+		out = append(out, model.ServerEndpoint{ID: endpoint.ID, URL: endpoint.URL, Transport: "tcp", Source: model.Interface})
 		if len(out) >= model.MaxEndpoints-8 {
 			break
 		}

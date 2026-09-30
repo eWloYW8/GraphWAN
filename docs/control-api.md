@@ -227,7 +227,12 @@ HTTPS controllers advertise `cluster_id`, public `cluster_ca` (base64 PEM) and
 `stun_servers`. Endpoints have `id`, `transport` (`tcp`, `websocket`, `grpc`, `wss`),
 `url`, `source` and optional `expires_at`. URL schemes are respectively `tcp`, `ws`,
 `grpc`, `wss`; use an explicit port and no path, credentials, query or fragment.
-Automatic endpoints are TCP only. TCP STUN defaults to `tcp://stun.nextcloud.com:443`;
+Automatic endpoints are TCP only and use Agent interface discovery with container
+filtering enabled: virtual NICs and container attachment interfaces are excluded,
+while a containerized Server keeps its default-route uplink. An explicitly bound
+loopback listener remains available for local development. Bound non-loopback
+addresses must also pass filtering. Existing manual endpoints are retained.
+TCP STUN defaults to `tcp://stun.nextcloud.com:443`;
 an empty STUN list disables public mapping discovery. Each Server supports 64
 entrances and a cluster supports 64 Servers.
 

@@ -63,7 +63,7 @@ func (e ServerEndpoint) Origin() string {
 	if err != nil {
 		return ""
 	}
-	return "https://" + u.Host
+	return (&url.URL{Scheme: "https", Host: u.Host}).String()
 }
 func (e ServerEndpoint) Address() string {
 	u, err := url.Parse(e.URL)
