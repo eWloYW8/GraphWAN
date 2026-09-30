@@ -24,7 +24,22 @@ export function activePath(
       .filter((n) => state.agents.find((a) => a.id === n.agent_id)?.revoked)
       .map((n) => n.id),
   )
-  const edges = network.edges.filter((e) => e.enabled && !excluded.has(e.a) && !excluded.has(e.b))
+  const saved = state.networks.find((n) => n.id === network.id)
+  const routingKey = (n: Network) =>
+    JSON.stringify([
+      n.nodes.map((node) => [node.id, node.agent_id, node.address]).sort(),
+      n.edges.map((e) => [e.id, e.a, e.b, e.enabled, e.weight, e.transports]).sort(),
+    ])
+  const useLive = live && !!saved && routingKey(saved) === routingKey(network)
+  const available = (a: string, b: string, edgeID: string) => {
+    const endpoint = (id: string) => statuses.find((s) => s.agent_id === network.nodes.find((n) => n.id === id)?.agent_id)
+    const healthy = (s: AgentStatus | undefined) => !!s?.connected && Date.now() - Date.parse(s.last_seen) <= 45000 && !s.config_error && !s.runtime_error
+    const left = endpoint(a), right = endpoint(b)
+    return healthy(left) && healthy(right) && (left?.links ?? []).some((l) =>
+      l.network_id === network.id && l.edge_id === edgeID && l.healthy &&
+      (right?.links ?? []).some((r) => r.network_id === network.id && r.edge_id === edgeID && r.healthy && r.link_id === l.link_id && r.transport === l.transport))
+  }
+  const edges = network.edges.filter((e) => e.enabled && !excluded.has(e.a) && !excluded.has(e.b) && (!useLive || available(e.a, e.b, e.id)))
   const result: PathView = { nodes: [source], edges: [], weight: 0, state: 'Unknown' }
   // Drafts have not passed the controller's validation. A negative undirected
   // edge would make Dijkstra revisit the same nodes indefinitely.
@@ -73,21 +88,14 @@ export function activePath(
       (e) => (e.a === current && e.b === next) || (e.b === current && e.a === next),
     )
     if (!next || !edge || result.nodes.includes(next))
-      return { ...result, state: 'Unavailable', reason: 'No configured route.' }
+      return { ...result, state: 'Unavailable', reason: useLive ? 'No available route.' : 'No configured route.' }
     result.edges.push(edge.id)
     result.nodes.push(next)
     result.weight += edge.weight
     current = next
   }
   if (!live) return { ...result, reason: 'Live telemetry is unavailable.' }
-  const saved = state.networks.find((n) => n.id === network.id)
-  const routingKey = (n: Network) =>
-    JSON.stringify([
-      n.nodes.map((node) => [node.id, node.agent_id, node.address]).sort(),
-      n.edges.map((e) => [e.id, e.a, e.b, e.enabled, e.weight]).sort(),
-    ])
-  if (!saved || routingKey(saved) !== routingKey(network))
-    return { ...result, reason: 'Unsaved routing changes; showing the configured draft path.' }
+  if (!useLive) return { ...result, reason: 'Unsaved routing changes; showing the configured draft path.' }
   for (const id of result.nodes) {
     const node = network.nodes.find((n) => n.id === id)!
     const status = statuses.find((s) => s.agent_id === node.agent_id)

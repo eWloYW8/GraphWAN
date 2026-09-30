@@ -32,6 +32,7 @@ type Reconciler struct {
 	applied     uint64
 	running     bool
 	configError string
+	routingHash string
 }
 
 func NewReconciler(cache *Cache, runtime Runtime) *Reconciler {
@@ -39,7 +40,7 @@ func NewReconciler(cache *Cache, runtime Runtime) *Reconciler {
 }
 func (r *Reconciler) Report(version string) model.AgentReport {
 	r.mu.Lock()
-	report := model.AgentReport{Version: version, AppliedRevision: r.applied, ConfigError: r.configError}
+	report := model.AgentReport{Version: version, AppliedRevision: r.applied, ConfigError: r.configError, RoutingHash: r.routingHash}
 	r.mu.Unlock()
 	report.Resources = r.resources.Sample()
 	report.Links = r.runtime.Report()
@@ -57,6 +58,7 @@ func (r *Reconciler) status(revision uint64, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.applied = revision
+	r.routingHash = ""
 	r.running = true
 	r.configError = ""
 	if err != nil {
@@ -92,7 +94,7 @@ func (r *Reconciler) Restore(ctx context.Context) error {
 			return err
 		}
 		r.status(desired.Revision, nil)
-		return nil
+		return r.restoreRoutes(desired.Revision)
 	}
 	failure := &ApplyError{Err: err}
 	if applied != nil && applied.Revision != desired.Revision {
@@ -100,7 +102,7 @@ func (r *Reconciler) Restore(ctx context.Context) error {
 			return errors.Join(failure, fmt.Errorf("restore prior configuration: %w", err))
 		}
 		r.status(applied.Revision, failure)
-		return nil
+		return r.restoreRoutes(applied.Revision)
 	}
 	r.failure(failure)
 	return failure

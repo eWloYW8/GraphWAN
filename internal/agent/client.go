@@ -277,7 +277,7 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 	}
 	defer func() { c.failedTargets[target.key] = true }()
 	dialCtx, stop := context.WithTimeout(ctx, 4*time.Second)
-	conn, resp, err := websocket.Dial(dialCtx, c.server+"/api/v1/agent/control", &websocket.DialOptions{HTTPClient: c.http, CompressionMode: websocket.CompressionNoContextTakeover})
+	conn, resp, err := websocket.Dial(dialCtx, c.server+"/api/v1/agent/control", &websocket.DialOptions{HTTPClient: c.http, Subprotocols: []string{model.RoutingSubprotocol}, CompressionMode: websocket.CompressionNoContextTakeover})
 	stop()
 	if err != nil {
 		if resp != nil {
@@ -368,6 +368,13 @@ func (c *Client) readControl(ctx context.Context, conn *websocket.Conn, id model
 			return err
 		}
 		switch message.Type {
+		case "routes":
+			if conn.Subprotocol() != model.RoutingSubprotocol || message.Routes == nil {
+				return errors.New("unnegotiated or missing live routes")
+			}
+			if err := c.reconcile.AcceptRoutes(*message.Routes); err != nil {
+				return err
+			}
 		case "config":
 			if message.Snapshot == nil {
 				return errors.New("controller omitted snapshot")

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"reflect"
@@ -72,7 +73,7 @@ func (s *Server) agentControl(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionNoContextTakeover})
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{model.RoutingSubprotocol}, CompressionMode: websocket.CompressionNoContextTakeover})
 	if err != nil {
 		return
 	}
@@ -110,9 +111,13 @@ func (s *Server) agentControl(w http.ResponseWriter, r *http.Request) {
 	}()
 	done := make(chan error, 1)
 	go func() { done <- s.readAgent(ctx, conn, id) }()
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	var last uint64
+	var snapshot model.Snapshot
+	var routeHash string
+	var lastUp map[routing.EdgeKey]bool
+	var lastWrite time.Time
 	first := true
 	for {
 		state, err := s.db.Read()
@@ -123,7 +128,7 @@ func (s *Server) agentControl(w http.ResponseWriter, r *http.Request) {
 		}
 		message := model.ControlMessage{Type: "heartbeat"}
 		if first || state.Revision != last {
-			snapshot, err := routing.Compile(state, id)
+			snapshot, err = routing.Compile(state, id)
 			if err != nil {
 				conn.CloseNow()
 				<-done
@@ -133,14 +138,33 @@ func (s *Server) agentControl(w http.ResponseWriter, r *http.Request) {
 			message.Snapshot = &snapshot
 			last = snapshot.Revision
 			first = false
+			routeHash = ""
+		} else if conn.Subprotocol() == model.RoutingSubprotocol {
+			s.mu.Lock()
+			ack := s.statuses[id].AppliedRevision
+			s.mu.Unlock()
+			if ack == state.Revision {
+				up := routing.Availability(state, s.telemetry(state), time.Now())
+				if routeHash == "" || !maps.Equal(up, lastUp) {
+					lastUp = up
+					routes := routing.LiveRoutes(state, snapshot, up)
+					if hash := routes.Hash(); hash != routeHash {
+						message.Type, message.Routes = "routes", &routes
+						routeHash = hash
+					}
+				}
+			}
 		}
-		writeCtx, stop := context.WithTimeout(ctx, 10*time.Second)
-		err = wsjson.Write(writeCtx, conn, message)
-		stop()
-		if err != nil {
-			conn.CloseNow()
-			<-done
-			return
+		if message.Type != "heartbeat" || time.Since(lastWrite) >= 15*time.Second {
+			writeCtx, stop := context.WithTimeout(ctx, 10*time.Second)
+			err = wsjson.Write(writeCtx, conn, message)
+			stop()
+			if err != nil {
+				conn.CloseNow()
+				<-done
+				return
+			}
+			lastWrite = time.Now()
 		}
 		select {
 		case <-done:
@@ -202,7 +226,7 @@ func (s *Server) readAgent(ctx context.Context, conn *websocket.Conn, id model.I
 }
 
 func validateReport(snapshot model.Snapshot, report model.AgentReport) error {
-	if report.AppliedRevision > snapshot.Revision || len(report.Version) > 128 || len(report.ConfigError) > 4096 || len(report.RuntimeError) > 4096 || len(report.Links) > 4096 {
+	if report.AppliedRevision > snapshot.Revision || len(report.RoutingHash) > 64 || len(report.Version) > 128 || len(report.ConfigError) > 4096 || len(report.RuntimeError) > 4096 || len(report.Links) > 4096 {
 		return errors.New("invalid agent report")
 	}
 	if report.Resources != nil {

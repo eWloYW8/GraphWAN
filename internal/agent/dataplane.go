@@ -42,6 +42,7 @@ type DataPlane struct {
 	state         atomic.Pointer[runtimeState]
 	wg            sync.WaitGroup
 	closed        bool
+	lastRoutes    *model.RouteUpdate
 	discoveryWake chan struct{}
 	repairWake    chan struct{}
 }
@@ -153,7 +154,15 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 		}
 		newMesh = true
 	}
-	router, err := forwarding.New(snapshot, next.mesh.Send, r.deliver, forwarding.BatchOptions{Deliver: r.deliverBatch, SendOwned: next.mesh.SendOwnedBatch})
+	forwardingSnapshot := snapshot
+	if r.lastRoutes != nil && r.lastRoutes.Revision == snapshot.Revision {
+		var err error
+		forwardingSnapshot, err = r.lastRoutes.Apply(snapshot)
+		if err != nil {
+			return err
+		}
+	}
+	router, err := forwarding.New(forwardingSnapshot, next.mesh.Send, r.deliver, forwarding.BatchOptions{Deliver: r.deliverBatch, SendOwned: next.mesh.SendOwnedBatch})
 	if err != nil {
 		return err
 	}

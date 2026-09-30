@@ -160,11 +160,8 @@ func (s Snapshot) Validate(agentID ID) error {
 			}
 			routes[r.Destination] = true
 		}
-		for id := range peers {
-			if !routes[id] {
-				return fmt.Errorf("adjacent peer has no route")
-			}
-		}
+		// Peers remain admitted for reconnection even when live routing has
+		// withdrawn every route through a failed edge.
 	}
 	return nil
 }
