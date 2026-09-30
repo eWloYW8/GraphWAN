@@ -152,25 +152,15 @@ loopback-only `server --http` development mode does not provide these TLS tunnel
 
 `GET /agent/control` upgrades to a WebSocket after validating the client
 certificate against the CA **and** the current Agent identity/revocation state.
-The inner WebSocket offers the `graphwan.control.compact.v1` subprotocol. When
-both sides support it, either direction can send a binary message containing
-exactly one zero byte as a heartbeat. Configuration, reports and endpoint updates
-remain `ControlMessage` JSON envelopes. Without subprotocol negotiation, both
-sides retain the legacy JSON protocol and reporting cadence.
+The controller sends `ControlMessage` JSON envelopes:
 
 - `{"type":"config","snapshot":{...}}`: initial and updated compiled snapshot.
-- A one-byte binary heartbeat (legacy: `{"type":"heartbeat"}`): liveness message
-  every 15 seconds when unchanged.
+- `{"type":"heartbeat"}`: liveness message every 15 seconds when unchanged.
 
 The Agent checks telemetry every 2 seconds. User traffic, link/state changes and
 errors trigger reports at that cadence; applied configuration is ACKed promptly.
-When idle, a full report is sent approximately every 60 seconds. Between reports,
-the Agent checks its state/counters and answers controller heartbeats with a
-one-byte heartbeat if they are unchanged, or a full report if they changed.
-Heartbeat replies update `last_seen` while preserving the last validated report;
-they do not ACK a configuration revision. Legacy connections send full reports
-approximately every 15 seconds, including in response to controller heartbeats.
-One final unchanged sample clears displayed
+When idle, a full report is sent approximately every 15 seconds, including in
+response to controller heartbeats. One final unchanged sample clears displayed
 traffic rates when transfers stop. CPU, memory, RTT and loss samples alone do not
 trigger extra reports. A 45-second receive timeout detects a silent connection:
 
@@ -179,7 +169,7 @@ trigger extra reports. A 45-second receive timeout detects a silent connection:
 
 The inner control WebSocket negotiates per-message DEFLATE without context
 takeover for messages above 512 bytes. Older peers can decline compression;
-JSON envelopes remain unchanged. Small heartbeats remain uncompressed, and
+the JSON protocol remains unchanged. Small heartbeats remain uncompressed, and
 neither encrypted outer carriers nor data-plane packets are compressed.
 Identical discovered endpoint sets are not retransmitted; stable observed leases
 are renewed when at most one minute remains. Reconnect always republishes the

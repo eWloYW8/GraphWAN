@@ -387,7 +387,7 @@ func (m *Mesh) accept(conn transport.Conn, kind model.Transport) {
 			channel.Close()
 			return
 		}
-		selected.register(channel, *candidate, introduction.CompactProbes)
+		selected.register(channel, *candidate)
 	}()
 }
 func addressFamily(address net.Addr) int {
@@ -447,7 +447,7 @@ func (g *group) close() {
 	}
 	g.wg.Wait()
 }
-func (g *group) register(channel *peer.Channel, candidate link.Candidate, compactProbes bool) {
+func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 	g.mu.Lock()
 	if g.ctx.Err() != nil {
 		g.mu.Unlock()
@@ -462,7 +462,6 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate, compac
 	}
 	options := g.mesh.linkOptions
 	options.OwnedPackets = true
-	options.CompactProbes = compactProbes
 	l, err := link.New(g.ctx, channel, link.Info{NetworkID: cfg.network, EdgeID: cfg.peer.Edge.ID, PeerID: cfg.peer.Node.ID, CandidateID: candidate.ID, Transport: candidate.Endpoint.Transport}, options)
 	if err != nil {
 		g.mu.Unlock()

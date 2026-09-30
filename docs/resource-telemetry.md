@@ -24,9 +24,7 @@ Edge weights, route compilation or active-Link selection.
 Sampling uses a mutex and a one-second cache, without a polling goroutine or
 per-Link requests. Resource fields ride in the existing batched Agent reports,
 sent every two seconds during traffic or status changes, and approximately every
-60 seconds while idle (15 seconds with a legacy controller). Compact heartbeat
-replies maintain connection liveness every 15 seconds without refreshing resource,
-RTT or loss samples. Resource fluctuations alone do not wake idle reporting.
+15 seconds while idle. Resource fluctuations alone do not wake idle reporting.
 Reports own their samples, so concurrent callers
 cannot mutate the sampler's cache. A CPU rate needs two valid, nondecreasing
 counter samples. The first sample, an OS error or a counter reset omits the CPU
@@ -54,8 +52,6 @@ The controller checks finite CPU values, bounded counts, heap ≤ Go memory, and
 integer ranges that remain exact in JavaScript. It publishes immutable resource
 snapshots through both `/api/v1/telemetry` and the authenticated live event stream.
 It retains the last report while disconnected; API consumers must check
-`connected` and `last_seen`. `last_seen` includes compact heartbeat replies, so it
-indicates liveness rather than the age of CPU/memory samples, which can be up to
-approximately one minute old while idle. The UI shows Unavailable when the Agent is offline,
+`connected` and `last_seen`. The UI shows Unavailable when the Agent is offline,
 the browser's live stream is stale/disconnected, or a field has not been reported.
 Unavailable CPU is never formatted as 0%.

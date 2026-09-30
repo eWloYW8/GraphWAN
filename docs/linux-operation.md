@@ -52,8 +52,6 @@ are described with their traversal limits in that guide.
   second during traffic and once per ten seconds while idle. Missing replies
   restore one-second probes, with a five-second response timeout; detecting a
   silent idle failure can therefore take approximately fifteen seconds.
-  Updated peers negotiate three-byte probe bodies (legacy: nine bytes) while
-  retaining the full authentication tag and replay protection.
 - An available manually preferred candidate wins immediately. Otherwise the
   lowest measured RTT wins, with a two-second hold time and a 15%/2 ms minimum
   improvement to avoid switches caused by timing noise. An unhealthy active Link
@@ -69,9 +67,6 @@ are described with their traversal limits in that guide.
   add packet retransmission.
 - The controller is used only for management, configuration and telemetry.
   Its absence does not cancel the runtime, peer reconnection or cached startup.
-  Updated Agents/controllers exchange one-byte control heartbeats every fifteen
-  seconds and full telemetry about once per minute while idle. Traffic and state
-  changes still report every two seconds; configuration application ACKs promptly.
 
 Other implemented adapters are documented for [FreeBSD](freebsd-operation.md),
 [macOS](macos-operation.md), [Windows](windows-operation.md),

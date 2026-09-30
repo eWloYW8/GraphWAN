@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	"github.com/eWloYW8/GraphWAN/internal/controltransport"
-	"github.com/eWloYW8/GraphWAN/internal/controlwire"
 	"github.com/eWloYW8/GraphWAN/internal/discovery"
 	"github.com/eWloYW8/GraphWAN/internal/model"
 )
@@ -277,7 +277,7 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 	}
 	defer func() { c.failedTargets[target.key] = true }()
 	dialCtx, stop := context.WithTimeout(ctx, 4*time.Second)
-	conn, resp, err := websocket.Dial(dialCtx, c.server+"/api/v1/agent/control", &websocket.DialOptions{HTTPClient: c.http, Subprotocols: []string{controlwire.Subprotocol}, CompressionMode: websocket.CompressionNoContextTakeover})
+	conn, resp, err := websocket.Dial(dialCtx, c.server+"/api/v1/agent/control", &websocket.DialOptions{HTTPClient: c.http, CompressionMode: websocket.CompressionNoContextTakeover})
 	stop()
 	if err != nil {
 		if resp != nil {
@@ -294,9 +294,7 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 	defer conn.CloseNow()
 	conn.SetReadLimit(maxSnapshotBytes)
 	readerDone := make(chan error, 1)
-	heartbeats := make(chan struct{}, 1)
-	go func() { readerDone <- c.readControl(ctx, conn, id, updates, heartbeats) }()
-	compact := controlwire.Compact(conn)
+	go func() { readerDone <- c.readControl(ctx, conn, id, updates, acks) }()
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -311,7 +309,6 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 	}
 	for {
 		force := false
-		heartbeat := false
 		select {
 		case err := <-readerDone:
 			return err
@@ -328,37 +325,25 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 			continue
 		case <-acks:
 			force = true
-		case <-heartbeats:
-			heartbeat = true
-			force = !compact
 		case <-ticker.C:
 		}
 		report := c.Report()
 		changed := reportChanged(previous, report)
 		// Send one final unchanged sample so displayed traffic rates return to
 		// zero promptly when a transfer stops, before entering idle cadence.
-		full := reportDue(compact, force, settling, changed, time.Since(lastReport))
-		message := model.ControlMessage{Type: "ack", Report: &report}
-		if !full {
-			if !heartbeat {
-				continue
-			}
-			// Compare counters/state before replying so LastSeen also remains
-			// a valid sample time for the unchanged traffic counters in the UI.
-			message = model.ControlMessage{Type: "heartbeat"}
+		if !force && !settling && time.Since(lastReport) < 15*time.Second && !changed {
+			continue
 		}
 		writeCtx, stop := context.WithTimeout(ctx, 10*time.Second)
-		err := controlwire.Write(writeCtx, conn, message)
+		err := wsjson.Write(writeCtx, conn, model.ControlMessage{Type: "ack", Report: &report})
 		stop()
 		if err != nil {
 			conn.CloseNow()
 			<-readerDone
 			return err
 		}
-		if full {
-			previous, lastReport = report, time.Now()
-			settling = changed
-		}
+		previous, lastReport = report, time.Now()
+		settling = changed
 	}
 }
 func (c *Client) sendEndpoints(ctx context.Context, conn *websocket.Conn) error {
@@ -371,13 +356,13 @@ func (c *Client) sendEndpoints(ctx context.Context, conn *websocket.Conn) error 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	return controlwire.Write(ctx, conn, model.ControlMessage{Type: "endpoints", Endpoints: endpoints})
+	return wsjson.Write(ctx, conn, model.ControlMessage{Type: "endpoints", Endpoints: endpoints})
 }
-func (c *Client) readControl(ctx context.Context, conn *websocket.Conn, id model.ID, updates chan model.Snapshot, heartbeats chan struct{}) error {
+func (c *Client) readControl(ctx context.Context, conn *websocket.Conn, id model.ID, updates chan model.Snapshot, acks chan struct{}) error {
 	for {
 		var message model.ControlMessage
 		readCtx, stop := context.WithTimeout(ctx, 45*time.Second)
-		err := controlwire.Read(readCtx, conn, &message)
+		err := wsjson.Read(readCtx, conn, &message)
 		stop()
 		if err != nil {
 			return err
@@ -405,7 +390,7 @@ func (c *Client) readControl(ctx context.Context, conn *websocket.Conn, id model
 			}
 		case "heartbeat":
 			select {
-			case heartbeats <- struct{}{}:
+			case acks <- struct{}{}:
 			default:
 			}
 		case "error":

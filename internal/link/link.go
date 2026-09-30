@@ -15,15 +15,13 @@ import (
 )
 
 const (
-	dataMessage        = 1
-	pingMessage        = 2
-	pongMessage        = 3
-	prepareMessage     = 4
-	acceptMessage      = 5
-	commitMessage      = 6
-	confirmMessage     = 7
-	compactPingMessage = 8
-	compactPongMessage = 9
+	dataMessage    = 1
+	pingMessage    = 2
+	pongMessage    = 3
+	prepareMessage = 4
+	acceptMessage  = 5
+	commitMessage  = 6
+	confirmMessage = 7
 	// Leave room for multiple kernel GSO bursts while writers process bounded
 	// batches. The queue is still finite; control messages use a separate queue.
 	queueSize = 512
@@ -51,9 +49,6 @@ type Options struct {
 	// IdleHeartbeat spaces probes when no user data is moving. An unanswered
 	// probe resumes Heartbeat cadence and retains the normal response timeout.
 	IdleHeartbeat time.Duration
-	// CompactProbes is set only when the peer advertised support. Receiving an
-	// authenticated compact ping also enables it for the dialing side.
-	CompactProbes bool
 	// OwnedPackets opts into explicit packet ownership. Consumers must release
 	// every buffer received from ReadOwnedBatch; the legacy Packets API is unused.
 	OwnedPackets bool
@@ -100,7 +95,6 @@ type Link struct {
 	mu              sync.Mutex
 	pending         map[uint64]time.Time
 	nextPing        uint64
-	compactProbes   bool
 	lastPong        time.Time
 	lastPing        time.Time
 	probeSince      time.Time
@@ -130,7 +124,6 @@ func New(parent context.Context, channel Channel, info Info, options Options) (*
 	}
 	ctx, cancel := context.WithCancel(parent)
 	l := &Link{channel: channel, info: info, options: options, ctx: ctx, cancel: cancel, done: make(chan struct{}), dataReady: make(chan struct{}, 1), selection: make(chan Selection, 8), control: make(chan []byte, 8), packets: make(chan []byte, queueSize), pending: map[uint64]time.Time{}}
-	l.compactProbes = options.CompactProbes
 	if _, ok := channel.(interface {
 		ReceiveOwnedBatch(context.Context) ([]*packetbuf.Buffer, error)
 	}); ok && options.OwnedPackets {
@@ -375,9 +368,17 @@ func (l *Link) readLoop() {
 					l.dropped.Add(1)
 				}
 			}
-		case pingMessage, pongMessage, compactPingMessage, compactPongMessage:
-			if !l.handleProbe(raw, time.Now()) {
+		case pingMessage:
+			if len(raw) != 9 {
 				return
+			}
+			response := append([]byte{}, raw...)
+			response[0] = pongMessage
+			select {
+			case l.control <- response:
+			case <-l.ctx.Done():
+				return
+			default:
 			}
 		case prepareMessage, acceptMessage, commitMessage, confirmMessage:
 			if len(raw) != 25 {
@@ -392,6 +393,12 @@ func (l *Link) readLoop() {
 			case l.selection <- message:
 			default:
 			}
+		case pongMessage:
+			if len(raw) != 9 {
+				return
+			}
+			nonce := binary.BigEndian.Uint64(raw[1:])
+			l.recordPong(nonce, time.Now())
 		default:
 			return
 		}
@@ -533,7 +540,9 @@ func (l *Link) heartbeat(now time.Time) bool {
 		return true
 	}
 	l.nextPing++
-	raw := encodePing(l.nextPing, l.compactProbes)
+	raw := make([]byte, 9)
+	raw[0] = pingMessage
+	binary.BigEndian.PutUint64(raw[1:], l.nextPing)
 	select {
 	case l.control <- raw:
 		l.pending[l.nextPing] = now
