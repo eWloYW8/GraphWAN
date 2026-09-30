@@ -15,9 +15,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/eWloYW8/GraphWAN/internal/cluster"
 	"github.com/eWloYW8/GraphWAN/internal/control"
 	"github.com/eWloYW8/GraphWAN/internal/controltransport"
+	"github.com/eWloYW8/GraphWAN/internal/model"
 	"github.com/eWloYW8/GraphWAN/internal/store"
+	"github.com/eWloYW8/GraphWAN/internal/transport"
 )
 
 var version = "dev"
@@ -70,73 +73,110 @@ func runServer(args []string) error {
 			return errors.New("--http requires a literal loopback listen address")
 		}
 	}
-	db, err := store.Open(filepath.Join(*data, "controller.db"))
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	app, err := control.New(db, control.Options{Password: os.Getenv("GRAPHWAN_ADMIN_PASSWORD")})
-	if err != nil {
-		return err
-	}
-	defer app.Close()
-	if err := os.WriteFile(filepath.Join(*data, "ca.pem"), app.Authority().PEM, 0644); err != nil {
-		return err
-	}
-	server := &http.Server{Addr: *listen, Handler: app, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10}
-	if !*insecure {
-		server.TLSConfig, err = app.Authority().ServerTLS(strings.Split(*hosts, ","))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	for ctx.Err() == nil {
+		reload, err := serveController(ctx, *listen, *data, *hosts, *insecure)
 		if err != nil {
 			return err
 		}
+		if !reload {
+			return nil
+		}
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	return nil
+}
+
+func serveController(ctx context.Context, listen, data, hosts string, insecure bool) (bool, error) {
+	db, err := store.Open(filepath.Join(data, "controller.db"))
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	if err := cluster.InstallPending(db); err != nil {
+		return false, err
+	}
+	app, err := control.New(db, control.Options{Password: os.Getenv("GRAPHWAN_ADMIN_PASSWORD")})
+	if err != nil {
+		return false, err
+	}
+	defer app.Close()
+	if err := os.WriteFile(filepath.Join(data, "ca.pem"), app.Authority().PEM, 0644); err != nil {
+		return false, err
+	}
+	server := &http.Server{Addr: listen, Handler: app, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10}
 	var carriers *controltransport.Server
-	if !*insecure {
-		listener, err := net.Listen("tcp", *listen)
+	var runtime *cluster.Runtime
+	if !insecure {
+		listener, err := transport.ListenTCP(ctx, listen)
 		if err != nil {
-			return err
+			return false, err
+		}
+		defer listener.Close()
+		identity, err := cluster.LoadIdentity(db)
+		if err != nil {
+			return false, err
+		}
+		endpoints, err := cluster.InterfaceEndpoints(identity, listener.Addr())
+		if err != nil {
+			return false, err
+		}
+		if err = cluster.Initialize(db, app.Authority(), &identity, endpoints); err != nil {
+			return false, err
+		}
+		runtime, err = app.StartCluster(identity, data)
+		if err != nil {
+			return false, err
+		}
+		defer runtime.Close()
+		tlsHosts := append(strings.Split(hosts, ","), (model.Server{ID: identity.ID}).TLSName())
+		server.TLSConfig, err = app.Authority().ServerTLS(tlsHosts)
+		if err != nil {
+			return false, err
 		}
 		carriers = controltransport.NewServer(listener, app, server.TLSConfig)
 		defer carriers.Close()
+		runtime.StartDiscovery(listener)
 	}
 	done := make(chan error, 1)
 	go func() {
-		if *insecure {
+		if insecure {
 			done <- server.ListenAndServe()
 		} else {
 			done <- carriers.Serve()
 		}
 	}()
-	slog.Info("GraphWAN controller starting", "listen", *listen, "tls", !*insecure, "ca", filepath.Join(*data, "ca.pem"))
+	slog.Info("GraphWAN controller starting", "listen", listen, "tls", !insecure, "ca", filepath.Join(data, "ca.pem"))
+	reload := false
 	select {
 	case err := <-done:
 		if controltransport.Closed(err) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	case <-ctx.Done():
+	case <-app.Reload():
+		reload = true
 	}
-	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	app.Close()
+	if runtime != nil {
+		runtime.Close()
+	}
 	if carriers != nil {
 		carriers.Close()
-		err := <-done
+		err = <-done
 		carriers.Wait()
-		if controltransport.Closed(err) {
-			return nil
+	} else {
+		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err = server.Shutdown(shutdown); err != nil {
+			server.Close()
+			return false, err
 		}
-		return err
+		err = <-done
 	}
-	if err := server.Shutdown(shutdown); err != nil {
-		server.Close()
-		return err
+	if controltransport.Closed(err) {
+		return reload, nil
 	}
-	err = <-done
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
-	return err
+	return false, err
 }

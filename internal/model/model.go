@@ -124,10 +124,13 @@ type Network struct {
 }
 
 type State struct {
-	Schema   int       `json:"schema"`
-	Revision uint64    `json:"revision"`
-	Agents   []Agent   `json:"agents"`
-	Networks []Network `json:"networks"`
+	Schema    int       `json:"schema"`
+	Revision  uint64    `json:"revision"`
+	Agents    []Agent   `json:"agents"`
+	Networks  []Network `json:"networks"`
+	ClusterID ID        `json:"cluster_id,omitempty"`
+	ClusterCA []byte    `json:"cluster_ca,omitempty"`
+	Servers   []Server  `json:"servers,omitempty"`
 }
 
 func EmptyState() State {
@@ -137,6 +140,8 @@ func EmptyState() State {
 // Clone prevents callers from retaining references into shared mutable state.
 func (s State) Clone() State {
 	out := s
+	out.ClusterCA = append([]byte(nil), s.ClusterCA...)
+	out.Servers = CloneServers(s.Servers)
 	out.Agents = append([]Agent{}, s.Agents...)
 	for i := range out.Agents {
 		out.Agents[i].PublicKey = append([]byte(nil), s.Agents[i].PublicKey...)

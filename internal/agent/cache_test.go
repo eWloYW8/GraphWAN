@@ -179,7 +179,7 @@ func TestReconcilePersistenceOrderingAndFailedUpdate(t *testing.T) {
 	}
 }
 
-func TestControllerMismatchRejectedBeforeRestore(t *testing.T) {
+func TestRegisteredClientIgnoresBootstrapFlags(t *testing.T) {
 	cache, _ := registeredCache(t)
 	defer cache.Close()
 	config := snapshot(t, 7)
@@ -187,10 +187,11 @@ func TestControllerMismatchRejectedBeforeRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := &testRuntime{}
-	if client, err := agent.NewClient(cache, runtime, agent.Options{Server: "https://different.example"}); err == nil {
-		client.Close()
-		t.Fatal("accepted another controller for existing identity")
+	client, err := agent.NewClient(cache, runtime, agent.Options{Server: "not a URL", ServerTransport: "invalid"})
+	if err != nil {
+		t.Fatal("registered Agent must ignore bootstrap flags:", err)
 	}
+	client.Close()
 	if _, applied := runtime.last(); applied {
 		t.Fatal("restored configuration before checking controller identity")
 	}

@@ -32,6 +32,7 @@ import {
 } from './model'
 import Topology, { type Selection } from './Topology'
 import Agents, { Enrollment } from './Agents'
+import Servers from './Servers'
 function Login({ ready }: { ready: (csrf: string) => void }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -365,6 +366,13 @@ export default function App() {
             <Server size={18} />
             Agents<span>{state?.agents.length ?? 0}</span>
           </button>
+          <button
+            className={view === 'servers' ? 'selected' : ''}
+            onClick={() => navigate('servers')}
+          >
+            <Server size={18} />
+            Servers<span>{state?.servers?.length ?? 0}</span>
+          </button>
         </nav>
         <div className="sidebar-caption">YOUR NETWORKS</div>
         <nav className="network-nav">
@@ -395,7 +403,13 @@ export default function App() {
           <header className="topbar">
             <span>
               Workspace <span className="muted">/</span>{' '}
-              <strong>{view === 'agents' ? 'Agents' : network?.name || 'Networks'}</strong>
+              <strong>
+                {view === 'servers'
+                  ? 'Servers'
+                  : view === 'agents'
+                    ? 'Agents'
+                    : network?.name || 'Networks'}
+              </strong>
             </span>
             <div>{sessionControls}</div>
           </header>
@@ -425,6 +439,8 @@ export default function App() {
                 Reload
               </button>
             </div>
+          ) : view === 'servers' ? (
+            <Servers state={state} csrf={csrf} updated={loadState} />
           ) : view === 'agents' ? (
             <Agents
               state={state}

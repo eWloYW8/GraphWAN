@@ -118,3 +118,18 @@ Screenshots and retained failure traces live under ignored `web/test-results`.
 For hot reload, run a development controller on `127.0.0.1:8443` with `--http`,
 then `pnpm --dir web dev`. Vite proxies `/api` while preserving the request Host
 so the existing same-origin checks still apply. Open Vite's local URL.
+
+## Servers
+
+**Servers** lists cluster members and their automatic and manual entry points.
+**Edit** changes a Server name, its TCP STUN list and manual `tcp`, `websocket`,
+`grpc` or `wss` entrances. Automatic discoveries are retained when saving manual
+changes. Edits retry unrelated revision changes while preserving the draft if
+another administrator changed the same settings.
+
+Use **Add server** to generate an invitation, then **Join cluster** on a new empty
+Server to paste it. The new Server restarts automatically; sign in with the
+existing cluster password. Coordinator election is automatic and every Server
+provides the same controls. Three voting members are needed to keep configuration
+writes available after one fails. Agent connections and data forwarding remain
+available without write quorum.

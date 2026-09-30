@@ -93,6 +93,7 @@ func Compile(state model.State, agentID model.ID) (model.Snapshot, error) {
 	out := model.Snapshot{Schema: model.SchemaVersion, Revision: state.Revision, AgentID: agentID, ListenPort: self.ListenPort, Endpoints: append([]model.Endpoint{}, self.Endpoints...), Networks: []model.NetworkConfig{}}
 	out.STUNServers = append([]string(nil), self.STUNServers...)
 	out.ExcludeContainerIPs = self.ExcludeContainerIPs
+	out.Servers = state.ServerDirectory()
 	for _, network := range state.Networks {
 		var me model.Node
 		nodes := map[model.ID]model.Node{}

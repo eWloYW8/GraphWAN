@@ -191,7 +191,7 @@ func (s *Server) readAgent(ctx context.Context, conn *websocket.Conn, id model.I
 			}
 			s.mu.Unlock()
 		case "endpoints":
-			if err := s.updateEndpoints(id, message.Endpoints); err != nil {
+			if err := s.updateEndpoints(id, message.Endpoints); err != nil && !errors.Is(err, store.ErrUnavailable) && !errors.Is(err, store.ErrConflict) {
 				return err
 			}
 		default:
@@ -324,11 +324,22 @@ func (s *Server) telemetry(state model.State) []model.AgentStatus {
 			}
 		}
 	}
+	remote := map[model.ID]model.AgentStatus{}
+	if s.cluster != nil {
+		for _, status := range s.cluster.RemoteAgents() {
+			if status.LastSeen.After(remote[status.AgentID].LastSeen) {
+				remote[status.AgentID] = status
+			}
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	statuses := make([]model.AgentStatus, 0, len(state.Agents))
 	for _, a := range state.Agents {
 		status := s.statuses[a.ID]
+		if candidate := remote[a.ID]; candidate.LastSeen.After(status.LastSeen) {
+			status = candidate
+		}
 		status.AgentID = a.ID
 		status.Resources = status.Resources.Clone()
 		if a.Revoked || time.Since(status.LastSeen) > 45*time.Second {

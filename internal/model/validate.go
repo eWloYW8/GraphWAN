@@ -137,6 +137,13 @@ func ParseSTUNServer(server string) (Transport, string, error) {
 
 // Validate rejects ambiguous topology before persistence or compilation.
 func (s State) Validate() error {
+	if s.ClusterID != "" {
+		if err := s.ServerDirectory().Validate(); err != nil {
+			return err
+		}
+	} else if len(s.Servers) != 0 || len(s.ClusterCA) != 0 {
+		return fmt.Errorf("server directory without cluster identity")
+	}
 	if s.Schema != SchemaVersion {
 		return fmt.Errorf("unsupported schema %d", s.Schema)
 	}
@@ -153,6 +160,17 @@ func (s State) Validate() error {
 	}
 	agents := map[ID]Agent{}
 	keys := map[string]bool{}
+	for _, server := range s.Servers {
+		if err := addID(server.ID); err != nil {
+			return err
+		}
+		keys[string(server.PublicKey)] = true
+		for _, ep := range server.Endpoints {
+			if err := addID(ep.ID); err != nil {
+				return err
+			}
+		}
+	}
 	for _, a := range s.Agents {
 		if err := addID(a.ID); err != nil {
 			return err

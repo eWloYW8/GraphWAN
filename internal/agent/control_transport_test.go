@@ -132,7 +132,7 @@ func TestControlCarriersKeepInnerAuthentication(t *testing.T) {
 	}
 }
 
-func TestControlCarrierSwitchRetainsIdentity(t *testing.T) {
+func TestBootstrapCarrierChangesIgnoredAfterEnrollment(t *testing.T) {
 	h := newController(t, true)
 	cache, err := agent.OpenCache(filepath.Join(t.TempDir(), "agent.db"))
 	if err != nil {
@@ -160,7 +160,7 @@ func TestControlCarrierSwitchRetainsIdentity(t *testing.T) {
 			t.Fatal(err)
 		}
 		if id != "" && reg.AgentID != id {
-			t.Fatal("carrier switch changed identity")
+			t.Fatal("bootstrap flag changed identity")
 		}
 		id = reg.AgentID
 		stopClient(t, cancel, done)
@@ -172,6 +172,6 @@ func TestControlCarrierSwitchRetainsIdentity(t *testing.T) {
 		})
 	}
 	if len(h.state(t).Agents) != 1 {
-		t.Fatal("carrier switch enrolled duplicate agent")
+		t.Fatal("bootstrap flag enrolled duplicate agent")
 	}
 }

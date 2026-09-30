@@ -10,6 +10,14 @@ import (
 // Validate checks a compiled snapshot before an Agent persists or applies it.
 // It validates forwarding references without needing the controller's full graph.
 func (s Snapshot) Validate(agentID ID) error {
+	if s.Servers != nil {
+		if err := s.Servers.Validate(); err != nil {
+			return err
+		}
+		if s.Servers.Revision != s.Revision {
+			return fmt.Errorf("server directory revision mismatch")
+		}
+	}
 	if s.Schema != SchemaVersion {
 		return fmt.Errorf("unsupported snapshot schema %d", s.Schema)
 	}

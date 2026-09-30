@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/coder/websocket"
+	"github.com/eWloYW8/GraphWAN/internal/cluster"
 	"github.com/eWloYW8/GraphWAN/internal/model"
 	"github.com/eWloYW8/GraphWAN/internal/pki"
 	"github.com/eWloYW8/GraphWAN/internal/store"
@@ -22,6 +23,9 @@ import (
 const maxBody = 8 << 20
 
 type Server struct {
+	cluster      *cluster.Runtime
+	reload       chan struct{}
+	reloadOnce   sync.Once
 	mu           sync.Mutex
 	closed       bool
 	done         chan struct{}
@@ -55,12 +59,18 @@ func New(db *store.Store, options Options) (*Server, error) {
 		options.Logger = slog.Default()
 	}
 	s := &Server{
-		db: db, auth: auth, ca: ca, log: options.Logger, mux: http.NewServeMux(),
+		reload: make(chan struct{}), db: db, auth: auth, ca: ca, log: options.Logger, mux: http.NewServeMux(),
 		done: make(chan struct{}), eventClients: map[[32]byte]int{},
 		streams: map[model.ID]*websocket.Conn{}, watchers: map[chan struct{}]bool{},
 		statuses: map[model.ID]model.AgentStatus{},
 	}
-	s.mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"status": "ok"}) })
+	s.mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
+		if s.cluster != nil && !s.cluster.Ready() {
+			fail(w, 503, "controller initializing")
+			return
+		}
+		respond(w, 200, map[string]string{"status": "ok"})
+	})
 	s.mux.HandleFunc("POST /api/v1/login", auth.login)
 	s.mux.HandleFunc("POST /api/v1/logout", auth.require(auth.logout))
 	s.mux.HandleFunc("GET /api/v1/session", auth.require(func(w http.ResponseWriter, r *http.Request) {
@@ -145,6 +155,10 @@ func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
 	stateResponse(w, 200, state)
 }
 func (s *Server) internal(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrUnavailable) {
+		fail(w, 503, store.ErrUnavailable.Error())
+		return
+	}
 	s.log.Error("controller request failed", "error", err)
 	fail(w, 500, "internal server error")
 }
@@ -157,6 +171,10 @@ func (s *Server) change(w http.ResponseWriter, r *http.Request, status int, fn f
 		return
 	}
 	state, err := s.db.Update(expected, fn)
+	if errors.Is(err, store.ErrUnavailable) {
+		s.internal(w, err)
+		return
+	}
 	if errors.Is(err, store.ErrConflict) {
 		fail(w, 409, "configuration changed; reload and retry")
 		return

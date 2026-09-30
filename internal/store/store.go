@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/eWloYW8/GraphWAN/internal/model"
@@ -18,7 +19,10 @@ var ErrConflict = errors.New("configuration revision conflict")
 var bucket = []byte("graphwan")
 var stateKey = []byte("state")
 
-type Store struct{ db *bolt.DB }
+type Store struct {
+	db        *bolt.DB
+	committer atomic.Pointer[committer]
+}
 
 func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -87,7 +91,8 @@ func (s *Store) Update(expected uint64, change func(*model.State) error) (model.
 // UpdateWithRecords atomically commits configuration and related security records.
 func (s *Store) UpdateWithRecords(expected uint64, change func(*model.State, *Records) error) (model.State, error) {
 	var result model.State
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	var command Command
+	err := s.db.View(func(tx *bolt.Tx) error {
 		state, err := read(tx)
 		if err != nil {
 			return err
@@ -98,24 +103,22 @@ func (s *Store) UpdateWithRecords(expected uint64, change func(*model.State, *Re
 		if expected == math.MaxUint64 {
 			return errors.New("revision exhausted")
 		}
-		if err := change(&state, &Records{tx: tx}); err != nil {
+		command = Command{Expected: version(tx), Records: make(map[string]*[]byte)}
+		if err := change(&state, &Records{tx: tx, pending: command.Records}); err != nil {
 			return err
 		}
 		state.Revision = expected + 1
 		if err := state.Validate(); err != nil {
 			return err
 		}
-		raw, err := json.Marshal(state)
-		if err != nil {
-			return err
-		}
-		if err := tx.Bucket(bucket).Put(stateKey, raw); err != nil {
-			return err
-		}
+		command.State = &state
 		result = state.Clone()
 		return nil
 	})
 	if err != nil {
+		return model.State{}, err
+	}
+	if err := s.commit(command); err != nil {
 		return model.State{}, err
 	}
 	return result, nil

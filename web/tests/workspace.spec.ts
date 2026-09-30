@@ -555,3 +555,33 @@ test('network encryption choices persist through the real controller', async ({ 
     expect(state.networks.find((n) => n.name === 'Cipher choices')?.cipher).toBe(suite)
   }
 })
+
+test('server management persists manual entry points and creates a join invitation', async ({
+  page,
+}) => {
+  await login(page)
+  await page.getByRole('button', { name: /^Servers/ }).click()
+  await expect(page.getByRole('heading', { name: 'Servers', exact: true })).toBeVisible()
+  await page
+    .getByRole('button', { name: /^Edit / })
+    .first()
+    .click()
+  await page.getByRole('button', { name: 'Add entry point', exact: true }).click()
+  await page.getByLabel('Endpoint URL 1').fill('ws://127.0.0.1:18543')
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(page.locator('.server-endpoints')).toContainText('ws://127.0.0.1:18543')
+  await page.reload()
+  await page.getByRole('button', { name: /^Servers/ }).click()
+  await expect(page.locator('.server-endpoints')).toContainText('ws://127.0.0.1:18543')
+  await page.getByRole('button', { name: 'Add server', exact: true }).click()
+  await expect(page.getByLabel('Cluster invitation', { exact: true })).not.toHaveValue('')
+  const encoded = await page.getByLabel('Cluster invitation', { exact: true }).inputValue()
+  const invitation = JSON.parse(Buffer.from(encoded, 'base64url').toString())
+  expect(invitation.token).toHaveLength(43)
+  expect(invitation.directory.servers).toHaveLength(1)
+  expect(
+    invitation.directory.servers[0].endpoints.some(
+      (ep: { url: string }) => ep.url === 'ws://127.0.0.1:18543',
+    ),
+  ).toBeTruthy()
+})

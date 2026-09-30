@@ -43,7 +43,29 @@ export type Network = {
   nodes: Node[]
   edges: Edge[]
 }
-export type State = { schema: number; revision: number; networks: Network[]; agents: Agent[] }
+export type ServerEndpoint = {
+  id: string
+  transport: 'tcp' | 'websocket' | 'grpc' | 'wss'
+  url: string
+  source: 'manual' | 'interface' | 'observed'
+  expires_at?: string
+}
+export type Controller = {
+  id: string
+  name: string
+  public_key: string
+  endpoints: ServerEndpoint[]
+  stun_servers?: string[]
+  revoked?: boolean
+}
+export type State = {
+  servers?: Controller[]
+  cluster_id?: string
+  schema: number
+  revision: number
+  networks: Network[]
+  agents: Agent[]
+}
 export type Link = {
   network_id: string
   edge_id: string

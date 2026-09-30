@@ -29,7 +29,7 @@ func Validate(kind string) error {
 // DialContext returns an *unencrypted* byte-stream adapter. http.Transport then
 // performs its normal server-verified TLS handshake over it, using the Agent
 // certificate after enrollment. Outer WSS has independent server-only TLS.
-func DialContext(kind string, roots *x509.CertPool) func(context.Context, string, string) (net.Conn, error) {
+func DialContext(kind string, roots *x509.CertPool, serverNames ...string) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		if err := Validate(kind); err != nil {
 			return nil, err
@@ -40,18 +40,22 @@ func DialContext(kind string, roots *x509.CertPool) func(context.Context, string
 		case "grpc":
 			return dialGRPC(ctx, addr)
 		default:
-			return dialWebSocket(ctx, kind, addr, roots)
+			name := ""
+			if len(serverNames) > 0 {
+				name = serverNames[0]
+			}
+			return dialWebSocket(ctx, kind, addr, roots, name)
 		}
 	}
 }
 
-func dialWebSocket(ctx context.Context, kind, addr string, roots *x509.CertPool) (net.Conn, error) {
+func dialWebSocket(ctx context.Context, kind, addr string, roots *x509.CertPool, serverName string) (net.Conn, error) {
 	scheme := "ws"
 	if kind == "wss" {
 		scheme = "wss"
 	}
 	u := url.URL{Scheme: scheme, Host: addr, Path: WebSocketPath}
-	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS13}, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
+	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: serverName, MinVersion: tls.VersionTLS13}, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
 	httpClient := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	ws, resp, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{HTTPClient: httpClient, Subprotocols: []string{WebSocketProtocol}, CompressionMode: websocket.CompressionDisabled})
 	tr.CloseIdleConnections()
@@ -122,4 +126,10 @@ func dialGRPC(ctx context.Context, addr string) (net.Conn, error) {
 		return nil, err
 	}
 	return grpcConn(stream, func() { cancel(); cc.Close() }, address("local"), address(addr)), nil
+}
+
+// WebSocketStream adapts a binary WebSocket to a bounded stream with deadlines.
+func WebSocketStream(ws *websocket.Conn, local, remote net.Addr) (net.Conn, <-chan struct{}) {
+	c := webSocketConn(ws, local, remote)
+	return c, c.done
 }

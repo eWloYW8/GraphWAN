@@ -24,9 +24,12 @@ var agentBucket = []byte("agent-v1")
 const maxSnapshotBytes = 8 << 20
 
 type Registration struct {
-	AgentID     model.ID `json:"agent_id"`
-	Server      string   `json:"server"`
-	Certificate []byte   `json:"certificate"`
+	CA          []byte                 `json:"ca,omitempty"`
+	Transport   string                 `json:"transport,omitempty"`
+	Directory   *model.ServerDirectory `json:"directory,omitempty"`
+	AgentID     model.ID               `json:"agent_id"`
+	Server      string                 `json:"server"`
+	Certificate []byte                 `json:"certificate"`
 }
 
 type Cache struct {
@@ -104,6 +107,9 @@ func (c *Cache) SaveRegistration(reg Registration) error {
 	if _, err := c.TLSCertificate(reg); err != nil {
 		return err
 	}
+	if err := validateDirectory(reg, reg.Directory); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(reg)
 	if err != nil {
 		return err
@@ -115,7 +121,7 @@ func (c *Cache) SaveRegistration(reg Registration) error {
 			if err := json.Unmarshal(prior, &old); err != nil {
 				return err
 			}
-			if old.AgentID != reg.AgentID || old.Server != reg.Server {
+			if old.AgentID != reg.AgentID || old.Server != reg.Server || (len(old.CA) > 0 && !bytes.Equal(old.CA, reg.CA)) {
 				return errors.New("registration cannot change agent or controller identity")
 			}
 		}

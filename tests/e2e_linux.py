@@ -39,6 +39,7 @@ def eventually(fn, timeout=30):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", required=True)
+    parser.add_argument("--cluster", action="store_true", help="join three controllers and verify Agent failover and majority writes")
     parser.add_argument("--server-transports", nargs=3, choices=("tcp", "websocket", "grpc", "wss"), default=["tcp"] * 3,
                         help="controller carrier for each of the three agents")
     parser.add_argument("--transport", choices=("auto", "udp", "tcp", "ws", "wss", "grpc", "quic"), default="auto",
@@ -229,6 +230,29 @@ def main():
 
             eventually(lambda: api("GET", "/health")["status"] == "ok")
             csrf = api("POST", "/login", {"password": password})["csrf_token"]
+            replicas = []
+            if args.cluster:
+                source_connection = (server_url, opener, csrf)
+                for replica_index in range(2):
+                    invitation = api("POST", "/servers/invitation")["invitation"]
+                    replica_dir = root / f"replica-{replica_index}"
+                    replica_port = 8444 + replica_index
+                    replica = spawn(f"replica-{replica_index}", [binary, "server", "--listen", host_port(controller_ip, replica_port), "--tls-hosts", controller_ip, "--data-dir", str(replica_dir)], dict(os.environ, GRAPHWAN_ADMIN_PASSWORD=password))
+                    replica_ca = replica_dir / "ca.pem"
+                    eventually(lambda: replica_ca.exists() and replica.poll() is None)
+                    server_url = "https://" + host_port(controller_ip, replica_port)
+                    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=str(replica_ca))), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), urllib.request.ProxyHandler({}))
+                    eventually(lambda: api("GET", "/health")["status"] == "ok")
+                    csrf = api("POST", "/login", {"password": password})["csrf_token"]
+                    assert api("POST", "/servers/join", {"invitation": invitation})["restarting"]
+                    eventually(lambda: replica_ca.read_bytes() == ca.read_bytes())
+                    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), urllib.request.ProxyHandler({}))
+                    eventually(lambda: api("GET", "/health")["status"] == "ok")
+                    csrf = api("POST", "/login", {"password": password})["csrf_token"]
+                    replicas.append((replica, server_url))
+                    server_url, opener, csrf = source_connection
+                    eventually(lambda: api("GET", "/servers/status")["voters"] == replica_index + 2)
+                print("PASS: three independent controller processes join and become voting members", flush=True)
             agents, agent_commands = [], []
             for index, holder in enumerate(namespaces):
                 token = api("POST", "/enrollment-tokens", {})["token"]
@@ -598,6 +622,37 @@ for kind in sys.argv[2:]:
                 eventually(exchange)
                 print("PASS: STUN outage preserves established traffic", flush=True)
             stop(server)
+            if args.cluster:
+                def use_replica(url):
+                    nonlocal server_url, opener, csrf
+                    server_url = url
+                    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), urllib.request.ProxyHandler({}))
+                    csrf = api("POST", "/login", {"password": password})["csrf_token"]
+                use_replica(replicas[0][1])
+                eventually(lambda: api("POST", "/enrollment-tokens", {}))
+                def change_after_failover():
+                    current = api("GET", "/state")
+                    changed = current["networks"][0]
+                    changed["name"] = "cluster-failover"
+                    return api("PUT", f"/networks/{changed['id']}", changed, current["revision"])
+                updated = eventually(change_after_failover)
+                eventually(lambda: len(reports := api("GET", "/telemetry")) == 3 and all(r["connected"] and r["applied_revision"] >= updated["revision"] for r in reports))
+                eventually(ping)
+                eventually(exchange)
+                print("PASS: Agents fail over, surviving quorum accepts configuration and native traffic continues", flush=True)
+                stop(replicas[0][0])
+                use_replica(replicas[1][1])
+                def minority_rejects():
+                    try:
+                        api("POST", "/enrollment-tokens", {})
+                    except urllib.error.HTTPError as error:
+                        return error.code == 503
+                    return False
+                eventually(minority_rejects)
+                eventually(ping)
+                eventually(exchange)
+                print("PASS: minority rejects writes while native forwarding continues", flush=True)
+                stop(replicas[1][0])
             eventually(ping)
             eventually(exchange)
             print("PASS: controller outage preserves native multi-hop traffic", flush=True)
@@ -617,7 +672,12 @@ for kind in sys.argv[2:]:
             eventually(exchange)
             print("PASS: deleted native TUN recovers its route/MTU and traffic with controller offline", flush=True)
             stop(agents[1])
-            agents[1] = spawn("agent-1-restarted", agent_commands[1], dict(os.environ, HTTP_PROXY="", HTTPS_PROXY="", ALL_PROXY=""))
+            restart_command = list(agent_commands[1])
+            if args.cluster:
+                for option in ("--server", "--server-transport", "--ca"):
+                    index = restart_command.index(option)
+                    del restart_command[index:index+2]
+            agents[1] = spawn("agent-1-restarted", restart_command, dict(os.environ, HTTP_PROXY="", HTTPS_PROXY="", ALL_PROXY=""))
             eventually(ping)
             eventually(exchange)
             print("PASS: transit agent restarts from durable cache with controller offline", flush=True)

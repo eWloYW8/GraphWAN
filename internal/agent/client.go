@@ -42,6 +42,8 @@ type Client struct {
 	reconcile        *Reconciler
 	options          Options
 	server           string
+	lastTarget       string
+	failedTargets    map[string]bool
 	http             *http.Client
 	transport        *http.Transport
 	mu               sync.Mutex
@@ -62,24 +64,33 @@ func NewClient(cache *Cache, runtime Runtime, options Options) (*Client, error) 
 	if cache == nil || runtime == nil {
 		return nil, errors.New("agent requires cache and runtime")
 	}
+	existing, err := cache.Registration()
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		options.Server = existing.Server
+		options.ServerTransport = existing.Transport
+		if _, err := cache.TLSCertificate(*existing); err != nil {
+			return nil, err
+		}
+		if err := validateDirectory(*existing, existing.Directory); err != nil {
+			return nil, err
+		}
+		if len(existing.CA) > 0 {
+			roots := x509.NewCertPool()
+			if !roots.AppendCertsFromPEM(existing.CA) {
+				return nil, errors.New("invalid cached CA")
+			}
+			options.Roots = roots
+		}
+	}
 	server, err := serverURL(options.Server)
 	if err != nil {
 		return nil, err
 	}
 	if err := controltransport.Validate(options.ServerTransport); err != nil {
 		return nil, err
-	}
-	existing, err := cache.Registration()
-	if err != nil {
-		return nil, err
-	}
-	if existing != nil {
-		if existing.Server != server {
-			return nil, errors.New("cached identity belongs to another controller")
-		}
-		if _, err := cache.TLSCertificate(*existing); err != nil {
-			return nil, err
-		}
 	}
 	if options.Logger == nil {
 		options.Logger = slog.Default()
@@ -90,7 +101,8 @@ func NewClient(cache *Cache, runtime Runtime, options Options) (*Client, error) 
 	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: options.Roots, MinVersion: tls.VersionTLS13}, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 15 * time.Second, MaxIdleConnsPerHost: 2}
 	transport.DialContext = controltransport.DialContext(options.ServerTransport, options.Roots)
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &Client{cache: cache, reconcile: NewReconciler(cache, runtime), options: options, server: server, http: client, transport: transport, endpointsChanged: make(chan struct{}, 1)}, nil
+	last, _ := cache.lastServer()
+	return &Client{lastTarget: last, failedTargets: map[string]bool{}, cache: cache, reconcile: NewReconciler(cache, runtime), options: options, server: server, http: client, transport: transport, endpointsChanged: make(chan struct{}, 1)}, nil
 }
 func (c *Client) Close()                    { c.transport.CloseIdleConnections() }
 func (c *Client) Report() model.AgentReport { return c.reconcile.Report(c.options.Version) }
@@ -126,9 +138,6 @@ func (c *Client) registration(ctx context.Context) (*Registration, error) {
 		return nil, err
 	}
 	if reg != nil {
-		if reg.Server != c.server {
-			return nil, errors.New("cached identity belongs to another controller")
-		}
 		return reg, nil
 	}
 	if c.options.EnrollmentToken == "" {
@@ -160,27 +169,41 @@ func (c *Client) registration(ctx context.Context) (*Registration, error) {
 	if resp.StatusCode != 201 {
 		return nil, fmt.Errorf("enrollment rejected: HTTP %d", resp.StatusCode)
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 65537))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxSnapshotBytes+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(raw) > 65536 {
+	if len(raw) > maxSnapshotBytes {
 		return nil, errors.New("enrollment response too large")
 	}
 	var result struct {
-		AgentID     model.ID `json:"agent_id"`
-		Certificate []byte   `json:"certificate"`
+		CA          []byte                 `json:"ca_certificate"`
+		Directory   *model.ServerDirectory `json:"servers"`
+		AgentID     model.ID               `json:"agent_id"`
+		Certificate []byte                 `json:"certificate"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
-	reg = &Registration{AgentID: result.AgentID, Server: c.server, Certificate: result.Certificate}
+	reg = &Registration{CA: result.CA, Transport: c.options.ServerTransport, Directory: result.Directory, AgentID: result.AgentID, Server: c.server, Certificate: result.Certificate}
 	cert, err := c.cache.TLSCertificate(*reg)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := cert.Leaf.Verify(x509.VerifyOptions{Roots: c.options.Roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		return nil, fmt.Errorf("verify issued agent certificate: %w", err)
+	}
+	if err := validateDirectory(*reg, reg.Directory); err != nil {
+		return nil, err
+	}
+	if len(reg.CA) > 0 {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(reg.CA) {
+			return nil, errors.New("invalid enrolled CA")
+		}
+		if _, err := cert.Leaf.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+			return nil, err
+		}
 	}
 	if err := c.cache.SaveRegistration(*reg); err != nil {
 		return nil, err
@@ -206,15 +229,6 @@ func (c *Client) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	cert, err := c.cache.TLSCertificate(*reg)
-	if err != nil {
-		return err
-	}
-	c.transport.CloseIdleConnections()
-	authenticatedTransport := c.transport.Clone()
-	authenticatedTransport.TLSClientConfig.Certificates = []tls.Certificate{cert}
-	c.transport = authenticatedTransport
-	c.http.Transport = authenticatedTransport
 	runtimeCtx, stopRuntime := context.WithCancel(ctx)
 	updates := make(chan model.Snapshot, 1)
 	acks := make(chan struct{}, 1)
@@ -228,11 +242,14 @@ func (c *Client) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			break
 		}
-		c.options.Logger.Warn("controller disconnected; retaining local configuration", "error", err)
+		c.options.Logger.Warn("controller disconnected; retaining local configuration", "server", c.server, "error", err)
 		if time.Since(start) > time.Minute {
 			delay = 250 * time.Millisecond
 		}
 		wait := delay/2 + time.Duration(rand.Int64N(int64(delay/2)+1))
+		if saved, e := c.cache.Registration(); e == nil && saved != nil && len(c.failedTargets) < len(targets(*saved)) {
+			wait = 50 * time.Millisecond
+		}
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -247,13 +264,24 @@ func (c *Client) Run(ctx context.Context) error {
 func (c *Client) connect(parent context.Context, id model.ID, updates chan model.Snapshot, acks chan struct{}) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	dialCtx, stop := context.WithTimeout(ctx, 20*time.Second)
+	target, err := c.selectTarget()
+	if err != nil {
+		return err
+	}
+	defer func() { c.failedTargets[target.key] = true }()
+	dialCtx, stop := context.WithTimeout(ctx, 4*time.Second)
 	conn, resp, err := websocket.Dial(dialCtx, c.server+"/api/v1/agent/control", &websocket.DialOptions{HTTPClient: c.http, CompressionMode: websocket.CompressionDisabled})
 	stop()
 	if err != nil {
 		if resp != nil {
 			resp.Body.Close()
 		}
+		return err
+	}
+	c.lastTarget = target.key
+	clear(c.failedTargets)
+	if err := c.cache.saveLastServer(target.key); err != nil {
+		conn.CloseNow()
 		return err
 	}
 	defer conn.CloseNow()
@@ -327,6 +355,9 @@ func (c *Client) readControl(ctx context.Context, conn *websocket.Conn, id model
 			if err := message.Snapshot.Validate(id); err != nil {
 				return fmt.Errorf("invalid controller snapshot: %w", err)
 			}
+			if err := c.cache.SaveDirectory(message.Snapshot.Servers, c.options.Roots); err != nil {
+				return err
+			}
 			// Coalesce queued revisions, never the currently applying revision.
 			select {
 			case <-updates:
@@ -381,4 +412,51 @@ func (c *Client) applyLoop(ctx context.Context, updates chan model.Snapshot, ack
 		default:
 		}
 	}
+}
+
+func (c *Client) selectTarget() (controlTarget, error) {
+	reg, err := c.cache.Registration()
+	if err != nil {
+		return controlTarget{}, err
+	}
+	if reg == nil {
+		return controlTarget{}, errors.New("missing registration")
+	}
+	list := targets(*reg)
+	if len(list) == 0 {
+		return controlTarget{}, errors.New("no controller endpoints in local directory")
+	}
+	var selected *controlTarget
+	for i := range list {
+		if list[i].key == c.lastTarget && !c.failedTargets[list[i].key] {
+			selected = &list[i]
+			break
+		}
+	}
+	if selected == nil {
+		for i := range list {
+			if !c.failedTargets[list[i].key] {
+				selected = &list[i]
+				break
+			}
+		}
+	}
+	if selected == nil {
+		clear(c.failedTargets)
+		selected = &list[0]
+	}
+	cert, err := c.cache.TLSCertificate(*reg)
+	if err != nil {
+		return controlTarget{}, err
+	}
+	roots := c.options.Roots
+	if len(reg.CA) > 0 {
+		roots = x509.NewCertPool()
+		roots.AppendCertsFromPEM(reg.CA)
+	}
+	c.transport.CloseIdleConnections()
+	c.transport = &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{cert}, ServerName: selected.tlsName, MinVersion: tls.VersionTLS13}, DialContext: controltransport.DialContext(selected.transport, roots, selected.tlsName), TLSHandshakeTimeout: 3 * time.Second, ResponseHeaderTimeout: 4 * time.Second, MaxIdleConnsPerHost: 2}
+	c.http.Transport = c.transport
+	c.server = selected.origin
+	return *selected, nil
 }

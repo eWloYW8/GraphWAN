@@ -5,6 +5,8 @@ go 1.26.0
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/flynn/noise v1.1.0
+	github.com/hashicorp/raft v1.8.0
+	github.com/hashicorp/raft-boltdb/v2 v2.4.2
 	github.com/hashicorp/yamux v0.1.2
 	github.com/pion/stun/v3 v3.1.7
 	github.com/quic-go/quic-go v0.63.0
@@ -17,10 +19,19 @@ require (
 	golang.zx2c4.com/wireguard v0.0.0-20260522210424-ecfc5a8d5446
 	golang.zx2c4.com/wireguard/windows v1.1.1
 	google.golang.org/grpc v1.84.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
+	github.com/boltdb/bolt v1.3.1 // indirect
+	github.com/fatih/color v1.19.0 // indirect
+	github.com/hashicorp/go-hclog v1.6.3 // indirect
+	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
+	github.com/hashicorp/go-metrics v0.7.0 // indirect
+	github.com/hashicorp/go-msgpack/v2 v2.1.5 // indirect
+	github.com/hashicorp/golang-lru v1.0.2 // indirect
+	github.com/mattn/go-colorable v0.1.15 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/pion/dtls/v3 v3.1.5 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/transport/v4 v4.1.0 // indirect

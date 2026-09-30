@@ -27,6 +27,30 @@ The [administrative CLI](docs/admin-cli.md) supports `graphwan network create`,
 `graphwan network list`, `graphwan node list` and `graphwan edge add`, with JSON
 output, verified HTTPS and revision-checked updates.
 
+## Multiple controllers
+
+Each HTTPS controller starts as a one-member Raft cluster. In **Servers → Add
+server**, create an invitation. Start an empty controller on another machine,
+open **Servers → Join cluster**, and paste the invitation. It restarts
+with the shared configuration, CA and administrator password. All Servers expose
+the same management APIs and can enroll Agents; the coordinator is elected
+without a permanent primary. Invitations expire after one hour and authorize one
+Server identity. Adding a Server first synchronizes it as a nonvoter, then promotes it.
+
+Configuration and enrollment changes require a majority of voting Servers.
+Use at least three for one-failure write availability. With two Servers, losing
+either pauses writes; Agent connections and existing data forwarding continue.
+A minority returns HTTP 503 for writes. Reads show the local committed state and
+may briefly lag another replica. Browser sessions remain local to each Server.
+
+Servers persist their entrances and discover TCP addresses from active interfaces
+(including VPN interfaces) and TCP STUN on the actual listening port. Add manual
+`tcp://`, `ws://`, `grpc://` or `wss://` entrances in **Servers → Edit**; all require
+an explicit port. Automatic discovery only declares TCP. Inter-server replication
+uses the same listen port and authenticated control carriers. Each data directory
+contains that Server's private identity and Raft log; keep it unique per replica.
+See [Server management API](docs/control-api.md#server-clusters).
+
 ## Run a Linux agent
 
 Create an enrollment token from **Agents → Enroll agent** or the
@@ -42,8 +66,11 @@ sudo --preserve-env=GRAPHWAN_ENROLLMENT_TOKEN ./bin/graphwan agent \
 Agent control connections accept `--server-transport tcp|websocket|grpc|wss`
 (default `tcp`, also configurable with `GRAPHWAN_SERVER_TRANSPORT`). All four
 carriers share the controller's existing listen port and preserve the inner
-TLS 1.3 authentication and WebSocket control protocol. Keep `--server` as the
-same HTTPS origin when switching carriers; no re-enrollment is needed.
+TLS 1.3 authentication and WebSocket control protocol. `--server` and
+`--server-transport` apply only to first enrollment. After registration, the Agent
+uses its persistent Server directory and cached CA, updates that directory from
+controller snapshots, and automatically switches entrances or Servers on failure.
+Restarting with different bootstrap flags does not override the cached directory.
 See [control transport configuration](docs/control-api.md#control-transport-carriers).
 
 TUN setup requires root or `CAP_NET_ADMIN`. Add the enrolled Agent to a Network

@@ -87,7 +87,7 @@ returned in a response is not a substitute for authenticating the server.
 
 ### Control transport carriers
 
-The Agent selects its controller carrier with `--server-transport` or
+On first enrollment, the Agent selects its controller carrier with `--server-transport` or
 `GRAPHWAN_SERVER_TRANSPORT`; an explicit flag overrides the environment.
 The default is `tcp`. The controller automatically accepts all four carriers
 on its one configured TCP listen port (8443 by default):
@@ -110,7 +110,9 @@ graphwan agent --server https://controller.example.com:8443 \
 even when the outer carrier is plaintext WebSocket or HTTP/2. Enrollment HTTPS
 requests use that same carrier: the Agent verifies the server before sending a
 token, then uses its issued certificate for subsequent mTLS control connections.
-Changing carriers preserves the cached identity and configuration. There is no
+After enrollment, both `--server` and `--server-transport` are ignored. The
+persistent Server directory determines subsequent carriers and failover targets.
+Directory changes preserve the cached identity and network configuration. There is no
 automatic transport downgrade. WSS verifies the outer server certificate using
 the same trusted roots and hostname, independently of inner TLS verification.
 
@@ -217,3 +219,52 @@ that reverse proxies deliver events without buffering.
 Offline/revoked Agents' historical Link counters may remain visible, but their
 Links are not marked healthy or active. Removed/disabled Edges are filtered out
 immediately against current desired state, even before a new Agent report arrives.
+
+## Server clusters
+
+HTTPS controllers advertise `cluster_id`, public `cluster_ca` (base64 PEM) and
+`servers` in `/state`. Each Server has `id`, `name`, `public_key`, `endpoints`, and
+`stun_servers`. Endpoints have `id`, `transport` (`tcp`, `websocket`, `grpc`, `wss`),
+`url`, `source` and optional `expires_at`. URL schemes are respectively `tcp`, `ws`,
+`grpc`, `wss`; use an explicit port and no path, credentials, query or fragment.
+Automatic endpoints are TCP only. TCP STUN defaults to `tcp://stun.nextcloud.com:443`;
+an empty STUN list disables public mapping discovery. Each Server supports 64
+entrances and a cluster supports 64 Servers.
+
+| Method | Path | Body / semantics |
+| --- | --- | --- |
+| GET | `/servers/status` | Local Server ID, coordinator ID, voting member count and Raft indices |
+| PATCH | `/servers/{id}` | Optional `name`, `manual_endpoints`, `stun_servers`; requires `If-Match` |
+| POST | `/servers/invitation` | Returns a one-hour, single-identity `invitation`; requires admin session and CSRF |
+| POST | `/servers/join` | `{ "invitation": "..." }`; only on an empty standalone Server, requires admin session and CSRF |
+
+Joining returns 202 and automatically restarts the local controller. Log in again
+using the cluster's administrator password. The invitation contains the trusted
+CA, source Server directory and bearer secret; transferring it authorizes sharing
+cluster secrets with the joining Server. The join exchange verifies source TLS
+before sending the token. Exact retries recover the same Server certificate.
+Existing configured clusters cannot be merged through this endpoint.
+
+Raft commits configuration, CA and security-record transactions together. Any
+Server forwards writes to the elected coordinator and waits for local application
+before acknowledging them. An unavailable majority produces HTTP 503. Two voters
+require both online; three tolerate one failure. Losing control quorum does not
+stop existing Agent data forwarding. Reads can reflect a follower's latest
+committed state while it catches up. Telemetry aggregates recent reports from
+all reachable Servers; browser login sessions are local.
+
+Enrollment responses and Agent configuration snapshots include `servers` as a
+Server directory `{cluster_id, revision, ca, servers}`. Agents persist it, reject
+CA/cluster changes and revision rollback, and try alternative entrances when a
+connection fails. Only first registration uses bootstrap flags; registered Agents
+can start without `--server`, `--server-transport`, or `--ca` once trust has been
+cached. Legacy registrations keep their saved origin until the first directory
+is received (supply the old CA file for this migration). Directory TLS verifies a
+CA-issued stable per-Server name, allowing discovered addresses to change without
+re-enrollment. Outer WSS uses the same name and CA.
+
+Internal `/cluster/raft`, `/cluster/commit` and `/cluster/status` routes require
+Server membership plus an authenticated Server certificate. Agent credentials
+cannot invoke replication RPCs. These routes share the existing HTTPS/carrier
+port; no separate Raft listener is needed. Plaintext development mode has no
+cluster management or Agent control.

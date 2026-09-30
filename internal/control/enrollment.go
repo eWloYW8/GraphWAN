@@ -124,7 +124,11 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 			return records.Delete(enrollmentKey(token))
 		})
 		if errors.Is(err, errEnrollmentReplay) && replayed {
-			respond(w, 201, map[string]any{"agent_id": receipt.AgentID, "certificate": receipt.Certificate, "ca_certificate": s.ca.PEM, "revision": receipt.Revision})
+			respond(w, 201, map[string]any{"agent_id": receipt.AgentID, "certificate": receipt.Certificate, "ca_certificate": s.ca.PEM, "revision": receipt.Revision, "servers": current.ServerDirectory()})
+			return
+		}
+		if errors.Is(err, store.ErrUnavailable) {
+			s.internal(w, err)
 			return
 		}
 		if errors.Is(err, store.ErrConflict) {
@@ -139,7 +143,7 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.notify()
-		respond(w, 201, map[string]any{"agent_id": id, "certificate": certificate, "ca_certificate": s.ca.PEM, "revision": state.Revision})
+		respond(w, 201, map[string]any{"agent_id": id, "certificate": certificate, "ca_certificate": s.ca.PEM, "revision": state.Revision, "servers": state.ServerDirectory()})
 		return
 	}
 	fail(w, 409, "configuration is busy; retry enrollment")

@@ -239,3 +239,18 @@ These are Linux scenarios with fixed underlay MTUs. They do not establish native
 support on other systems, changing path MTUs,
 NAT64 or arbitrary NAT behavior. The NAT fixture models IPv4 SNAT and explicitly
 rejects `--nat --underlay-family 6`; either virtual address family can use it.
+
+### Controller cluster failover
+
+Run the existing native fixture with three independent controller processes:
+
+```sh
+sudo unshare --net python3 tests/e2e_linux.py --binary "$PWD/bin/graphwan" \
+  --cluster --server-transports websocket grpc wss --transport udp --restricted-agent
+```
+
+This joins two replicas through the authenticated management API, waits for three
+voters, then verifies Agent failover, configuration writes after coordinator loss,
+minority write rejection, and uninterrupted native multi-hop traffic. It also
+restarts a transit Agent without bootstrap flags or a CA file while all controllers
+are offline. Network namespaces keep the test separate from the host network.

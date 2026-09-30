@@ -1584,3 +1584,42 @@ td small,
     flex-shrink: 0;
   }
 }
+
+.server-list {
+  display: grid;
+  gap: 16px;
+}
+.server-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e0e5eb);
+  border-radius: 12px;
+  padding: 20px;
+}
+.server-card .page-heading {
+  margin-bottom: 16px;
+}
+.server-endpoints {
+  display: grid;
+  gap: 10px;
+}
+.server-endpoints > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.server-endpoints code {
+  overflow-wrap: anywhere;
+}
+.endpoint-editor {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.endpoint-editor select {
+  width: 120px;
+}
+.endpoint-editor input {
+  flex: 1;
+  min-width: 0;
+}

@@ -103,7 +103,8 @@ on another machine. The Agent's controller origin cannot be changed while retain
 an identity enrolled against a different origin.
 
 Set `GRAPHWAN_SERVER_TRANSPORT` to `tcp` (default), `websocket`, `grpc` or `wss`
-and restart the Agent to change its control carrier. The CLI equivalent is
+for its first enrollment. Registered Agents ignore bootstrap transport changes
+and use their locally persisted Server directory. The CLI equivalent is
 `--server-transport`. All carriers use the existing controller port and the same
 inner TLS identity; changing this setting needs no new enrollment token. Upgrade
 the controller first when adding carriers to an existing installation. See the
