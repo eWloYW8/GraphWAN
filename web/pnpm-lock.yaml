@@ -39,9 +39,6 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^6.1.1
         version: 6.1.1(vite@8.3.1(@types/node@26.6.3))
-      maxmind:
-        specifier: ^5.0.7
-        version: 5.0.7
       prettier:
         specifier: ^3.9.9
         version: 3.9.9
@@ -496,16 +493,8 @@ packages:
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  maxmind@5.0.7:
-    resolution: {integrity: sha512-+w637dwfv01MKjkrp4sKDBTEKHLPvWLYb647QTjiz3wG/teSemqudIKNShaS6eqZ7ffxC9oZlQQgIqY0rGojog==}
-    engines: {node: '>=12', npm: '>=6'}
-
   meshoptimizer@1.1.1:
     resolution: {integrity: sha512-oRFNWJRDA/WTrVj7NWvqa5HqE1t9MYDj2VaWirQCzCCrAd2GHrqR/sQezCxiWATPNlKTcRaPRHPJwIRoPBAp5g==}
-
-  mmdb-lib@3.0.3:
-    resolution: {integrity: sha512-xQPoBXcNjjHiOvOraFBKtA++uNWF6aCVHL9dRKFXEov8eI3QJwtgiw3qApsonFT5SpoqsEVISUTg3HIDs2DiXw==}
-    engines: {node: '>=10', npm: '>=6'}
 
   nanoid@3.3.19:
     resolution: {integrity: sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug==}
@@ -551,10 +540,6 @@ packages:
 
   three@0.186.1:
     resolution: {integrity: sha512-blFeqb49wRCSGUGj7gtpfnSGHy2lwDk94RhUmS1c/hTby70kvChbWpkJ4Pm1390LqzzvTmzgXKHPEafJwCb8jA==}
-
-  tiny-lru@13.0.0:
-    resolution: {integrity: sha512-xDHxKKS1FdF0Tv2P+QT7IeSEg74K/8cEDzbv3Tv6UyHHUgBOjOiQiBp818MGj66dhurQus/IBcoAbwIKtSGc6Q==}
-    engines: {node: '>=14'}
 
   tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
@@ -926,14 +911,7 @@ snapshots:
     dependencies:
       react: 19.3.0
 
-  maxmind@5.0.7:
-    dependencies:
-      mmdb-lib: 3.0.3
-      tiny-lru: 13.0.0
-
   meshoptimizer@1.1.1: {}
-
-  mmdb-lib@3.0.3: {}
 
   nanoid@3.3.19: {}
 
@@ -982,8 +960,6 @@ snapshots:
   source-map-js@1.2.1: {}
 
   three@0.186.1: {}
-
-  tiny-lru@13.0.0: {}
 
   tinyglobby@0.2.17:
     dependencies:
