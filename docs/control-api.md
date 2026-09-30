@@ -184,6 +184,15 @@ on the controller. Observed endpoints include expiration and mapped port.
 container veth endpoints while retaining an unbridged default-route uplink.
 Omission preserves the saved setting. Manual endpoints are unaffected.
 
+Each Link report includes `remote` (the socket peer), optional `local` (the local
+socket address), and optional `observed_local` (this endpoint as observed by its
+authenticated peer). UDP local listeners may be wildcard addresses; consumers
+should prefer the opposite endpoint's `remote` or `observed_local` for display.
+Both Agents report the same `link_id` for one bidirectional session. The panel
+groups by that ID and displays both endpoints' IP, port, protocol and metrics in
+one connection card; counters from the two ends are not summed. A missing report
+is displayed explicitly rather than inventing the other endpoint's address.
+
 `stun_servers` is an array of at most four service addresses: bare `host:port` or
 `udp://host:port` for UDP, and `tcp://host:port` for TCP. Hostnames and bracketed IPv6
 literals are supported. Duplicate normalized addresses within a transport are

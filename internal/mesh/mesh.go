@@ -387,7 +387,7 @@ func (m *Mesh) accept(conn transport.Conn, kind model.Transport) {
 			channel.Close()
 			return
 		}
-		selected.register(channel, *candidate)
+		selected.register(channel, *candidate, introduction.PathExchange)
 	}()
 }
 func addressFamily(address net.Addr) int {
@@ -416,6 +416,9 @@ type group struct {
 	linkCandidates map[string]link.Candidate
 	attempts       map[string]*attempt
 	retained       map[string]link.Candidate
+	suppressed     map[string]string
+	retiring       map[string]*retirement
+	keepers        map[link.Path]string
 	wg             sync.WaitGroup
 }
 type attempt struct {
@@ -430,6 +433,9 @@ func (m *Mesh) newGroup(cfg *policy) *group {
 	ctx, cancel := context.WithCancel(m.ctx)
 	g := &group{mesh: m, edge: link.NewCoordinatedEdge(cfg.self, cfg.peer.Node.ID, cfg.peer.Edge.PreferredCandidate), ctx: ctx, cancel: cancel, links: map[string]*link.Link{}, linkCandidates: map[string]link.Candidate{}, attempts: map[string]*attempt{}, retained: map[string]link.Candidate{}}
 	g.policy.Store(cfg)
+	g.suppressed = map[string]string{}
+	g.retiring = map[string]*retirement{}
+	g.keepers = map[link.Path]string{}
 	g.wg.Add(1)
 	go g.schedule()
 	return g
@@ -447,7 +453,7 @@ func (g *group) close() {
 	}
 	g.wg.Wait()
 }
-func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
+func (g *group) register(channel *peer.Channel, candidate link.Candidate, pathExchange bool) {
 	g.mu.Lock()
 	if g.ctx.Err() != nil {
 		g.mu.Unlock()
@@ -462,6 +468,7 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 	}
 	options := g.mesh.linkOptions
 	options.OwnedPackets = true
+	options.PathExchange = pathExchange
 	l, err := link.New(g.ctx, channel, link.Info{NetworkID: cfg.network, EdgeID: cfg.peer.Edge.ID, PeerID: cfg.peer.Node.ID, CandidateID: candidate.ID, Transport: candidate.Endpoint.Transport}, options)
 	if err != nil {
 		g.mu.Unlock()
@@ -483,6 +490,8 @@ func (g *group) register(channel *peer.Channel, candidate link.Candidate) {
 			select {
 			case message := <-l.Selections():
 				g.edge.HandleSelection(l, message)
+			case message := <-l.Retirements():
+				g.handleRetirement(l, message)
 			case <-l.Done():
 				return
 			case <-g.ctx.Done():

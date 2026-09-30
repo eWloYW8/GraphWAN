@@ -53,12 +53,16 @@ are described with their traversal limits in that guide.
   restore one-second probes, with a five-second response timeout; detecting a
   silent idle failure can therefore take approximately fifteen seconds.
 - An available manually preferred candidate wins immediately. Otherwise the
-  lowest measured RTT wins, with a two-second hold time and a 15%/2 ms minimum
-  improvement to avoid switches caused by timing noise. An unhealthy active Link
+  lowest measured RTT among retained candidates wins, without a minimum
+  improvement or hold-time threshold. An unhealthy active Link
   triggers selection of a fallback. The lower Node ID coordinates a common Link
   through authenticated prepare/accept/commit/confirm messages; the follower
   briefly pauses sending during the switch. See [the peer protocol](peer-protocol.md).
-- Healthy standby Links remain connected. Session replacement begins after
+- Sessions with the same two peer-observed IPs and transport are deduplicated,
+  ignoring ports. Different IPs or transports remain connected as standby
+  candidates. This requires path-exchange support at both endpoints. Retired
+  candidates do not redial while their retained session is healthy.
+  Session replacement begins after
   50 minutes; old sessions retire after an authenticated replacement is healthy
   and both endpoints have completed the common selection.
   Encryption enforces a one-hour/`2^32`-message hard limit independently.

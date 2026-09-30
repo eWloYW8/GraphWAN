@@ -865,6 +865,37 @@ fieldset:disabled select {
   margin-top: 11px;
   color: #506e40;
 }
+.connection-end {
+  border-top: 1px solid #e3eade;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.connection-end-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.connection-end-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.connection-address {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 7px;
+  font-size: 10px;
+}
+.connection-address code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.connection-address span {
+  white-space: nowrap;
+  color: #506e40;
+}
 dl {
   display: grid;
   grid-template-columns: 1fr 1fr;

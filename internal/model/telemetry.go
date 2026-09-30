@@ -3,18 +3,20 @@ package model
 import "time"
 
 type LinkStatus struct {
-	NetworkID   ID        `json:"network_id"`
-	EdgeID      ID        `json:"edge_id"`
-	LinkID      string    `json:"link_id"`
-	CandidateID string    `json:"candidate_id"`
-	Transport   Transport `json:"transport"`
-	Remote      string    `json:"remote"`
-	Healthy     bool      `json:"healthy"`
-	Active      bool      `json:"active"`
-	RTTMillis   float64   `json:"rtt_ms"`
-	Loss        float64   `json:"loss"`
-	RXBytes     uint64    `json:"rx_bytes"`
-	TXBytes     uint64    `json:"tx_bytes"`
+	NetworkID     ID        `json:"network_id"`
+	EdgeID        ID        `json:"edge_id"`
+	LinkID        string    `json:"link_id"`
+	CandidateID   string    `json:"candidate_id"`
+	Transport     Transport `json:"transport"`
+	Local         string    `json:"local,omitempty"`
+	ObservedLocal string    `json:"observed_local,omitempty"`
+	Remote        string    `json:"remote"`
+	Healthy       bool      `json:"healthy"`
+	Active        bool      `json:"active"`
+	RTTMillis     float64   `json:"rtt_ms"`
+	Loss          float64   `json:"loss"`
+	RXBytes       uint64    `json:"rx_bytes"`
+	TXBytes       uint64    `json:"tx_bytes"`
 }
 type AgentReport struct {
 	Resources       *ResourceUsage `json:"resources,omitempty"`

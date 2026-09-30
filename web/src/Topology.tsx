@@ -22,6 +22,7 @@ import { planRoutes, planLabels, type LineStyle } from './edgeRouting'
 import { activePath } from './activePath'
 import { ResourceDetails } from './Resources'
 import { Badge, Field } from './components'
+import { connectionViews, endpointParts } from './connections'
 import {
   type State,
   type Network,
@@ -299,6 +300,9 @@ export default function Topology({
     selection?.type === 'edge' ? network.edges.find((e) => e.id === selection.id) : undefined
   const agent = node ? state.agents.find((a) => a.id === node.agent_id) : undefined
   const agentStatus = node ? status.get(node.agent_id) : undefined
+  const connections = edge
+    ? connectionViews(network, edge, edgeView(network, edge, statuses, rates, live).links)
+    : []
   const geographyAgents = useMemo(() => {
     const ids = new Set(network.nodes.map((node) => node.agent_id))
     return state.agents.filter((agent) => ids.has(agent.id))
@@ -811,16 +815,10 @@ export default function Topology({
                   onChange={(e) => updateEdge({ preferred_candidate: e.target.value })}
                 >
                   <option value="">Automatic · Lowest RTT</option>
-                  {[
-                    ...new Map(
-                      edgeView(network, edge, statuses, rates, live).links.map((l) => [
-                        l.candidate_id,
-                        l,
-                      ]),
-                    ).values(),
-                  ].map((l) => (
-                    <option key={l.candidate_id} value={l.candidate_id}>
-                      {l.transport.toUpperCase()} · {l.remote} · {shortID(l.candidate_id)}
+                  {[...new Map(connections.map((c) => [c.candidate, c])).values()].map((c) => (
+                    <option key={c.candidate} value={c.candidate}>
+                      {c.transport.toUpperCase()} · {c.ends[0].address ?? 'Unknown'} ↔{' '}
+                      {c.ends[1].address ?? 'Unknown'}
                     </option>
                   ))}
                   {edge.preferred_candidate &&
@@ -828,36 +826,49 @@ export default function Topology({
                       (l) => l.candidate_id === edge.preferred_candidate,
                     ) && (
                       <option value={edge.preferred_candidate}>
-                        Saved path · {shortID(edge.preferred_candidate)} (unavailable)
+                        Saved path · {shortID(edge.preferred_candidate)}
                       </option>
                     )}
                 </select>
               </Field>
             </fieldset>
-            <h4>Live links · both endpoints</h4>
-            {edgeView(network, edge, statuses, rates, live).links.map((l) => (
-              <div className="link-detail" key={`${l.agent}/${l.link_id}`}>
+            <h4>Connections · {connections.length}</h4>
+            {connections.map((c) => (
+              <div className="link-detail" key={c.id}>
                 <div>
-                  <strong>{l.transport.toUpperCase()}</strong>
-                  <Badge>
-                    {!live ? 'Unknown' : l.active ? 'Active' : l.healthy ? 'Standby' : 'Down'}
-                  </Badge>
+                  <strong title={c.id}>Session {shortID(c.id)}</strong>
+                  <Badge>{!live ? 'Unknown' : c.state}</Badge>
                 </div>
-                <small>
-                  {state.agents.find((a) => a.id === l.agent)?.name} → {l.remote}
-                </small>
-                <div className="link-metrics">
-                  <span>{l.rtt_ms.toFixed(1)} ms RTT</span>
-                  <span>{(l.loss * 100).toFixed(1)}% loss</span>
-                  <span>↓ {bytes(l.rx_bytes)}</span>
-                  <span>↑ {bytes(l.tx_bytes)}</span>
-                </div>
-                <small className="mono">Session {shortID(l.link_id)}</small>
+                {c.ends.map((end, index) => {
+                  const address = endpointParts(end.address)
+                  return (
+                    <div className="connection-end" key={index}>
+                      <div className="connection-end-heading">
+                        <strong>{end.name}</strong>
+                        <span className="tag">
+                          {(end.report?.transport ?? c.transport).toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="connection-address">
+                        <code>{address.ip}</code>
+                        <span>Port {address.port}</span>
+                      </div>
+                      {end.report ? (
+                        <div className="link-metrics">
+                          <span>{end.report.rtt_ms.toFixed(1)} ms RTT</span>
+                          <span>{(end.report.loss * 100).toFixed(1)}% loss</span>
+                          <span>↓ {bytes(end.report.rx_bytes)}</span>
+                          <span>↑ {bytes(end.report.tx_bytes)}</span>
+                        </div>
+                      ) : (
+                        <small>Awaiting report</small>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             ))}
-            {!edgeView(network, edge, statuses, rates, live).links.length && (
-              <p className="muted">No links reported.</p>
-            )}
+            {!connections.length && <p className="muted">No links reported.</p>}
             {editing && (
               <button
                 className="danger wide"

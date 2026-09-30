@@ -12,15 +12,50 @@ import (
 )
 
 type Edge struct {
-	mu        sync.Mutex
-	links     map[string]*Link
-	preferred string
-	active    string
-	switched  time.Time
-	selection *selectionState
+	mu           sync.Mutex
+	links        map[string]*Link
+	preferred    string
+	active       string
+	replacements map[string]string
+	aliases      map[string]string
+	switched     time.Time
+	selection    *selectionState
 }
 
-func newEdge(preferred string) *Edge { return &Edge{links: map[string]*Link{}, preferred: preferred} }
+func newEdge(preferred string) *Edge {
+	return &Edge{links: map[string]*Link{}, preferred: preferred, replacements: map[string]string{}, aliases: map[string]string{}}
+}
+
+// Replace excludes a redundant session from selection before closing it. A saved
+// preference for its candidate follows the retained session on the same IP path.
+func (e *Edge) Replace(old, replacement string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.links[old] == nil || e.links[replacement] == nil || old == replacement {
+		return
+	}
+	for candidate, id := range e.aliases {
+		if id == old {
+			e.aliases[candidate] = replacement
+		}
+	}
+	for id, target := range e.replacements {
+		if target == old {
+			e.replacements[id] = replacement
+		}
+	}
+	e.aliases[e.links[old].Info().CandidateID] = replacement
+	e.replacements[old] = replacement
+}
+
+func (e *Edge) ForgetReplacement(old string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if l := e.links[old]; l != nil && e.aliases[l.Info().CandidateID] == e.replacements[old] {
+		delete(e.aliases, l.Info().CandidateID)
+	}
+	delete(e.replacements, old)
+}
 func (e *Edge) SetPreferred(candidate string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -41,6 +76,17 @@ func (e *Edge) Remove(id string) {
 		delete(e.selection.terms, id)
 	}
 	delete(e.links, id)
+	delete(e.replacements, id)
+	for old, target := range e.replacements {
+		if target == id {
+			delete(e.replacements, old)
+		}
+	}
+	for candidate, target := range e.aliases {
+		if target == id {
+			delete(e.aliases, candidate)
+		}
+	}
 	if e.active == id {
 		e.active = ""
 	}
@@ -129,34 +175,27 @@ func (e *Edge) bestLocked(now time.Time) *Link {
 			newest[l.Info().CandidateID] = l.Created()
 		}
 	}
-	var best, preferred, current *Link
-	var bestRTT, currentRTT float64
+	var best, preferred *Link
+	var bestRTT float64
 	for id, link := range e.links {
+		if replacement := e.links[e.replacements[id]]; replacement != nil && replacement.healthy() {
+			continue
+		}
 		stats := link.Stats()
 		if !stats.Healthy || link.RenewalDue() && link.Created().Before(newest[stats.CandidateID]) {
 			continue
-		}
-		if id == e.active {
-			current = link
-			currentRTT = stats.RTTMillis
 		}
 		if best == nil || stats.RTTMillis < bestRTT || stats.RTTMillis == bestRTT && id < best.ID() {
 			best = link
 			bestRTT = stats.RTTMillis
 		}
-		if stats.CandidateID == e.preferred && (preferred == nil || (stats.RTTMillis < preferred.Stats().RTTMillis || stats.RTTMillis == preferred.Stats().RTTMillis && id < preferred.ID())) {
+		if (stats.CandidateID == e.preferred || e.aliases[e.preferred] == id) && (preferred == nil || (stats.RTTMillis < preferred.Stats().RTTMillis || stats.RTTMillis == preferred.Stats().RTTMillis && id < preferred.ID())) {
 			preferred = link
 		}
 	}
 	selected := best
 	if preferred != nil {
 		selected = preferred
-	} else if current != nil && best != nil && best != current {
-		// Automatic switching needs a meaningful improvement and a short hold time.
-		// Explicit preference and failure recovery bypass both forms of hysteresis.
-		if now.Sub(e.switched) < 2*time.Second || currentRTT-bestRTT < max(2, currentRTT*0.15) {
-			selected = current
-		}
 	}
 	return selected
 }

@@ -80,6 +80,9 @@ This development protocol now requires the endpoint fingerprint for all Links;
 Agents predating that requirement must be upgraded together with their peers.
 Link-local scope introductions also require updated peers; existing unscoped
 global-address candidate identities and introductions are unchanged.
+The optional `path_exchange: true` capability enables the address exchange and
+duplicate retirement messages below. Older peers ignore this field; no new
+message types are sent until the remote advertises or demonstrates support.
 
 ## Encrypted messages
 
@@ -258,14 +261,51 @@ Wire framing is unchanged, and peers with the old probe cadence interoperate.
 Probes have priority over queued user frames. Standby Links run the same probes;
 only the selected sending Link receives user frames from the routing engine.
 
+## Address exchange and duplicate sessions
+
+An updated responder starts an authenticated type-8 message: one type byte, one
+acknowledgment byte (0 or 1), then the ASCII `IP:port` of its remote endpoint
+(IPv6 uses brackets). The whole message is at most 130 bytes. The acknowledgment
+bit means the sender has received the other end's address observation. The dialer
+enables this exchange after receiving type 8. Until acknowledged, an endpoint
+retries about once per second; it answers a first observation or an unacknowledged
+message immediately. The exchange then stops. Addresses are immutable within a
+session, and unspecified/multicast addresses and zero ports are rejected.
+
+Each end now knows both IPs as observed by its peer, including NAT mappings and
+the actual source of a connection from a wildcard UDP listener. Within one Edge,
+sessions are duplicates only if both observed endpoint IPs and the GraphWAN
+transport match. Ports, dialing direction and direct/punch method do not
+distinguish duplicates. IPv4-mapped addresses are normalized; IPv6 zones remain
+part of scoped address identity. Different IPs or transports remain independent
+candidates. Unknown addresses or peers without this capability are not guessed
+or deduplicated.
+
+The common-Link selector retains an established healthy session per IP/protocol
+path. It excludes redundant sessions from data selection, waits for the common
+selection to finish, and requests retirement on the **retained** session. Type 9
+is a retirement request and type 10 its acknowledgment; both carry the redundant
+session's 32-byte decoded ID after the type byte. The follower verifies the same
+IP/protocol path, a healthy retained session, and that the redundant session is
+safe to retire. It records the retired candidate's replacement before closing
+and acknowledging. Requests retry once per second and acknowledgments are
+idempotent even after the redundant session closes. Thus a lost UDP acknowledgment
+cannot cause a permanent retirement retry loop.
+
+Both sides suppress redialing candidates already served by a healthy retained
+session. Failure releases suppression; renewal may temporarily overlap sessions
+until a fresh healthy replacement is ready. Saved manual candidate preferences
+follow their retained session on the same path. Probe sizes/cadences are unchanged.
+
 ## Common active Link negotiation
 
 The endpoint with the lexicographically smaller Node ID selects the active Link
 for both directions of an Edge. Its measured RTT drives automatic selection;
 standby probes and telemetry continue at both endpoints. Explicit candidate
-preference overrides RTT. Automatic changes retain the 2-second hold time and
-require an improvement of at least 2 ms or 15%, whichever is larger. A failed
-Link and a retiring session with a healthy newer replacement bypass the hold.
+preference overrides RTT. Automatic selection chooses the lowest measured RTT
+among the retained healthy candidates, with Link ID as a deterministic tie break.
+There is no minimum RTT improvement or hold-time threshold. The coordinated
+switch below still completes before the follower starts using the selected Link.
 
 Selection messages are encrypted application messages on the **proposed Link**.
 They contain a one-byte type, a random 16-byte selector incarnation and an

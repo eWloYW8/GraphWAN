@@ -221,7 +221,7 @@ func validateReport(snapshot model.Snapshot, report model.AgentReport) error {
 	for _, link := range report.Links {
 		key := [2]model.ID{link.NetworkID, link.EdgeID}
 		edge, ok := edges[key]
-		if !ok || !slices.Contains(edge.Transports, link.Transport) || len(link.LinkID) == 0 || len(link.LinkID) > 128 || len(link.CandidateID) > 256 || len(link.Remote) > 2048 || links[link.LinkID] {
+		if !ok || !slices.Contains(edge.Transports, link.Transport) || len(link.LinkID) == 0 || len(link.LinkID) > 128 || len(link.CandidateID) > 256 || len(link.Remote) > 2048 || len(link.Local) > 2048 || len(link.ObservedLocal) > 2048 || links[link.LinkID] {
 			return errors.New("invalid link identity")
 		}
 		links[link.LinkID] = true

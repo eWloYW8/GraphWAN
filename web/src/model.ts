@@ -73,6 +73,8 @@ export type Link = {
   candidate_id: string
   transport: Transport
   remote: string
+  local?: string
+  observed_local?: string
   healthy: boolean
   active: boolean
   rtt_ms: number

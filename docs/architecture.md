@@ -12,7 +12,11 @@ A Network has a canonical CIDR, MTU, cipher suite, Nodes and undirected Edges.
 An Edge authorizes connectivity between exactly two Nodes and has a positive
 integer weight, transport/method allowlists and an optional preferred candidate.
 Candidate identifiers are stable across reconnects; live Link identifiers are not.
-All healthy Links remain open. Only the selected Link sends user traffic; heartbeats
+Healthy Links on distinct endpoint-IP/transport paths remain open. When both
+Agents support address exchange, sessions differing only in endpoint ports or
+dialing direction are consolidated into one healthy Link per path; suppressed
+candidates resume dialing if that Link fails. Automatic selection uses the
+lowest measured RTT across retained candidates. Only the selected Link sends user traffic; heartbeats
 and negotiation may use standby Links. A Session is the active Link of an Edge.
 
 Automatic endpoints use TCP/UDP only. Manual endpoints can use TCP, UDP, QUIC,

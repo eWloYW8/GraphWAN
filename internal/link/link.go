@@ -22,6 +22,9 @@ const (
 	acceptMessage  = 5
 	commitMessage  = 6
 	confirmMessage = 7
+	pathMessage    = 8
+	retireMessage  = 9
+	retiredMessage = 10
 	// Leave room for multiple kernel GSO bursts while writers process bounded
 	// batches. The queue is still finite; control messages use a separate queue.
 	queueSize = 512
@@ -49,6 +52,8 @@ type Options struct {
 	// IdleHeartbeat spaces probes when no user data is moving. An unanswered
 	// probe resumes Heartbeat cadence and retains the normal response timeout.
 	IdleHeartbeat time.Duration
+	// PathExchange is enabled by the authenticated introduction capability.
+	PathExchange bool
 	// OwnedPackets opts into explicit packet ownership. Consumers must release
 	// every buffer received from ReadOwnedBatch; the legacy Packets API is unused.
 	OwnedPackets bool
@@ -74,18 +79,22 @@ func (o Options) defaults() Options {
 }
 
 type Link struct {
-	channel             Channel
-	info                Info
-	options             Options
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	stopOnce            sync.Once
-	wg                  sync.WaitGroup
-	done                chan struct{}
-	data                [queueSize]queuedPacket
-	dataHead, dataCount int
-	dataReady           chan struct{}
-	selection           chan Selection
+	channel                       Channel
+	info                          Info
+	options                       Options
+	ctx                           context.Context
+	cancel                        context.CancelFunc
+	stopOnce                      sync.Once
+	wg                            sync.WaitGroup
+	done                          chan struct{}
+	data                          [queueSize]queuedPacket
+	dataHead, dataCount           int
+	dataReady                     chan struct{}
+	selection                     chan Selection
+	retirements                   chan Retirement
+	pathEnabled, pathAcknowledged bool
+	observedLocal                 string
+	lastPath                      time.Time
 	// Odd generations permit data; changing generations invalidates queued data.
 	dataGeneration  atomic.Uint64
 	control         chan []byte
@@ -124,6 +133,8 @@ func New(parent context.Context, channel Channel, info Info, options Options) (*
 	}
 	ctx, cancel := context.WithCancel(parent)
 	l := &Link{channel: channel, info: info, options: options, ctx: ctx, cancel: cancel, done: make(chan struct{}), dataReady: make(chan struct{}, 1), selection: make(chan Selection, 8), control: make(chan []byte, 8), packets: make(chan []byte, queueSize), pending: map[uint64]time.Time{}}
+	l.pathEnabled = options.PathExchange
+	l.retirements = make(chan Retirement, 8)
 	if _, ok := channel.(interface {
 		ReceiveOwnedBatch(context.Context) ([]*packetbuf.Buffer, error)
 	}); ok && options.OwnedPackets {
@@ -277,6 +288,9 @@ func (l *Link) healthy() bool {
 	defer l.mu.Unlock()
 	return l.healthyLocked(time.Now())
 }
+
+// Healthy avoids allocating formatted telemetry during connection maintenance.
+func (l *Link) Healthy() bool { return l.healthy() }
 func (l *Link) healthyLocked(now time.Time) bool {
 	return l.ctx.Err() == nil && !l.lastPong.IsZero() && (l.probeSince.IsZero() || now.Sub(l.probeSince) < l.options.Timeout)
 }
@@ -288,7 +302,11 @@ func (l *Link) Stats() model.LinkStatus {
 	if l.sent > 0 {
 		loss = float64(l.lost) / float64(l.sent)
 	}
-	return model.LinkStatus{NetworkID: l.info.NetworkID, EdgeID: l.info.EdgeID, LinkID: l.ID(), CandidateID: l.info.CandidateID, Transport: l.info.Transport, Remote: l.channel.RemoteAddr().String(), Healthy: healthy, RTTMillis: float64(l.rtt) / float64(time.Millisecond), Loss: loss, RXBytes: l.rx.Load(), TXBytes: l.tx.Load()}
+	local := ""
+	if channel, ok := l.channel.(interface{ LocalAddr() net.Addr }); ok && channel.LocalAddr() != nil {
+		local = channel.LocalAddr().String()
+	}
+	return model.LinkStatus{NetworkID: l.info.NetworkID, EdgeID: l.info.EdgeID, LinkID: l.ID(), CandidateID: l.info.CandidateID, Transport: l.info.Transport, Local: local, ObservedLocal: l.observedLocal, Remote: l.channel.RemoteAddr().String(), Healthy: healthy, RTTMillis: float64(l.rtt) / float64(time.Millisecond), Loss: loss, RXBytes: l.rx.Load(), TXBytes: l.tx.Load()}
 }
 func (l *Link) readLoop() {
 	owned, owning := l.channel.(interface {
@@ -349,6 +367,10 @@ func (l *Link) readLoop() {
 			return
 		}
 		switch raw[0] {
+		case pathMessage, retireMessage, retiredMessage:
+			if !l.handlePathControl(raw) {
+				return
+			}
 		case dataMessage:
 			if len(raw) <= packet.HeaderSize+1 || len(raw) > packet.MaxFrame+1 {
 				return
@@ -518,6 +540,10 @@ func (l *Link) recordPong(nonce uint64, now time.Time) {
 func (l *Link) heartbeat(now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.pathEnabled && !l.pathAcknowledged && now.Sub(l.lastPath) >= time.Second {
+		l.sendPathLocked()
+		l.lastPath = now
+	}
 	for seq, sent := range l.pending {
 		if now.Sub(sent) >= l.options.Timeout {
 			delete(l.pending, seq)

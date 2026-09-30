@@ -18,10 +18,11 @@ import (
 )
 
 type introduction struct {
-	Candidate string `json:"candidate"`
-	Target    string `json:"target,omitempty"`
-	Endpoint  string `json:"endpoint"`
-	Scope     string `json:"scope,omitempty"`
+	Candidate    string `json:"candidate"`
+	Target       string `json:"target,omitempty"`
+	Endpoint     string `json:"endpoint"`
+	Scope        string `json:"scope,omitempty"`
+	PathExchange bool   `json:"path_exchange,omitempty"`
 }
 
 func receiveIntroduction(ctx context.Context, channel *peer.Channel) (introduction, error) {
@@ -47,6 +48,7 @@ func (g *group) schedule() {
 	defer ticker.Stop()
 	for {
 		g.edge.Tick()
+		g.deduplicate()
 		g.retireSessions()
 		cfg := g.policy.Load()
 		candidates := g.candidates(cfg, true)
@@ -67,18 +69,7 @@ func (g *group) schedule() {
 				g.mu.Unlock()
 				return
 			}
-			connected := false
-			for _, l := range g.links {
-				select {
-				case <-l.Done():
-					continue
-				default:
-				}
-				if l.Info().CandidateID == candidate.ID && !l.RenewalDue() {
-					connected = true
-					break
-				}
-			}
+			connected := g.candidateConnectedLocked(candidate.ID)
 			state := g.attempts[candidate.ID]
 			if state == nil {
 				state = &attempt{candidate: candidate}
@@ -195,7 +186,7 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 	if err != nil {
 		return err
 	}
-	intro := introduction{Candidate: candidate.ID, Endpoint: endpointFingerprint(candidate.Endpoint), Scope: link.ScopeIdentity(candidate.Scope)}
+	intro := introduction{Candidate: candidate.ID, Endpoint: endpointFingerprint(candidate.Endpoint), Scope: link.ScopeIdentity(candidate.Scope), PathExchange: true}
 	if candidate.Target.IsValid() {
 		intro.Target = candidate.Target.String()
 	}
@@ -204,7 +195,7 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 		channel.Close()
 		return err
 	}
-	g.register(channel, candidate)
+	g.register(channel, candidate, false)
 	return nil
 }
 
@@ -212,18 +203,30 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 // after both endpoints have finished selecting their current common Link.
 func (g *group) retireSessions() {
 	g.mu.Lock()
-	newest := map[string]time.Time{}
+	newest := map[string]*link.Link{}
 	for _, l := range g.links {
 		candidate := l.Info().CandidateID
-		if l.Stats().Healthy && l.Created().After(newest[candidate]) {
-			newest[candidate] = l.Created()
+		if l.Healthy() && (newest[candidate] == nil || l.Created().After(newest[candidate].Created())) {
+			newest[candidate] = l
 		}
 	}
 	retire := []*link.Link{}
 	for _, l := range g.links {
-		if l.RenewalDue() && l.Created().Before(newest[l.Info().CandidateID]) && g.edge.CanRetire(l.ID()) {
-			retire = append(retire, l)
+		if g.retiring[l.ID()] != nil {
+			continue // Let the acknowledged duplicate-retirement protocol finish.
 		}
+		replacement := newest[l.Info().CandidateID]
+		if replacement == nil || !l.RenewalDue() || !l.Created().Before(replacement.Created()) || !g.edge.CanRetire(l.ID()) {
+			continue
+		}
+		oldPath, oldKnown := l.Path()
+		newPath, newKnown := replacement.Path()
+		if oldKnown && (!newKnown || oldPath == newPath) {
+			// On both endpoints, wait for address exchange and coordinated
+			// retirement to transfer every alias before dropping this keeper.
+			continue
+		}
+		retire = append(retire, l)
 	}
 	g.mu.Unlock()
 	for _, l := range retire {
