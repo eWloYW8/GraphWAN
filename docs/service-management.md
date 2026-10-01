@@ -2,7 +2,7 @@
 
 GraphWAN includes system service management for both Agent and Server:
 
-- Linux: systemd, running as root.
+- Linux: systemd, OpenRC, or OpenWrt procd + rc.common, running as root.
 - Windows: native Service Control Manager integration, running as LocalSystem.
 - macOS: system launchd LaunchDaemon, running as root.
 
@@ -93,10 +93,32 @@ password hash and CA are reused, so the service does not need the initial admin
 password. Shell environment variables are not copied into installed services.
 Configure any optional runtime environment through the native supervisor.
 
+## OpenRC and OpenWrt
+
+The same Agent and Server commands above automatically select the host's service
+manager. OpenRC installs `/etc/init.d/NAME` and enables the current runlevel (normally `default`);
+OpenWrt installs an rc.common script and enables boot startup in `/etc/rc.d`.
+Both run as root and restart unexpected exits after three seconds.
+
+OpenRC requires `openrc-run`, `supervise-daemon`, `start-stop-daemon`,
+`rc-service` and `rc-update`. OpenWrt uses its native procd/ubus facilities.
+Normal service shutdown allows 30 seconds for GraphWAN to release resources.
+Managed Agent and Server updates use a separate, non-respawning helper; the
+helper is not enabled at boot and removes its registration when finished.
+CLI commands and panel update/download-source options are unchanged.
+
+On OpenWrt, use a writable persistent location for both the executable and data,
+such as `/root/graphwan` and `/root/graphwan-agent-data`. Avoid `/tmp` and
+`/var` for persistent data; they normally reside in RAM. Allow enough free space
+for the staged binary, updater helper and previous-version backup. Agents need
+TUN support (usually `kmod-tun`) and any tools required by their configured
+gateway modes. Installing the service does not change firewall rules.
+
 ## Logs, shutdown and upgrades
 
-Linux logs are available through `journalctl -u graphwan-agent` (or the Server
-service name). macOS writes `/var/log/NAME.out.log` and
+On systemd, logs are available through `journalctl -u graphwan-agent` (or the Server
+service name). OpenRC writes `/var/log/NAME.log` and `/var/log/NAME.err`;
+OpenWrt forwards logs to logd (`logread -e graphwan`). macOS writes `/var/log/NAME.out.log` and
 `/var/log/NAME.err.log`. Windows sends structured log text to the Application
 event log under the service name.
 

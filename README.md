@@ -80,7 +80,7 @@ an Agent, with configuration downloads and QR codes. See [WireGuard access](docs
 For built-in Linux, Windows and macOS service management, see
 [service management](docs/service-management.md).
 
-For release binaries, Linux systemd services, upgrades and backups, see
+For release binaries, Linux services (systemd, OpenRC and OpenWrt procd), upgrades and backups, see
 [deployment](docs/deployment.md).
 
 Platform setup and limitations: [Linux](docs/linux-operation.md),

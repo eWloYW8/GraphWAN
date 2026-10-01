@@ -153,7 +153,9 @@ func helperConfig(job updateJob) *service.Config {
 	if runtime.GOOS == "windows" {
 		suffix = ".exe"
 	}
-	return &service.Config{Name: job.Helper, DisplayName: "GraphWAN update", Executable: filepath.Join(job.Directory, "helper"+suffix), Arguments: []string{"_apply-update", filepath.Join(job.Directory, "job.json")}, WorkingDirectory: job.Directory, Option: service.KeyValue{"RunAtLoad": true, "KeepAlive": false, "OnFailure": "noaction", "SystemdScript": updateSystemdUnit}}
+	config := &service.Config{Name: job.Helper, DisplayName: "GraphWAN update", Executable: filepath.Join(job.Directory, "helper"+suffix), Arguments: []string{"_apply-update", filepath.Join(job.Directory, "job.json")}, WorkingDirectory: job.Directory, Option: service.KeyValue{"RunAtLoad": true, "KeepAlive": false, "OnFailure": "noaction", "SystemdScript": updateSystemdUnit}}
+	configureLinuxScripts(config, true)
+	return config
 }
 func launchUpdateHelper(r updater.Receipt, stage string, req model.UpdateRequest) error {
 	lock := r.Executable + ".update-lock"
@@ -199,6 +201,17 @@ func launchUpdateHelper(r updater.Receipt, stage string, req model.UpdateRequest
 	if err = helper.Install(); err != nil {
 		return err
 	}
+	// Update helpers are transient and must never replay a stale job at boot.
+	switch service.Platform() {
+	case "linux-openrc":
+		err = exec.Command("rc-update", "delete", job.Helper).Run()
+	case "linux-procd":
+		err = exec.Command("/etc/init.d/"+job.Helper, "disable").Run()
+	}
+	if err != nil {
+		_ = helper.Uninstall()
+		return err
+	}
 	if err = helper.Start(); err != nil {
 		_ = helper.Uninstall()
 		return err
@@ -234,7 +247,16 @@ func (p *updateProgram) Start(s service.Service) error {
 			_ = os.Remove(filepath.Join("/Library/LaunchDaemons", p.job.Helper+".plist"))
 			_ = exec.Command("launchctl", "remove", p.job.Helper).Run()
 		} else {
+			if service.Platform() == "linux-openrc" {
+				_ = exec.Command("rc-service", p.job.Helper, "zap").Run()
+				_ = os.Remove("/run/" + p.job.Helper + ".pid")
+			}
 			_ = s.Uninstall()
+			if service.Platform() == "linux-procd" {
+				// Last operation: deleting our procd instance can terminate this process.
+				payload, _ := json.Marshal(map[string]string{"name": p.job.Helper})
+				_ = exec.Command("ubus", "call", "service", "delete", string(payload)).Run()
+			}
 		}
 		os.Exit(0)
 	}()

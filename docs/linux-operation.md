@@ -25,6 +25,10 @@ using [manual endpoints](websocket-operation.md); gRPC has its own
 QUIC manual endpoints and datagram MTU behavior. [STUN and TCP/UDP hole punching](nat-operation.md)
 are described with their traversal limits in that guide.
 
+Built-in service management supports systemd, OpenRC and OpenWrt procd +
+rc.common. See [service management](service-management.md) for installation,
+logging, managed updates and OpenWrt persistent-storage requirements.
+
 ## Runtime behavior
 
 - Every Network gets an owned, nonpersistent TUN interface with a random `gw...`

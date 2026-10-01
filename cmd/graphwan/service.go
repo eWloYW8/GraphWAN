@@ -97,6 +97,7 @@ func serviceConfig(role, name, executable, data, listen, hosts string) (*service
 			"SystemdScript": graphwanSystemdUnit,
 		},
 	}
+	configureLinuxScripts(c, false)
 	if runtime.GOOS == "darwin" {
 		c.Option["LogOutput"] = true
 		c.Option["LogDirectory"] = "/var/log"
@@ -173,8 +174,8 @@ func runManagedService(role string, args []string) error {
 	if err != nil {
 		return err
 	}
-	if runtime.GOOS == "linux" && service.Platform() != "linux-systemd" {
-		return errors.New("service management on Linux requires systemd")
+	if runtime.GOOS == "linux" && service.Platform() != "linux-systemd" && service.Platform() != "linux-openrc" && service.Platform() != "linux-procd" {
+		return errors.New("service management on Linux requires systemd, OpenRC or OpenWrt procd")
 	}
 	switch action {
 	case "run":
