@@ -108,7 +108,7 @@ func runAgentContext(parent context.Context, args []string) error {
 		return err
 	}
 	defer runtime.Close()
-	updater, err := agentUpdater(ctx, *data)
+	updater, err := managedUpdater(ctx, *data)
 	if err != nil {
 		return err
 	}

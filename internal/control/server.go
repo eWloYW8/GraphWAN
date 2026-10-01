@@ -24,7 +24,13 @@ import (
 
 const maxBody = 8 << 20
 
+type SoftwareUpdater interface {
+	Status() *model.UpdateStatus
+	Start(model.UpdateRequest, *http.Client, string) error
+}
 type Server struct {
+	updater      SoftwareUpdater
+	version      string
 	releases     *update.Releases
 	geoip        *geoip.Service
 	cluster      *cluster.Runtime
@@ -46,6 +52,8 @@ type Server struct {
 	mux          *http.ServeMux
 }
 type Options struct {
+	Updater         SoftwareUpdater
+	Version         string
 	UpdateDirectory string
 	Password        string
 	Logger          *slog.Logger
@@ -65,6 +73,7 @@ func New(db *store.Store, options Options) (*Server, error) {
 		options.Logger = slog.Default()
 	}
 	s := &Server{
+		updater: options.Updater, version: options.Version,
 		releases: update.New(options.UpdateDirectory),
 		geoip:    geoip.New(options.GeoIPDirectory, options.Logger),
 		reload:   make(chan struct{}), db: db, auth: auth, ca: ca, log: options.Logger, mux: http.NewServeMux(),

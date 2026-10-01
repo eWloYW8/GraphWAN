@@ -376,3 +376,15 @@ assigned update, or the checked latest asset using
 `/agent/update/download/latest?os=...&arch=...&sha256=...` for CLI updates. Binary
 transfers have a separate, bounded download deadline and never occupy the control
 WebSocket. Each replica maintains its own verified persistent binary cache.
+
+### Server software updates
+
+`GET /servers/software` returns the local Server and recently reachable replica
+software status: `id`, `version`, and optional managed `update` capability/status.
+Unavailable peers are omitted. Status travels through authenticated existing
+cluster channels. `POST /servers/{id}/update` requires administrator authentication,
+CSRF and `If-Match`, with `{"version":"vX.Y.Z"}` matching the latest stable
+release. It returns 202 and the updated State. The request is replicated as
+`Server.update`, uses the `github` source, and is consumed only by its target.
+An offline/unmanaged target, downgrade, or concurrent Server update is rejected.
+This endpoint schedules no recurring updates.

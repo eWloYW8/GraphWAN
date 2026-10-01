@@ -168,3 +168,30 @@ An interrupted machine-level failure can leave `<binary>.update-lock`; inspect
 service state and the `.previous` binary before manually recovering that lock.
 Linux replacement, restart and startup-failure rollback have been verified.
 Windows/macOS are cross-compiled; native service-update validation is pending.
+
+## Manual Server updates
+
+**Servers → Update** checks the latest stable GitHub Release for the selected
+Server's OS/architecture. **Download and restart** queues an explicit update;
+there is no scheduled or automatic upgrade. Like Agent updates, the Server must
+run under the built-in `graphwan server service` command. Foreground or manually
+written services running `graphwan server` do not enable the update button.
+Existing built-in installations gain this capability after starting a binary
+that includes Server updates.
+
+The selected Server downloads directly from GitHub and uses the shared verified
+staging, separate helper service and startup-failure binary rollback mechanism.
+Configuration, CA, cluster identity and service arguments are retained. The
+panel displays version, platform, phase and failure details. When updating the
+Server serving the panel, the connection closes during restart and a new login
+may be required. A single-Server deployment has a brief control-plane outage;
+existing Agent data-plane traffic continues. With two voting Servers, stopping
+one temporarily prevents quorum writes.
+
+Update requests are stored in replicated configuration and executed only by the
+named Server, using existing cluster channels regardless of which replica serves
+the panel. Only one Server update may be pending/in progress at a time. The
+request requires quorum to commit; the updater persists processed IDs so it will
+not reinstall after reconnecting or restarting. Download/install failures are
+reported and may be retried manually. Native validation is Linux-only; other
+supported service platforms are cross-compiled.

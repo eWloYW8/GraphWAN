@@ -74,6 +74,7 @@ func (e ServerEndpoint) Address() string {
 }
 
 type Server struct {
+	Update      *UpdateRequest   `json:"update,omitempty"`
 	ID          ID               `json:"id"`
 	Name        string           `json:"name"`
 	PublicKey   []byte           `json:"public_key"`
@@ -84,6 +85,14 @@ type Server struct {
 
 func (s Server) TLSName() string { return "server-" + string(s.ID) + ".graphwan" }
 func (s Server) Validate() error {
+	if s.Update != nil {
+		if err := s.Update.Validate(); err != nil {
+			return err
+		}
+		if s.Update.Source != "github" {
+			return fmt.Errorf("server updates require github source")
+		}
+	}
 	if err := s.ID.Validate(); err != nil {
 		return err
 	}
@@ -153,6 +162,10 @@ func CloneServers(in []Server) []Server {
 	}
 	out := append([]Server{}, in...)
 	for i := range out {
+		if in[i].Update != nil {
+			u := *in[i].Update
+			out[i].Update = &u
+		}
 		out[i].PublicKey = bytes.Clone(out[i].PublicKey)
 		out[i].Endpoints = append([]ServerEndpoint{}, out[i].Endpoints...)
 		out[i].STUNServers = append([]string(nil), out[i].STUNServers...)

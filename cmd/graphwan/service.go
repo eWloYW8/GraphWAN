@@ -165,9 +165,9 @@ func runManagedService(role string, args []string) error {
 	}
 	p := &managedProgram{run: func(ctx context.Context) error {
 		if role == "agent" {
-			return runAgentContext(context.WithValue(ctx, managedAgentKey{}, *name), []string{"run", "--data-dir", absoluteData})
+			return runAgentContext(context.WithValue(ctx, managedServiceKey{}, *name), []string{"run", "--data-dir", absoluteData})
 		}
-		return runServerContext(ctx, []string{"--data-dir", absoluteData, "--listen", listen, "--tls-hosts", hosts})
+		return runServerContext(context.WithValue(ctx, managedServiceKey{}, *name), []string{"--data-dir", absoluteData, "--listen", listen, "--tls-hosts", hosts})
 	}}
 	s, err := service.New(p, config)
 	if err != nil {

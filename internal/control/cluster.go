@@ -51,7 +51,16 @@ func (s *Server) StartCluster(identity cluster.Identity, directory string) (*clu
 		s.reloadOnce.Do(func() { close(s.reload) })
 	}))
 	s.mux.HandleFunc("PATCH /api/v1/servers/{id}", s.auth.require(s.patchServer))
+	runtime.SetSoftwareStatus(func() (string, *model.UpdateStatus) {
+		if s.updater != nil {
+			return s.version, s.updater.Status()
+		}
+		return s.version, nil
+	})
+	s.mux.HandleFunc("GET /api/v1/servers/software", s.auth.require(s.serverSoftware))
+	s.mux.HandleFunc("POST /api/v1/servers/{id}/update", s.auth.require(s.updateServer))
 	runtime.StartMembership(s.localTelemetry)
+	s.startServerUpdates()
 	return runtime, nil
 }
 func (s *Server) Reload() <-chan struct{} { return s.reload }

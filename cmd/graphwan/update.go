@@ -22,10 +22,10 @@ import (
 	"github.com/kardianos/service"
 )
 
-type managedAgentKey struct{}
+type managedServiceKey struct{}
 
-func agentUpdater(ctx context.Context, data string) (agent.Updater, error) {
-	name, _ := ctx.Value(managedAgentKey{}).(string)
+func managedUpdater(ctx context.Context, data string) (agent.Updater, error) {
+	name, _ := ctx.Value(managedServiceKey{}).(string)
 	if name == "" {
 		return nil, nil
 	}

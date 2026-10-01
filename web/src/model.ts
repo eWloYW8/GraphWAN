@@ -55,6 +55,7 @@ export type ServerEndpoint = {
   expires_at?: string
 }
 export type Controller = {
+  update?: { id: string; asset: { version: string }; created_at: string }
   id: string
   name: string
   public_key: string

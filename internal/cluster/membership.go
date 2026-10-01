@@ -12,6 +12,8 @@ import (
 )
 
 type Status struct {
+	Version string              `json:"version,omitempty"`
+	Update  *model.UpdateStatus `json:"update,omitempty"`
 	ID      model.ID            `json:"id"`
 	Leader  model.ID            `json:"leader"`
 	Applied uint64              `json:"applied_index"`
@@ -24,9 +26,10 @@ type remoteStatus struct {
 	at     time.Time
 }
 type statusCache struct {
-	mu    sync.Mutex
-	peers map[model.ID]remoteStatus
-	local func() []model.AgentStatus
+	mu       sync.Mutex
+	peers    map[model.ID]remoteStatus
+	local    func() []model.AgentStatus
+	software func() (string, *model.UpdateStatus)
 }
 
 func (r *Runtime) Status() Status {
@@ -42,7 +45,11 @@ func (r *Runtime) Status() Status {
 	}
 	r.status.mu.Lock()
 	local := r.status.local
+	software := r.status.software
 	r.status.mu.Unlock()
+	if software != nil {
+		out.Version, out.Update = software()
+	}
 	if local != nil {
 		out.Agents = local()
 	}
@@ -148,4 +155,22 @@ func (r *Runtime) registerStatus(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(r.Status())
 	})
+}
+
+// Software status travels over the existing bidirectional cluster channel.
+func (r *Runtime) SetSoftwareStatus(fn func() (string, *model.UpdateStatus)) {
+	r.status.mu.Lock()
+	defer r.status.mu.Unlock()
+	r.status.software = fn
+}
+func (r *Runtime) ServerStatuses() []Status {
+	out := []Status{r.Status()}
+	r.status.mu.Lock()
+	defer r.status.mu.Unlock()
+	for _, p := range r.status.peers {
+		if time.Since(p.at) < 10*time.Second {
+			out = append(out, p.status)
+		}
+	}
+	return out
 }

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/eWloYW8/GraphWAN/internal/agent"
 	"github.com/eWloYW8/GraphWAN/internal/cluster"
 	"github.com/eWloYW8/GraphWAN/internal/control"
 	"github.com/eWloYW8/GraphWAN/internal/controltransport"
@@ -86,8 +87,12 @@ func runServerContext(parent context.Context, args []string) error {
 	}
 	ctx, stop := context.WithCancel(parent)
 	defer stop()
+	updater, err := managedUpdater(ctx, *data)
+	if err != nil {
+		return err
+	}
 	for ctx.Err() == nil {
-		reload, err := serveController(ctx, *listen, *data, *hosts, *insecure)
+		reload, err := serveController(ctx, *listen, *data, *hosts, *insecure, updater)
 		if err != nil {
 			return err
 		}
@@ -98,7 +103,7 @@ func runServerContext(parent context.Context, args []string) error {
 	return nil
 }
 
-func serveController(ctx context.Context, listen, data, hosts string, insecure bool) (bool, error) {
+func serveController(ctx context.Context, listen, data, hosts string, insecure bool, updater agent.Updater) (bool, error) {
 	db, err := store.Open(filepath.Join(data, "controller.db"))
 	if err != nil {
 		return false, err
@@ -108,6 +113,7 @@ func serveController(ctx context.Context, listen, data, hosts string, insecure b
 		return false, err
 	}
 	app, err := control.New(db, control.Options{
+		Version: version, Updater: updater,
 		Password:        os.Getenv("GRAPHWAN_ADMIN_PASSWORD"),
 		GeoIPDirectory:  filepath.Join(data, "geoip"),
 		UpdateDirectory: filepath.Join(data, "updates"),

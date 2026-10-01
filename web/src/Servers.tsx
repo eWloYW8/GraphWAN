@@ -4,6 +4,7 @@ import { request, errorText } from './api'
 import { Badge, ErrorBox, Field, Modal } from './components'
 import { type State, type Controller, type ServerEndpoint, newID, equal } from './model'
 import { saveConfiguration } from './saveConfiguration'
+import ServerUpdate, { type ServerSoftware } from './ServerUpdate'
 
 type Status = { id: string; leader: string; voters: number }
 const settings = (server?: Controller) =>
@@ -22,6 +23,8 @@ export default function Servers({
   updated: (state: State) => void
 }) {
   const [status, setStatus] = useState<Status>()
+  const [software, setSoftware] = useState<ServerSoftware[]>([])
+  const [updating, setUpdating] = useState<Controller>()
   const [editing, setEditing] = useState<Controller>()
   const [mode, setMode] = useState<'invite' | 'join'>()
   const [invitation, setInvitation] = useState('')
@@ -30,10 +33,14 @@ export default function Servers({
   const [restarting, setRestarting] = useState(false)
   useEffect(() => {
     const controller = new AbortController()
-    const poll = () =>
+    const poll = () => {
+      void request<ServerSoftware[]>('/servers/software', { signal: controller.signal })
+        .then(setSoftware)
+        .catch(() => setSoftware([]))
       void request<Status>('/servers/status', { signal: controller.signal })
         .then(setStatus)
         .catch(() => {})
+    }
     poll()
     const timer = setInterval(poll, 3000)
     return () => {
@@ -92,10 +99,22 @@ export default function Servers({
                 {server.id === status?.id && <Badge>This server</Badge>}
                 {server.id === status?.leader && <Badge tone="online">Coordinator</Badge>}
               </div>
-              <button aria-label={`Edit ${server.name}`} onClick={() => setEditing(server)}>
-                <Pencil size={16} />
-                Edit
-              </button>
+              <div className="actions">
+                <span>{software.find((s) => s.id === server.id)?.version || '—'}</span>
+                <button
+                  disabled={
+                    server.revoked || !software.find((s) => s.id === server.id)?.update?.managed
+                  }
+                  title="Requires graphwan server service"
+                  onClick={() => setUpdating(server)}
+                >
+                  Update
+                </button>
+                <button aria-label={`Edit ${server.name}`} onClick={() => setEditing(server)}>
+                  <Pencil size={16} />
+                  Edit
+                </button>
+              </div>
             </div>
             <div className="server-endpoints">
               {server.endpoints.map((ep) => (
@@ -116,6 +135,16 @@ export default function Servers({
           </section>
         ))}
       </div>
+      {updating && (
+        <ServerUpdate
+          server={updating}
+          software={software.find((s) => s.id === updating.id)}
+          local={updating.id === status?.id}
+          csrf={csrf}
+          updated={updated}
+          close={() => setUpdating(undefined)}
+        />
+      )}
       {editing && (
         <EditServer
           server={editing}

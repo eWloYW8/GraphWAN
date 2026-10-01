@@ -8,7 +8,7 @@ import (
 	"github.com/eWloYW8/GraphWAN/internal/agent"
 )
 
-func agentUpdater(context.Context, string) (agent.Updater, error) { return nil, nil }
+func managedUpdater(context.Context, string) (agent.Updater, error) { return nil, nil }
 func runAgentUpdate([]string) error {
 	return errors.New("managed updates require Linux, Windows or macOS")
 }
