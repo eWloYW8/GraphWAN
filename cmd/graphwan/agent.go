@@ -6,9 +6,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/eWloYW8/GraphWAN/internal/agent"
@@ -16,6 +18,14 @@ import (
 )
 
 func runAgent(args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "enroll":
+			return runAgentEnroll(args[1:])
+		case "run":
+			args = args[1:]
+		}
+	}
 	fs := flag.NewFlagSet("agent", flag.ContinueOnError)
 	server := fs.String("server", "", "controller HTTPS origin (first enrollment only)")
 	defaultTransport := os.Getenv("GRAPHWAN_SERVER_TRANSPORT")
@@ -90,5 +100,63 @@ func runAgent(args []string) error {
 	if err := client.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("agent: %w", err)
 	}
+	return nil
+}
+
+// runAgentEnroll reads invitations from stdin/files/environment so secrets need
+// not appear in process arguments. Explicit file input takes precedence over env.
+func runAgentEnroll(args []string) error {
+	fs := flag.NewFlagSet("agent enroll", flag.ContinueOnError)
+	file := fs.String("invitation-file", "", "invitation file, or - for stdin (default: GRAPHWAN_AGENT_INVITATION)")
+	data := fs.String("data-dir", "./graphwan-agent-data", "private persistent agent directory")
+	name := fs.String("name", "", "agent name (default: hostname)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) != 0 {
+		return errors.New("unexpected positional arguments")
+	}
+	raw := os.Getenv("GRAPHWAN_AGENT_INVITATION")
+	if *file != "" {
+		var reader io.Reader = os.Stdin
+		if *file != "-" {
+			f, err := os.Open(*file)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			reader = f
+		}
+		b, err := io.ReadAll(io.LimitReader(reader, model.MaxEnrollmentInvitation+1))
+		if err != nil {
+			return err
+		}
+		raw = string(b)
+	}
+	if strings.TrimSpace(raw) == "" {
+		return errors.New("provide --invitation-file PATH, --invitation-file - for stdin, or GRAPHWAN_AGENT_INVITATION")
+	}
+	invite, err := model.ParseAgentInvitation(raw)
+	if err != nil {
+		return err
+	}
+	if *name == "" {
+		*name, err = os.Hostname()
+		if err != nil {
+			return err
+		}
+	}
+	cache, err := agent.OpenCache(filepath.Join(*data, "agent.db"))
+	if err != nil {
+		return err
+	}
+	defer cache.Close()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	reg, err := agent.Enroll(ctx, cache, invite, *name)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Agent registered: %s\nData directory: %s\n", reg.AgentID, *data)
 	return nil
 }

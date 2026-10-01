@@ -69,6 +69,16 @@ An authenticated administrator calls `POST /enrollment-tokens` with
 `{ "ttl_seconds": 3600 }` (60–86400 allowed). The response contains the one-time
 `token` and `expires_at`. Only a hash of the token is stored.
 
+The response also includes an `invitation`: Base64url-encoded JSON with
+`kind: "graphwan-agent"`, `version: 1`, `token`, `expires_at` and `directory`.
+The directory contains the cluster ID, CA public certificate and Server endpoints
+with their transport types. No CA private key is included. Supply it to
+`graphwan agent enroll --invitation-file PATH` (or `-` for stdin), or set
+`GRAPHWAN_AGENT_INVITATION`. The command verifies the invited CA and Server TLS
+identity before sending the token, tries advertised endpoints, pins the returned
+cluster identity, and persists registration without starting the data plane.
+Run `graphwan agent run` with the same `--data-dir` afterwards.
+
 An Agent generates its own Ed25519 key and DER CSR, then calls `POST /enroll`
 with `Authorization: Bearer <token>` and `{ "name": "...", "csr": "<base64 DER>" }`.
 The response contains `agent_id`, `certificate` (base64 PEM), `ca_certificate`

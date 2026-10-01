@@ -45,7 +45,22 @@ func (s *Server) createEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	respond(w, 201, map[string]any{"token": token, "expires_at": record.Expires})
+	state, err := s.db.Read()
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	directory := state.ServerDirectory()
+	if directory == nil {
+		fail(w, 503, "server directory unavailable")
+		return
+	}
+	invitation, err := (model.AgentInvitation{Kind: "graphwan-agent", Version: 1, Token: token, ExpiresAt: record.Expires, Directory: *directory}).Encode()
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	respond(w, 201, map[string]any{"token": token, "invitation": invitation, "expires_at": record.Expires})
 }
 func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 	if !s.auth.allowAttempt(r) {

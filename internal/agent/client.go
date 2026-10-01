@@ -40,18 +40,19 @@ type Options struct {
 }
 
 type Client struct {
-	cache            *Cache
-	reconcile        *Reconciler
-	options          Options
-	server           string
-	lastTarget       string
-	failedTargets    map[string]bool
-	http             *http.Client
-	transport        *http.Transport
-	mu               sync.Mutex
-	endpoints        []model.Endpoint
-	endpointsSet     bool
-	endpointsChanged chan struct{}
+	enrollmentDirectory *model.ServerDirectory
+	cache               *Cache
+	reconcile           *Reconciler
+	options             Options
+	server              string
+	lastTarget          string
+	failedTargets       map[string]bool
+	http                *http.Client
+	transport           *http.Transport
+	mu                  sync.Mutex
+	endpoints           []model.Endpoint
+	endpointsSet        bool
+	endpointsChanged    chan struct{}
 }
 
 func serverURL(raw string) (string, error) {
@@ -191,6 +192,11 @@ func (c *Client) registration(ctx context.Context) (*Registration, error) {
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
+	}
+	if expected := c.enrollmentDirectory; expected != nil {
+		if result.Directory == nil || result.Directory.ClusterID != expected.ClusterID || !bytes.Equal(result.CA, expected.CA) || !bytes.Equal(result.Directory.CA, expected.CA) {
+			return nil, errors.New("enrollment response changed invited cluster identity")
+		}
 	}
 	reg = &Registration{CA: result.CA, Transport: c.options.ServerTransport, Directory: result.Directory, AgentID: result.AgentID, Server: c.server, Certificate: result.Certificate}
 	cert, err := c.cache.TLSCertificate(*reg)

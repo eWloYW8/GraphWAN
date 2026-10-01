@@ -17,7 +17,7 @@ import {
 } from './model'
 export function Enrollment({ csrf, close }: { csrf: string; close: () => void }) {
   const [ttl, setTTL] = useState(3600)
-  const [result, setResult] = useState<{ token: string; expires_at: string }>()
+  const [result, setResult] = useState<{ invitation: string; expires_at: string }>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -26,21 +26,21 @@ export function Enrollment({ csrf, close }: { csrf: string; close: () => void })
       {error && <ErrorBox>{error}</ErrorBox>}
       {result ? (
         <>
-          <Field label="Enrollment token">
-            <textarea readOnly rows={3} value={result.token} />
+          <Field label="Enrollment invitation">
+            <textarea readOnly rows={3} value={result.invitation} />
           </Field>
           <button
             onClick={async () => {
               try {
-                await navigator.clipboard.writeText(result.token)
+                await navigator.clipboard.writeText(result.invitation)
                 setCopied(true)
               } catch {
-                setError('Copy is unavailable. Select and copy the token above.')
+                setError('Copy is unavailable. Select and copy the invitation above.')
               }
             }}
           >
             <Copy size={15} />
-            {copied ? 'Copied' : 'Copy token'}
+            {copied ? 'Copied' : 'Copy invitation'}
           </button>
           <dl>
             <dt>Expires</dt>
@@ -48,13 +48,11 @@ export function Enrollment({ csrf, close }: { csrf: string; close: () => void })
           </dl>
           <h4>Command</h4>
 
-          <pre>
-            GRAPHWAN_ENROLLMENT_TOKEN=&apos;&lt;token&gt;&apos; graphwan agent --server{' '}
-            {location.protocol === 'https:'
-              ? location.origin
-              : 'https://CONTROLLER_HOST:HTTPS_PORT'}
-            {' \\\n'} --ca ./ca.pem --name my-agent
-          </pre>
+          <pre>{`sudo graphwan agent enroll --invitation-file - --name my-agent --data-dir /var/lib/graphwan-agent <<'GRAPHWAN_INVITATION'
+${result.invitation}
+GRAPHWAN_INVITATION
+
+sudo graphwan agent run --data-dir /var/lib/graphwan-agent`}</pre>
 
           <button className="primary wide" onClick={close}>
             Done
@@ -81,7 +79,7 @@ export function Enrollment({ csrf, close }: { csrf: string; close: () => void })
             }
           }}
         >
-          <Field label="Token lifetime">
+          <Field label="Invitation lifetime">
             <select value={ttl} onChange={(e) => setTTL(Number(e.target.value))}>
               <option value={600}>10 minutes</option>
               <option value={3600}>1 hour</option>
@@ -89,7 +87,7 @@ export function Enrollment({ csrf, close }: { csrf: string; close: () => void })
             </select>
           </Field>
           <button className="primary wide" disabled={busy}>
-            {busy ? 'Creating…' : 'Create enrollment token'}
+            {busy ? 'Creating…' : 'Create enrollment invitation'}
           </button>
         </form>
       )}

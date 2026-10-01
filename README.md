@@ -29,15 +29,22 @@ output, verified HTTPS and revision-checked updates.
 
 ## Run a Linux agent
 
-Create an enrollment token from **Agents → Enroll agent** or the
-[management API](docs/control-api.md), then:
+Create an enrollment invitation from **Agents → Enroll agent**, save it as
+`agent-invitation.txt`, then register and run:
 
 ```sh
-export GRAPHWAN_ENROLLMENT_TOKEN='<one-time-token>'
-sudo --preserve-env=GRAPHWAN_ENROLLMENT_TOKEN ./bin/graphwan agent \
-  --server https://controller.example.com:8443 \
-  --ca ./ca.pem --name laptop --data-dir /var/lib/graphwan-agent
+sudo ./bin/graphwan agent enroll --invitation-file ./agent-invitation.txt \
+  --name laptop --data-dir /var/lib/graphwan-agent
+sudo ./bin/graphwan agent run --data-dir /var/lib/graphwan-agent
 ```
+
+The invitation includes Server addresses, transport types, the cluster CA public
+certificate and a one-use token. No separate `--server`, `--server-transport` or
+`--ca` is required. Treat the invitation as a credential; Base64 is not encryption.
+Use `--invitation-file -` for stdin or `GRAPHWAN_AGENT_INVITATION` for automation.
+Enrollment saves identity and exits without starting a service. Repeating it for
+the same cluster preserves the existing identity; another cluster is rejected.
+The legacy `graphwan agent --server ...` enrollment remains supported.
 
 Agent control connections accept `--server-transport tcp|websocket|grpc|wss`
 (default `tcp`, also configurable with `GRAPHWAN_SERVER_TRANSPORT`). All four
