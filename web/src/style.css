@@ -695,6 +695,23 @@ fieldset:disabled select {
   height: 75px;
   border: 1px solid #e4eadc;
   border-radius: 6px;
+  background: #fff;
+}
+.react-flow__minimap-node {
+  fill: #7ebbaa;
+}
+.react-flow__minimap-mask {
+  fill: rgba(239, 245, 242, 0.7);
+}
+@media (prefers-color-scheme: dark) {
+  .react-flow__minimap {
+    background: #172620;
+    border-color: #3b5147;
+  }
+  .react-flow__minimap-mask {
+    fill: rgba(12, 22, 18, 0.72);
+    stroke: #76988a;
+  }
 }
 .canvas-empty {
   position: absolute;

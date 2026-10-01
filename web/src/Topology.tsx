@@ -477,8 +477,6 @@ export default function Topology({
                 style={{ width: 115, height: 75 }}
                 pannable
                 zoomable
-                nodeColor="#7ebbaa"
-                maskColor="rgba(239,245,242,.7)"
               />
             </ReactFlow>
           )}
