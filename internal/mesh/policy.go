@@ -21,6 +21,9 @@ func endpointFingerprint(endpoint model.Endpoint) string {
 // A healthy observed path can outlive its discovery lease, but never the
 // configured method. Endpoint provenance is independent of direct/punch policy.
 func observedMethodAllowed(cfg *policy, candidate link.Candidate) bool {
+	if candidate.Port != 0 && !cfg.peer.Edge.Methods.HolePunchExtension {
+		return false
+	}
 	if candidate.Endpoint.Source != model.Observed || !slices.Contains(cfg.peer.Edge.Transports, candidate.Endpoint.Transport) {
 		return false
 	}
@@ -43,7 +46,7 @@ func candidateConfigured(cfg *policy, candidate link.Candidate, healthy bool) bo
 	}
 	if healthy && observedMethodAllowed(cfg, candidate) {
 		for _, initiator := range []model.ID{cfg.self, cfg.peer.Node.ID} {
-			if link.CandidateID(cfg.peer.Edge.ID, initiator, candidate.Endpoint.ID, candidate.Family, candidate.Method) == candidate.ID {
+			if candidate.Identity(cfg.peer.Edge.ID, initiator) == candidate.ID {
 				return true
 			}
 		}

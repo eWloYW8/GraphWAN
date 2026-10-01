@@ -100,9 +100,10 @@ type Node struct {
 }
 
 type ConnectionMethods struct {
-	IPv4Direct bool `json:"ipv4_direct"`
-	IPv6Direct bool `json:"ipv6_direct"`
-	HolePunch  bool `json:"hole_punch"`
+	IPv4Direct         bool `json:"ipv4_direct"`
+	IPv6Direct         bool `json:"ipv6_direct"`
+	HolePunch          bool `json:"hole_punch"`
+	HolePunchExtension bool `json:"hole_punch_extension,omitempty"`
 }
 
 type Edge struct {

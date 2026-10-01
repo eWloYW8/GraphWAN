@@ -195,6 +195,9 @@ func (m *Mesh) dialTCPPunch(ctx context.Context, candidate link.Candidate, ident
 		}
 	}
 	port, _ := strconv.ParseUint(u.Port(), 10, 16)
+	if candidate.Port != 0 {
+		port = uint64(candidate.Port)
+	}
 	var last error = errors.New("no address for TCP punch candidate")
 	for i, address := range addresses {
 		attempt := ctx

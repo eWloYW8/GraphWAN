@@ -22,6 +22,7 @@ const (
 )
 
 type Candidate struct {
+	Port     uint16         `json:"port,omitempty"`
 	ID       string         `json:"id"`
 	Endpoint model.Endpoint `json:"endpoint"`
 	Family   int            `json:"family"`
@@ -126,5 +127,5 @@ func Candidates(local model.ID, peer model.Peer, now time.Time) []Candidate {
 		}
 		return cmp.Compare(a.ID, b.ID)
 	})
-	return result
+	return append(result, extensionCandidates(result, peer.Edge.Methods.HolePunchExtension)...)
 }

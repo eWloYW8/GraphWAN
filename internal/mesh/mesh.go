@@ -38,6 +38,9 @@ type policy struct {
 	endpoints []model.Endpoint
 }
 type Mesh struct {
+	extensionMu    sync.Mutex
+	extensionNext  time.Time
+	extensionSlots chan struct{}
 	wireguard      *wgaccess.Hub
 	dns            *endpointDNS
 	identity       ed25519.PrivateKey
@@ -86,6 +89,7 @@ func New(parent context.Context, identity ed25519.PrivateKey, host string, port 
 	if len(batches) > 0 {
 		m.receiveBatch = batches[0]
 	}
+	m.extensionSlots = make(chan struct{}, 4)
 	m.dns = newEndpointDNS()
 	m.grpcAdmissions = map[grpcConnectionKey]*grpcAdmission{}
 	m.quic = quicHub
@@ -437,22 +441,25 @@ func addressFamily(address net.Addr) int {
 }
 
 type group struct {
-	mesh           *Mesh
-	policy         atomic.Pointer[policy]
-	edge           *link.Edge
-	ctx            context.Context
-	cancel         context.CancelFunc
-	mu             sync.Mutex
-	links          map[string]*link.Link
-	linkCandidates map[string]link.Candidate
-	attempts       map[string]*attempt
-	retained       map[string]link.Candidate
-	suppressed     map[string]string
-	retiring       map[string]*retirement
-	keepers        map[link.Path]string
-	wg             sync.WaitGroup
+	extensionInflight int
+	extensionStart    time.Time
+	mesh              *Mesh
+	policy            atomic.Pointer[policy]
+	edge              *link.Edge
+	ctx               context.Context
+	cancel            context.CancelFunc
+	mu                sync.Mutex
+	links             map[string]*link.Link
+	linkCandidates    map[string]link.Candidate
+	attempts          map[string]*attempt
+	retained          map[string]link.Candidate
+	suppressed        map[string]string
+	retiring          map[string]*retirement
+	keepers           map[link.Path]string
+	wg                sync.WaitGroup
 }
 type attempt struct {
+	last      time.Time
 	candidate link.Candidate
 	cancel    context.CancelFunc
 	inflight  bool

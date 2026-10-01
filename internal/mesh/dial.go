@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -58,10 +59,34 @@ func (g *group) schedule() {
 		}
 		g.mu.Lock()
 		for id, state := range g.attempts {
+			if state.candidate.Port != 0 && state.cancel != nil && !g.extensionNeededLocked(id) {
+				state.cancel()
+			}
 			if !valid[id] && !state.inflight {
 				delete(g.attempts, id)
 			}
 		}
+		// Visit untried/least-recently-tried extension ports first. A long sweep
+		// must not repeatedly revisit its first ports when their cooldown expires.
+		slices.SortStableFunc(candidates, func(a, b link.Candidate) int {
+			if a.Port == 0 && b.Port == 0 {
+				return 0
+			}
+			if a.Port == 0 {
+				return -1
+			}
+			if b.Port == 0 {
+				return 1
+			}
+			var at, bt time.Time
+			if state := g.attempts[a.ID]; state != nil {
+				at = state.last
+			}
+			if state := g.attempts[b.ID]; state != nil {
+				bt = state.last
+			}
+			return at.Compare(bt)
+		})
 		g.mu.Unlock()
 		for _, candidate := range candidates {
 			g.mu.Lock()
@@ -79,8 +104,22 @@ func (g *group) schedule() {
 				g.mu.Unlock()
 				continue
 			}
+			extended := candidate.Port != 0
+			slots := g.mesh.slots
+			timeout := 12 * time.Second
+			if extended {
+				if g.extensionStart.IsZero() {
+					g.extensionStart = time.Now().Add(5 * time.Second)
+				}
+				if time.Now().Before(g.extensionStart) || g.extensionInflight >= 2 || !g.extensionNeededLocked(candidate.ID) {
+					g.mu.Unlock()
+					continue
+				}
+				slots = g.mesh.extensionSlots
+				timeout = 4 * time.Second
+			}
 			select {
-			case g.mesh.slots <- struct{}{}:
+			case slots <- struct{}{}:
 			default:
 				g.mu.Unlock()
 				continue
@@ -88,25 +127,43 @@ func (g *group) schedule() {
 			// The candidate list was built outside the lock. A configuration
 			// update may have revoked it before this slot became available.
 			if !g.allowsCandidateLocked(g.policy.Load(), candidate) {
-				<-g.mesh.slots
+				<-slots
 				g.mu.Unlock()
 				continue
 			}
-			dialCtx, cancel := context.WithTimeout(g.ctx, 12*time.Second)
+			if extended {
+				if !g.mesh.allowExtensionAttempt() {
+					<-slots
+					g.mu.Unlock()
+					continue
+				}
+				g.extensionInflight++
+			}
+			dialCtx, cancel := context.WithTimeout(g.ctx, timeout)
 			state.inflight, state.candidate, state.cancel = true, candidate, cancel
+			state.last = time.Now()
 			g.wg.Add(1)
 			g.mu.Unlock()
 			go func() {
 				defer cancel()
 				defer g.wg.Done()
-				defer func() { <-g.mesh.slots }()
+				defer func() { <-slots }()
 				err := g.dial(dialCtx, candidate)
 				g.mu.Lock()
 				defer g.mu.Unlock()
 				state.inflight, state.cancel = false, nil
+				if extended {
+					g.extensionInflight--
+				}
 				if err == nil {
 					state.delay = time.Second
 					state.next = time.Time{}
+					return
+				}
+				if extended {
+					// Bound repeated attempts after a failed probe.
+					state.delay = 2 * time.Minute
+					state.next = time.Now().Add(state.delay + time.Duration(rand.Int64N(int64(30*time.Second))))
 					return
 				}
 				state.delay = min(max(time.Second, state.delay*2), 30*time.Second)
@@ -176,6 +233,9 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 		if err != nil {
 			return err
 		}
+		if candidate.Port != 0 {
+			port = uint64(candidate.Port)
+		}
 		conn, err := g.mesh.udp.Dial(netip.AddrPortFrom(target, uint16(port)))
 		if err != nil {
 			return err
@@ -232,4 +292,32 @@ func (g *group) retireSessions() {
 	for _, l := range retire {
 		l.Close()
 	}
+}
+
+// Called under g.mu. Preserve renewal of an established extended candidate,
+// but stop searching other ports as soon as any path on this edge is healthy.
+func (g *group) extensionNeededLocked(id string) bool {
+	healthy := false
+	for _, l := range g.links {
+		if l.Healthy() {
+			if l.Info().CandidateID == id {
+				return true
+			}
+			healthy = true
+		}
+	}
+	return !healthy
+}
+
+// Separate from normal dial slots: unavailable ordinary candidates must not
+// prevent the extension from running, and scanning must not starve direct dials.
+func (m *Mesh) allowExtensionAttempt() bool {
+	m.extensionMu.Lock()
+	defer m.extensionMu.Unlock()
+	now := time.Now()
+	if now.Before(m.extensionNext) {
+		return false
+	}
+	m.extensionNext = now.Add(500 * time.Millisecond)
+	return true
 }

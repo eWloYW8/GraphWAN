@@ -35,7 +35,12 @@ export type Edge = {
   weight: number
   enabled: boolean
   transports: Transport[]
-  methods: { ipv4_direct: boolean; ipv6_direct: boolean; hole_punch: boolean }
+  methods: {
+    ipv4_direct: boolean
+    ipv6_direct: boolean
+    hole_punch: boolean
+    hole_punch_extension?: boolean
+  }
   preferred_candidate?: string
 }
 export type Network = {

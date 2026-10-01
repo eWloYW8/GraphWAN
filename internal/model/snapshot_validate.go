@@ -155,6 +155,9 @@ func (s Snapshot) Validate(agentID ID) error {
 			if !e.Enabled || e.Weight == 0 || !(e.A == n.Self.ID && e.B == p.Node.ID || e.B == n.Self.ID && e.A == p.Node.ID) {
 				return fmt.Errorf("invalid adjacent edge")
 			}
+			if e.Methods.HolePunchExtension && !e.Methods.HolePunch {
+				return fmt.Errorf("NAT hole punching extension requires NAT hole punching")
+			}
 			if !e.Methods.IPv4Direct && !e.Methods.IPv6Direct && !e.Methods.HolePunch {
 				return fmt.Errorf("edge has no connection methods")
 			}

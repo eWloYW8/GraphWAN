@@ -36,6 +36,44 @@ using the bounded candidate scheduler. UDP retransmits its Noise handshake; TCP
 attempts simultaneous open with the same local port as its listening socket.
 The controller exchanges configuration and observations; it never relays packets.
 
+## Optional symmetric-NAT extension
+
+In an Edge's **Connection methods**, **NAT hole punching extension** is available
+only when **NAT hole punching** is selected. It defaults to off; disabling the
+parent option also clears the extension. API and Agent snapshot validation reject
+an extension without its parent. Update both Agents and the Server to a version
+that supports this option before enabling it.
+
+The extension adds UDP and TCP attempts to alternative destination ports on fresh
+STUN-observed public IPv4 addresses. It infers possible allocator strides from
+different observed ports on the same IP and transport, tries up to four multiples
+in both directions (strides up to 256), and scans the adjacent ±32 ports. This is a
+heuristic: observations are not a definitive NAT classification or ordered record
+of port allocations. UDP observations never predict TCP ports or vice versa.
+
+Searches exclude manual/interface endpoints, DNS names, private/shared/reserved
+addresses, IPv6, and destination ports below 1024. Each dialing direction has at
+most 128 additional candidates across its addresses and transports. Duplicate
+targets are eliminated. The extension starts after a five-second grace period,
+has two simultaneous attempts per Edge and four per Agent, and starts at most
+two attempts per second per Agent. An attempt lasts up to four seconds; handshake
+retransmissions may send more than one packet per attempt. Failed ports have a
+two-minute cooldown plus jitter, with least-recently-attempted ports tried first.
+Ordinary dialing retains its separate concurrency budget.
+
+Once any path is healthy, new port searches stop and pending searches are
+cancelled. Established extended candidates can still renew their session keys;
+disabling the extension revokes those candidates and cancels their pending dials.
+Successful connections use the existing peer authentication, path deduplication
+and lowest-RTT selection. Predicted ports do not become globally advertised
+endpoints or bypass Edge authorization.
+
+This improves chances with sequential or small-stride port allocation; it does
+not guarantee NAT3–NAT4 or NAT4–NAT4 connectivity. Random port allocation, multiple
+public source IPs, short mapping lifetimes and TCP SYN filtering can still prevent
+a connection. There is no exhaustive 65,535-port sweep or automatic relay service;
+configure another reachable Agent path when direct traversal fails.
+
 ## Observations and lifetimes
 
 UDP STUN runs on the exact socket that carries native UDP and QUIC. TCP STUN

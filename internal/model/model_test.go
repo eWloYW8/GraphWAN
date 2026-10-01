@@ -13,6 +13,10 @@ func TestValidateTopology(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := map[string]func(*model.State){
+		"extension without hole punch": func(s *model.State) {
+			s.Networks[0].Edges[0].Methods.HolePunch = false
+			s.Networks[0].Edges[0].Methods.HolePunchExtension = true
+		},
 		"invalid gateway mode": func(s *model.State) {
 			s.Networks[0].Nodes[0].AdvertisedSubnets = []model.AdvertisedSubnet{{Prefix: netip.MustParsePrefix("192.168.0.0/24"), GatewayMode: "invalid"}}
 		},

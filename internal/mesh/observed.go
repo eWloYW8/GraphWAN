@@ -75,7 +75,7 @@ func (g *group) candidates(cfg *policy, outgoing bool) []link.Candidate {
 		if !observedMethodAllowed(cfg, candidate) {
 			continue
 		}
-		if link.CandidateID(cfg.peer.Edge.ID, initiator, candidate.Endpoint.ID, candidate.Family, candidate.Method) == id {
+		if candidate.Identity(cfg.peer.Edge.ID, initiator) == id {
 			result = append(result, candidate)
 		}
 	}

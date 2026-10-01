@@ -339,6 +339,9 @@ func (s State) Validate() error {
 				}
 				transports[t] = true
 			}
+			if e.Methods.HolePunchExtension && !e.Methods.HolePunch {
+				return fmt.Errorf("NAT hole punching extension requires NAT hole punching")
+			}
 			if !e.Methods.IPv4Direct && !e.Methods.IPv6Direct && !e.Methods.HolePunch {
 				return fmt.Errorf("edge %s: no connection methods enabled", e.ID)
 			}

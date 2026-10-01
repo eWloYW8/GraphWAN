@@ -919,14 +919,24 @@ export default function Topology({
                       ['ipv4_direct', 'IPv4 direct'],
                       ['ipv6_direct', 'IPv6 direct'],
                       ['hole_punch', 'NAT hole punching'],
+                      ['hole_punch_extension', 'NAT hole punching extension'],
                     ] as const
                   ).map(([key, label]) => (
                     <label className="check" key={key}>
                       <input
                         type="checkbox"
-                        checked={edge.methods[key]}
+                        checked={!!edge.methods[key]}
+                        disabled={key === 'hole_punch_extension' && !edge.methods.hole_punch}
                         onChange={(e) =>
-                          updateEdge({ methods: { ...edge.methods, [key]: e.target.checked } })
+                          updateEdge({
+                            methods: {
+                              ...edge.methods,
+                              [key]: e.target.checked,
+                              ...(key === 'hole_punch' && !e.target.checked
+                                ? { hole_punch_extension: false }
+                                : {}),
+                            },
+                          })
                         }
                       />
                       {label}
