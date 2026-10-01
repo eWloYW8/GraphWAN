@@ -84,3 +84,9 @@ the affected Network's WireGuard device.
 
 Verification targets Linux. Windows/macOS builds use the same userspace adapters;
 native acceptance on those platforms is not claimed.
+
+The embedded WireGuard access engine builds on Linux, Windows, macOS, FreeBSD
+and OpenBSD. Its upstream IPC package does not support NetBSD or DragonFly.
+Those release binaries retain Server and ordinary GraphWAN Agent functionality;
+assigning a WireGuard client to an Agent on either platform reports an explicit
+configuration error. Attach WireGuard clients to a supported access Agent instead.

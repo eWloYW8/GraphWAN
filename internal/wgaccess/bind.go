@@ -1,3 +1,5 @@
+//go:build linux || darwin || windows || freebsd || openbsd
+
 // Package wgaccess embeds the standard WireGuard protocol at GraphWAN's edge.
 package wgaccess
 

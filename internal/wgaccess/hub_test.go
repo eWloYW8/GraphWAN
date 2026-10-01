@@ -1,3 +1,5 @@
+//go:build linux || darwin || windows || freebsd || openbsd
+
 package wgaccess
 
 import (
