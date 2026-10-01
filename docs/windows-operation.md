@@ -5,28 +5,50 @@ routes and per-family MTUs. Native Windows execution is **not yet verified** in
 the current development environment. The production binary supports Windows
 amd64, arm64 and 386 build targets.
 
-## Build and install the DLL
+## Wintun setup
 
-Use Go 1.26 or newer. In PowerShell, from the repository:
+The Windows Agent automatically prepares Wintun when it starts or when you run
+`agent service install`. If `wintun.dll` already exists beside the executable,
+it is preserved and no download occurs. Enrollment alone and the Server role
+do not require or download Wintun.
+
+To prepare the DLL explicitly, run in an elevated PowerShell:
+
+```powershell
+.\graphwan.exe agent install-wintun
+```
+
+For an offline installation, supply the official ZIP:
+
+```powershell
+.\graphwan.exe agent install-wintun --archive 'C:\Downloads\wintun-0.14.1.zip'
+```
+
+GraphWAN selects the DLL matching its own executable architecture (amd64, arm64
+or 386), including when the executable runs under emulation. There is no Python
+dependency. To build from source, use Go 1.26 or newer:
 
 ```powershell
 go build -o bin/graphwan.exe ./cmd/graphwan
-py -3 scripts/fetch-wintun.py --arch amd64 --output bin
+.\bin\graphwan.exe agent install-wintun
 ```
 
-Match `--arch` to the **executable** architecture (`amd64`, `arm64` or `386`).
-The script requires Python 3 and downloads the official Wintun 0.14.1 archive,
-verifies its pinned SHA-256, and copies the selected unchanged `wintun.dll` and
-`WINTUN-LICENSE.txt`. It accepts `--archive path/to/wintun-0.14.1.zip` for an
-offline copy, with the same checksum check. It bounds the download and extracts
-only the two exact archive members. A checksum failure leaves existing files
-unchanged. Each output file is replaced atomically, with the license first.
+Downloads use the official HTTPS URL for Wintun 0.14.1, with a 60-second timeout,
+an 8 MiB size limit and a pinned SHA-256 check. Offline archives receive the same
+check. Only the matching DLL and license are extracted; the license is published
+first as `WINTUN-LICENSE.txt`. Files are staged in the executable directory before
+publication, and concurrent installers cannot replace an existing DLL. A checksum
+failure installs nothing.
 
-Distribute both files beside `graphwan.exe`. The project does not download a
-driver at Agent startup. The DLL loads from the executable directory or Windows
-System32, using restricted DLL search flags. The required API exports are checked
-before creating an adapter. A missing, incompatible or wrong-architecture DLL
-produces a configuration error. The Server role does not need Wintun.
+The executable directory must be writable during setup. You can prepare the DLL
+before starting a service on an offline or restricted host. Existing incompatible
+DLLs are not silently replaced: stop all Agents using that executable, remove the
+old DLL, and run the setup command again. Keep the license when redistributing
+the DLL.
+
+The DLL loads from the executable directory or Windows System32, using restricted
+DLL search flags. The required API exports are checked before creating an adapter.
+An incompatible or wrong-architecture DLL produces a configuration error.
 
 The official [Wintun distribution](https://www.wintun.net/) publishes the signed
 archive and checksum. Its prebuilt DLL license is included with the archive;

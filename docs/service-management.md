@@ -14,9 +14,11 @@ been verified in the current Linux development environment.
 ## Register, install and start an Agent
 
 Keep the GraphWAN executable in a permanent, administrator-controlled location.
-On Windows, place the architecture-matching official `wintun.dll` beside it
-(see [Windows setup](windows-operation.md)). Installation records the executable's
-resolved absolute path; it does not copy the binary or download drivers.
+On Windows, Agent startup and service installation automatically download a
+verified, architecture-matching Wintun DLL if it is missing beside the executable
+(see [Windows setup](windows-operation.md), including offline installation).
+Installation records the executable's resolved absolute path; it does not copy
+the GraphWAN binary.
 
 First enroll using an invitation from the management panel:
 

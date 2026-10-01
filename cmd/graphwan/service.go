@@ -195,6 +195,11 @@ func runManagedService(role string, args []string) error {
 		if err != nil || !info.Mode().IsRegular() {
 			return fmt.Errorf("initialize/register %s first, using the same --data-dir (missing %s)", role, db)
 		}
+		if role == "agent" {
+			if err := prepareAgentPlatform(context.Background()); err != nil {
+				return err
+			}
+		}
 		if err := s.Install(); err != nil {
 			return err
 		}

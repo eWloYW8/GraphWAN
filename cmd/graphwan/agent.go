@@ -29,6 +29,8 @@ func runAgent(args []string) error {
 func runAgentContext(parent context.Context, args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "install-wintun":
+			return runInstallWintun(parent, args[1:])
 		case "enroll":
 			return runAgentEnroll(args[1:])
 		case "run":
@@ -90,6 +92,9 @@ func runAgentContext(parent context.Context, args []string) error {
 	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	if err := prepareAgentPlatform(ctx); err != nil {
+		return err
+	}
 	var client *agent.Client
 	runtime, err := agent.NewDataPlane(ctx, cache.PrivateKey(), agent.DataPlaneOptions{Endpoints: func(endpoints []model.Endpoint) error {
 		if client == nil {
