@@ -44,7 +44,7 @@ are described with their traversal limits in that guide.
   routing state. Failed preparation closes new resources and retains existing
   interfaces and connections. Changing only graph weights preserves peer sessions.
 - Linux underlay discovery runs every five seconds. It includes device and veth
-  global-unicast and IPv4/IPv6 link-local addresses, excludes TUN/TAP/bridge devices, and advertises only
+  global-unicast and IPv4/IPv6 link-local addresses, accepts physical, veth, bridge, VLAN and bond interfaces, excludes TUN/TAP devices, and advertises only
   TCP/UDP endpoints using the configured Agent listen port (24752 by default).
 - Each Edge independently retries allowed candidates with jittered backoff.
   The Agent permits eight concurrent outgoing attempts and eight incoming

@@ -41,6 +41,39 @@ func excludeContainerInterfaces(interfaces []net.Interface, eligible map[int]boo
 			uplinks[hop.LinkIndex] = true
 		}
 	}
+	// A host bridge may carry its addresses above physical NICs, VLANs or
+	// bonds (e.g. Proxmox vmbr). Keep those bridges while excluding isolated
+	// container bridges. Use kernel relationships, never interface-name guesses.
+	byIndex := map[int]netlink.Link{}
+	members := map[int][]int{}
+	for _, link := range links {
+		a := link.Attrs()
+		byIndex[a.Index] = link
+		if a.MasterIndex != 0 {
+			members[a.MasterIndex] = append(members[a.MasterIndex], a.Index)
+		}
+	}
+	var physicalBacking func(int, map[int]bool) bool
+	physicalBacking = func(index int, visited map[int]bool) bool {
+		link := byIndex[index]
+		if link == nil || visited[index] {
+			return false
+		}
+		visited[index] = true
+		switch link.Type() {
+		case "device":
+			return true
+		case "vlan":
+			return physicalBacking(link.Attrs().ParentIndex, visited)
+		case "bridge", "bond":
+			for _, child := range members[index] {
+				if physicalBacking(child, visited) {
+					return true
+				}
+			}
+		}
+		return false
+	}
 	names := map[int]string{}
 	for _, iface := range interfaces {
 		names[iface.Index] = iface.Name
@@ -55,7 +88,7 @@ func excludeContainerInterfaces(interfaces []net.Interface, eligible map[int]boo
 			return fmt.Errorf("interface %d changed during container filtering", index)
 		}
 		seen[index] = true
-		if containerExcluded(link.Type(), link.Attrs().MasterIndex, uplinks[index]) {
+		if containerExcluded(link.Type(), link.Attrs().MasterIndex, uplinks[index]) || link.Type() == "bridge" && !uplinks[index] && !physicalBacking(index, map[int]bool{}) {
 			eligible[index] = false
 		}
 	}

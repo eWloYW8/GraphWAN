@@ -17,7 +17,10 @@ func physicalInterfaces(_ []net.Interface) (map[int]bool, error) {
 	for _, link := range links {
 		// A veth is the underlay NIC exposed inside a container/network namespace.
 		// Query kernel types so aliases do not determine whether TUN/TAP is excluded.
-		result[link.Attrs().Index] = link.Type() == "device" || link.Type() == "veth"
+		switch link.Type() {
+		case "device", "veth", "bridge", "vlan", "bond":
+			result[link.Attrs().Index] = true
+		}
 	}
 	return result, nil
 }

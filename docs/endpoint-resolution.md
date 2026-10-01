@@ -42,9 +42,11 @@ addresses as manual endpoints within that allowance. Duplicate URLs do not use
 extra slots, and expired STUN observations are removed.
 
 Linux reads kernel link types in one netlink dump and accepts physical devices
-and container veth interfaces. TUN, TAP, dummy devices and bridges are excluded
+and veth, bridge, VLAN and bond interfaces. TUN, TAP and dummy devices are excluded
 regardless of their names. **Agents → Manage → Exclude container IPs** additionally
 excludes veth interfaces attached to a bridge or without a unicast default route.
+It also excludes bridges with neither a default route nor physical backing;
+bridges backed by physical NICs, including through VLANs or bonds, remain eligible.
 A containerized Agent's unbridged default-route veth remains eligible, preserving
 its own uplink. This opt-in setting (`exclude_container_ips`) defaults to false
 and is delivered in the cached Agent snapshot. Filtering uses kernel link and
