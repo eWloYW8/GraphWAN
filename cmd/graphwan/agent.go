@@ -29,6 +29,8 @@ func runAgent(args []string) error {
 func runAgentContext(parent context.Context, args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "update":
+			return runAgentUpdate(args[1:])
 		case "install-wintun":
 			return runInstallWintun(parent, args[1:])
 		case "enroll":
@@ -106,7 +108,11 @@ func runAgentContext(parent context.Context, args []string) error {
 		return err
 	}
 	defer runtime.Close()
-	client, err = agent.NewClient(cache, runtime, agent.Options{Server: *server, ServerTransport: *serverTransport, Name: *name, EnrollmentToken: os.Getenv("GRAPHWAN_ENROLLMENT_TOKEN"), Roots: roots, Version: version})
+	updater, err := agentUpdater(ctx, *data)
+	if err != nil {
+		return err
+	}
+	client, err = agent.NewClient(cache, runtime, agent.Options{Updater: updater, Server: *server, ServerTransport: *serverTransport, Name: *name, EnrollmentToken: os.Getenv("GRAPHWAN_ENROLLMENT_TOKEN"), Roots: roots, Version: version})
 	if err != nil {
 		return err
 	}

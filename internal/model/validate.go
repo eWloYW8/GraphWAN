@@ -172,6 +172,11 @@ func (s State) Validate() error {
 		}
 	}
 	for _, a := range s.Agents {
+		if a.Update != nil {
+			if err := a.Update.Validate(); err != nil {
+				return err
+			}
+		}
 		if err := addID(a.ID); err != nil {
 			return err
 		}

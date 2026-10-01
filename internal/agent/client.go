@@ -27,7 +27,13 @@ import (
 	"github.com/eWloYW8/GraphWAN/internal/model"
 )
 
+type Updater interface {
+	Status() *model.UpdateStatus
+	Start(model.UpdateRequest, *http.Client, string) error
+	Poll(func() *http.Client, string)
+}
 type Options struct {
+	Updater         Updater
 	Server          string
 	ServerTransport string
 	Name            string
@@ -53,6 +59,7 @@ type Client struct {
 	endpoints           []model.Endpoint
 	endpointsSet        bool
 	endpointsChanged    chan struct{}
+	pendingUpdate       *model.UpdateRequest
 }
 
 func serverURL(raw string) (string, error) {
@@ -107,8 +114,19 @@ func NewClient(cache *Cache, runtime Runtime, options Options) (*Client, error) 
 	last, _ := cache.lastServer()
 	return &Client{lastTarget: last, failedTargets: map[string]bool{}, cache: cache, reconcile: NewReconciler(cache, runtime), options: options, server: server, http: client, transport: transport, endpointsChanged: make(chan struct{}, 1)}, nil
 }
-func (c *Client) Close()                    { c.transport.CloseIdleConnections() }
-func (c *Client) Report() model.AgentReport { return c.reconcile.Report(c.options.Version) }
+func (c *Client) Close() { c.transport.CloseIdleConnections() }
+func (c *Client) Report() model.AgentReport {
+	r := c.reconcile.Report(c.options.Version)
+	if c.options.Updater != nil {
+		r.Update = c.options.Updater.Status()
+	}
+	return r
+}
+func (c *Client) updateHTTP() *http.Client {
+	transport := c.transport.Clone()
+	transport.ResponseHeaderTimeout = 20 * time.Minute // a cold Server cache downloads before returning headers
+	return &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }, Timeout: 20 * time.Minute}
+}
 
 // SetEndpoints replaces the discovered set. Manual endpoints come exclusively
 // from controller snapshots and must not be included here.
@@ -333,6 +351,25 @@ func (c *Client) connect(parent context.Context, id model.ID, updates chan model
 			force = true
 		case <-ticker.C:
 		}
+		if c.options.Updater != nil {
+			c.mu.Lock()
+			pending := c.pendingUpdate
+			c.mu.Unlock()
+			if pending != nil {
+				client := c.updateHTTP()
+				if err := c.options.Updater.Start(*pending, client, c.server); err == nil {
+					c.mu.Lock()
+					if c.pendingUpdate == pending {
+						c.pendingUpdate = nil
+					}
+					c.mu.Unlock()
+				} else {
+					client.CloseIdleConnections()
+				}
+			} else {
+				c.options.Updater.Poll(c.updateHTTP, c.server)
+			}
+		}
 		report := c.Report()
 		changed := reportChanged(previous, report)
 		// Send one final unchanged sample so displayed traffic rates return to
@@ -374,6 +411,15 @@ func (c *Client) readControl(ctx context.Context, conn *websocket.Conn, id model
 			return err
 		}
 		switch message.Type {
+		case "update":
+			if message.Update == nil || message.Update.Validate() != nil {
+				return errors.New("invalid update request")
+			}
+			if c.options.Updater != nil {
+				c.mu.Lock()
+				c.pendingUpdate = message.Update
+				c.mu.Unlock()
+			}
 		case "routes":
 			if conn.Subprotocol() != model.RoutingSubprotocol || message.Routes == nil {
 				return errors.New("unnegotiated or missing live routes")

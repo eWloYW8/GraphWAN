@@ -36,6 +36,8 @@ func run(args []string) error {
 		return errors.New("usage: graphwan server | agent | network create/list | node list | edge add | version (use --help after a command)")
 	}
 	switch args[0] {
+	case "_apply-update":
+		return runUpdateHelper(args[1:])
 	case "version":
 		fmt.Println("GraphWAN", version)
 		return nil
@@ -106,8 +108,9 @@ func serveController(ctx context.Context, listen, data, hosts string, insecure b
 		return false, err
 	}
 	app, err := control.New(db, control.Options{
-		Password:       os.Getenv("GRAPHWAN_ADMIN_PASSWORD"),
-		GeoIPDirectory: filepath.Join(data, "geoip"),
+		Password:        os.Getenv("GRAPHWAN_ADMIN_PASSWORD"),
+		GeoIPDirectory:  filepath.Join(data, "geoip"),
+		UpdateDirectory: filepath.Join(data, "updates"),
 	})
 	if err != nil {
 		return false, err

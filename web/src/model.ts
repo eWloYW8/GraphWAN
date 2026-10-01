@@ -8,6 +8,7 @@ export type Endpoint = {
   expires_at?: string
 }
 export type Agent = {
+  update?: { id: string; source: string; asset: { version: string }; created_at: string }
   id: string
   name: string
   public_key: string
@@ -115,7 +116,19 @@ export type ResourceUsage = {
   goroutines: number
   uptime_seconds: number
 }
+export type AgentUpdateStatus = {
+  managed: boolean
+  service?: string
+  os: string
+  arch: string
+  request_id?: string
+  version?: string
+  phase?: string
+  error?: string
+  updated_at?: string
+}
 export type AgentStatus = {
+  update?: AgentUpdateStatus
   resources?: ResourceUsage
   agent_id: string
   connected: boolean

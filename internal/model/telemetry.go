@@ -23,6 +23,7 @@ type LinkStatus struct {
 	TXBytes            uint64    `json:"tx_bytes"`
 }
 type AgentReport struct {
+	Update          *UpdateStatus  `json:"update,omitempty"`
 	Resources       *ResourceUsage `json:"resources,omitempty"`
 	Version         string         `json:"version"`
 	AppliedRevision uint64         `json:"applied_revision"`
@@ -39,13 +40,14 @@ type AgentStatus struct {
 }
 
 // ControlMessage is a versioned envelope carried on an authenticated WebSocket.
-// Type is config, routes, heartbeat, ack, endpoints or error. Configuration is immutable
+// Type is config, routes, heartbeat, ack, endpoints, update or error. Configuration is immutable
 // desired state; ACK describes runtime application, not merely receipt.
 type ControlMessage struct {
-	Type      string       `json:"type"`
-	Snapshot  *Snapshot    `json:"snapshot,omitempty"`
-	Routes    *RouteUpdate `json:"routes,omitempty"`
-	Report    *AgentReport `json:"report,omitempty"`
-	Endpoints []Endpoint   `json:"endpoints,omitempty"`
-	Error     string       `json:"error,omitempty"`
+	Update    *UpdateRequest `json:"update,omitempty"`
+	Type      string         `json:"type"`
+	Snapshot  *Snapshot      `json:"snapshot,omitempty"`
+	Routes    *RouteUpdate   `json:"routes,omitempty"`
+	Report    *AgentReport   `json:"report,omitempty"`
+	Endpoints []Endpoint     `json:"endpoints,omitempty"`
+	Error     string         `json:"error,omitempty"`
 }

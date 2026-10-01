@@ -1,11 +1,14 @@
 package agent
 
-import "github.com/eWloYW8/GraphWAN/internal/model"
+import (
+	"github.com/eWloYW8/GraphWAN/internal/model"
+	"reflect"
+)
 
 // Idle resource/RTT samples ride on the periodic report. Configuration, errors,
 // link transitions and user-data counters still trigger the next two-second tick.
 func reportChanged(previous, next model.AgentReport) bool {
-	if previous.Version != next.Version || previous.AppliedRevision != next.AppliedRevision || previous.RoutingHash != next.RoutingHash || previous.ConfigError != next.ConfigError || previous.RuntimeError != next.RuntimeError || len(previous.Links) != len(next.Links) {
+	if !reflect.DeepEqual(previous.Update, next.Update) || previous.Version != next.Version || previous.AppliedRevision != next.AppliedRevision || previous.RoutingHash != next.RoutingHash || previous.ConfigError != next.ConfigError || previous.RuntimeError != next.RuntimeError || len(previous.Links) != len(next.Links) {
 		return true
 	}
 	old := make(map[string]model.LinkStatus, len(previous.Links))

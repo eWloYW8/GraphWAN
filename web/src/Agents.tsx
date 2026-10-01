@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AgentUpdate from './AgentUpdate'
 import { Plus, Copy, Trash2, Server } from 'lucide-react'
 import { ResourceSummary } from './Resources'
 import { request, errorText } from './api'
@@ -330,6 +331,7 @@ export default function Agents({
   enroll: () => void
 }) {
   const [editing, setEditing] = useState<Agent>()
+  const [updating, setUpdating] = useState<Agent>()
   return (
     <>
       <div className="page-heading">
@@ -383,10 +385,24 @@ export default function Agents({
                   <td>
                     <ResourceSummary status={status} live={live} />
                   </td>
-                  <td>{status?.version || '—'}</td>
+                  <td>
+                    {status?.version || '—'}
+                    {status?.update?.phase && <small>{status.update.phase}</small>}
+                  </td>
                   <td>
                     <button onClick={() => setEditing(a)} aria-label={`Manage ${a.name}`}>
                       Manage
+                    </button>
+                    <button
+                      disabled={!live || !status?.connected || !status.update?.managed || a.revoked}
+                      onClick={() => setUpdating(a)}
+                      title={
+                        status?.update?.managed
+                          ? 'Update from GitHub Release'
+                          : 'Requires graphwan agent service'
+                      }
+                    >
+                      Update
                     </button>
                   </td>
                 </tr>
@@ -405,6 +421,15 @@ export default function Agents({
           </div>
         )}
       </div>
+      {updating && (
+        <AgentUpdate
+          agent={updating}
+          status={statuses.find((s) => s.agent_id === updating.id)}
+          csrf={csrf}
+          updated={updated}
+          close={() => setUpdating(undefined)}
+        />
+      )}
       {editing && (
         <AgentEditor
           key={editing.id}

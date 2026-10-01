@@ -356,3 +356,23 @@ A peer that does not negotiate this subprotocol uses the original Raft stream
 and HTTPS commit/status requests. This permits rolling upgrades, but one-way
 reachability requires both peers to run the upgraded version. The transport
 change preserves Raft's existing majority-write and election rules.
+
+### Agent software updates
+
+`GET /updates/latest?os=linux&arch=amd64` returns the latest stable official
+release asset (`version`, `os`, `arch`, `name`, `url`, `sha256`, `size`).
+`POST /agents/{id}/update` requires administrator authentication, CSRF and
+`If-Match`, with `{"source":"github"|"server","version":"vX.Y.Z"}`. It returns
+202 and the updated State. Only an online managed-service Agent can be targeted;
+concurrent updates and release-version downgrades are rejected. The immutable
+request is stored in `Agent.update` and delivered as a control message of type
+`update`. Updated Agent reports include `update` capability/platform, request ID,
+target version, phase (`downloading`, `installing`, `succeeded`, `failed`), error
+and timestamp. Phase changes trigger prompt telemetry publication.
+
+The Agent-only `/agent/update/latest` and `/agent/update/download/{requestID}`
+endpoints require its enrolled mTLS certificate. An Agent can download only its
+assigned update, or the checked latest asset using
+`/agent/update/download/latest?os=...&arch=...&sha256=...` for CLI updates. Binary
+transfers have a separate, bounded download deadline and never occupy the control
+WebSocket. Each replica maintains its own verified persistent binary cache.

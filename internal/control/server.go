@@ -18,12 +18,14 @@ import (
 	"github.com/eWloYW8/GraphWAN/internal/model"
 	"github.com/eWloYW8/GraphWAN/internal/pki"
 	"github.com/eWloYW8/GraphWAN/internal/store"
+	"github.com/eWloYW8/GraphWAN/internal/update"
 	"github.com/eWloYW8/GraphWAN/internal/webui"
 )
 
 const maxBody = 8 << 20
 
 type Server struct {
+	releases     *update.Releases
 	geoip        *geoip.Service
 	cluster      *cluster.Runtime
 	reload       chan struct{}
@@ -44,9 +46,10 @@ type Server struct {
 	mux          *http.ServeMux
 }
 type Options struct {
-	Password       string
-	Logger         *slog.Logger
-	GeoIPDirectory string
+	UpdateDirectory string
+	Password        string
+	Logger          *slog.Logger
+	GeoIPDirectory  string
 }
 
 func New(db *store.Store, options Options) (*Server, error) {
@@ -62,8 +65,9 @@ func New(db *store.Store, options Options) (*Server, error) {
 		options.Logger = slog.Default()
 	}
 	s := &Server{
-		geoip:  geoip.New(options.GeoIPDirectory, options.Logger),
-		reload: make(chan struct{}), db: db, auth: auth, ca: ca, log: options.Logger, mux: http.NewServeMux(),
+		releases: update.New(options.UpdateDirectory),
+		geoip:    geoip.New(options.GeoIPDirectory, options.Logger),
+		reload:   make(chan struct{}), db: db, auth: auth, ca: ca, log: options.Logger, mux: http.NewServeMux(),
 		done: make(chan struct{}), eventClients: map[[32]byte]int{},
 		streams: map[model.ID]*websocket.Conn{}, watchers: map[chan struct{}]bool{},
 		statuses: map[model.ID]model.AgentStatus{},
@@ -81,6 +85,10 @@ func New(db *store.Store, options Options) (*Server, error) {
 		session, _ := auth.find(r)
 		respond(w, 200, map[string]string{"csrf_token": session.CSRF})
 	}))
+	s.mux.HandleFunc("GET /api/v1/updates/latest", auth.require(s.latestRelease))
+	s.mux.HandleFunc("POST /api/v1/agents/{id}/update", auth.require(s.updateAgent))
+	s.mux.HandleFunc("GET /api/v1/agent/update/latest", s.agentLatestRelease)
+	s.mux.HandleFunc("GET /api/v1/agent/update/download/{id}", s.downloadUpdate)
 	s.mux.HandleFunc("GET /api/v1/state", auth.require(s.getState))
 	s.mux.HandleFunc("GET /api/v1/agents/locations", auth.require(func(w http.ResponseWriter, r *http.Request) {
 		state, err := s.db.Read()

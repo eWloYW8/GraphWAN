@@ -113,3 +113,58 @@ Paths with leading/trailing whitespace or containing control characters, percent
 signs, dollar signs or double quotes
 are rejected to avoid supervisor expansion. On Unix, backslashes and single quotes
 are also rejected; ordinary spaces are supported.
+
+## Managed Agent updates
+
+Agents running under the built-in `graphwan agent service` supervisor can be
+updated from **Agents → Update**. Check the latest stable GitHub Release, choose
+**Agent downloads from GitHub** or **Server downloads and caches**, then select
+**Update and restart**. The panel shows the current version, target version and
+update status. Foreground Agents and hand-written services using `agent run` do
+not advertise this capability. Existing built-in services gain it when first
+started with an updater-capable binary; installation need not be repeated.
+
+The equivalent administrative command is:
+
+```sh
+sudo graphwan agent update --data-dir /var/lib/graphwan-agent --source github
+sudo graphwan agent update --data-dir /var/lib/graphwan-agent --source server
+```
+
+These are alternatives. The command queues one update for the running service;
+it is picked up when the Agent is connected to a controller. Inspect the panel
+or `update-state.json` in the data directory for completion. The service name and
+executable path come from the service receipt, so custom names need no extra flag.
+Both methods use the latest stable release of `eWloYW8/GraphWAN`, selecting the
+Agent's OS and architecture. Prereleases are excluded. Installed release versions
+cannot be downgraded; development Git revisions may be explicitly replaced with
+a release. There is no automatic periodic installation.
+
+The Server caches release metadata for five minutes and verified binaries under
+`<server-data-dir>/updates`, keyed by SHA-256. Concurrent downloads reuse the same
+file; files unused for seven days are pruned when new binaries are downloaded.
+Caches survive restarts and are local to each Server replica. Update requests
+are replicated with configuration; the Agent persists processed request IDs so
+reconnections do not repeat an installation. Requests older than 30 minutes fail
+and must be issued again. The Server transfer uses the existing authenticated
+control carrier (including TCP, WebSocket, gRPC or WSS), via a separate HTTP request.
+
+Both the Server and Agent verify the binary's size and the SHA-256 digest from
+[GitHub's release asset metadata](https://docs.github.com/en/rest/releases/assets).
+Missing digests, partial downloads, mismatched platforms and invalid binaries
+fail before stopping the Agent. The binary is staged beside the installed
+executable. A separate, temporary system service stops the Agent, preserves the
+previous executable as `<binary>.previous`, replaces it and restarts the service.
+The updater checks that startup remains running for ten seconds; if startup
+fails, it restores and starts the previous binary. This is a binary rollback,
+not a rollback of database migrations or a guarantee of network connectivity.
+The existing registration and configuration data are retained.
+
+The installed directory must be writable by the system service. Give independent
+Agent instances separate executable paths when updating them independently.
+The temporary helper removes its service registration when done; Windows helper
+files are cleaned on the next update because Windows locks the running image.
+An interrupted machine-level failure can leave `<binary>.update-lock`; inspect
+service state and the `.previous` binary before manually recovering that lock.
+Linux replacement, restart and startup-failure rollback have been verified.
+Windows/macOS are cross-compiled; native service-update validation is pending.

@@ -113,6 +113,7 @@ func (s *Server) agentControl(w http.ResponseWriter, r *http.Request) {
 	go func() { done <- s.readAgent(ctx, conn, id) }()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	var sentUpdate model.ID
 	var last uint64
 	var snapshot model.Snapshot
 	var routeHash string
@@ -151,6 +152,20 @@ func (s *Server) agentControl(w http.ResponseWriter, r *http.Request) {
 					if hash := routes.Hash(); hash != routeHash {
 						message.Type, message.Routes = "routes", &routes
 						routeHash = hash
+					}
+				}
+			}
+		}
+		if message.Type == "heartbeat" {
+			s.mu.Lock()
+			capable := s.statuses[id].Update != nil && s.statuses[id].Update.Managed
+			s.mu.Unlock()
+			if capable {
+				for _, a := range state.Agents {
+					if a.ID == id && !a.Revoked && a.Update != nil && a.Update.ID != sentUpdate {
+						message.Type, message.Update = "update", a.Update
+						sentUpdate = a.Update.ID
+						break
 					}
 				}
 			}
@@ -238,6 +253,22 @@ func (s *Server) readAgent(ctx context.Context, conn *websocket.Conn, id model.I
 }
 
 func validateReport(snapshot model.Snapshot, report model.AgentReport) error {
+	if u := report.Update; u != nil {
+		if len(u.Service) > 80 || len(u.OS) > 16 || len(u.Arch) > 16 || len(u.Version) > 128 || len(u.Error) > 4096 {
+			return errors.New("invalid updater telemetry")
+		}
+		if u.RequestID != "" {
+			if err := u.RequestID.Validate(); err != nil {
+				return err
+			}
+		}
+		switch u.Phase {
+		case "", "downloading", "installing", "succeeded", "failed":
+		default:
+			return errors.New("invalid update phase")
+		}
+	}
+
 	if report.AppliedRevision > snapshot.Revision || len(report.RoutingHash) > 64 || len(report.Version) > 128 || len(report.ConfigError) > 4096 || len(report.RuntimeError) > 4096 || len(report.Links) > 4096 {
 		return errors.New("invalid agent report")
 	}

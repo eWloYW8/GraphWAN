@@ -55,14 +55,15 @@ type Endpoint struct {
 }
 
 type Agent struct {
-	ID                  ID         `json:"id"`
-	Name                string     `json:"name"`
-	PublicKey           []byte     `json:"public_key"`
-	Endpoints           []Endpoint `json:"endpoints"`
-	ListenPort          uint16     `json:"listen_port"`
-	Revoked             bool       `json:"revoked"`
-	STUNServers         []string   `json:"stun_servers,omitempty"`
-	ExcludeContainerIPs bool       `json:"exclude_container_ips,omitempty"`
+	Update              *UpdateRequest `json:"update,omitempty"`
+	ID                  ID             `json:"id"`
+	Name                string         `json:"name"`
+	PublicKey           []byte         `json:"public_key"`
+	Endpoints           []Endpoint     `json:"endpoints"`
+	ListenPort          uint16         `json:"listen_port"`
+	Revoked             bool           `json:"revoked"`
+	STUNServers         []string       `json:"stun_servers,omitempty"`
+	ExcludeContainerIPs bool           `json:"exclude_container_ips,omitempty"`
 }
 
 type Position struct {
@@ -165,6 +166,10 @@ func (s State) Clone() State {
 	out.Servers = CloneServers(s.Servers)
 	out.Agents = append([]Agent{}, s.Agents...)
 	for i := range out.Agents {
+		if s.Agents[i].Update != nil {
+			u := *s.Agents[i].Update
+			out.Agents[i].Update = &u
+		}
 		out.Agents[i].PublicKey = append([]byte(nil), s.Agents[i].PublicKey...)
 		out.Agents[i].Endpoints = append([]Endpoint{}, s.Agents[i].Endpoints...)
 		out.Agents[i].STUNServers = append([]string(nil), s.Agents[i].STUNServers...)
