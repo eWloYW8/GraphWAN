@@ -52,6 +52,15 @@ func run(args []string) error {
 	}
 }
 func runServer(args []string) error {
+	if len(args) > 0 && args[0] == "service" {
+		return runManagedService("server", args[1:])
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runServerContext(ctx, args)
+}
+
+func runServerContext(parent context.Context, args []string) error {
 	fs := flag.NewFlagSet("server", flag.ContinueOnError)
 	listen := fs.String("listen", "127.0.0.1:8443", "HTTP(S) listen address")
 	data := fs.String("data-dir", "./graphwan-data", "private persistent state directory")
@@ -73,7 +82,7 @@ func runServer(args []string) error {
 			return errors.New("--http requires a literal loopback listen address")
 		}
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := context.WithCancel(parent)
 	defer stop()
 	for ctx.Err() == nil {
 		reload, err := serveController(ctx, *listen, *data, *hosts, *insecure)

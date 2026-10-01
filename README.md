@@ -70,6 +70,9 @@ The default peer listen port is 24752. No controller packet relay is
 used. Agents keep forwarding and can restart from cached configuration while the
 controller is unavailable.
 
+For built-in Linux, Windows and macOS service management, see
+[service management](docs/service-management.md).
+
 For release binaries, Linux systemd services, upgrades and backups, see
 [deployment](docs/deployment.md).
 

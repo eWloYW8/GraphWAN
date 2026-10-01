@@ -52,7 +52,8 @@ administrators. Go's Unix permission bits do not themselves enforce Windows ACLs
 Add Network memberships and Edges in the management UI. Permit the configured peer
 port (default TCP/UDP 24752) in the host firewall for the intended underlay peers.
 The adapter does not change firewall rules, DNS settings or the system default
-route. Windows service installation is not implemented by this adapter.
+route. Use the built-in [service commands](service-management.md) to install and manage
+a Windows service. No external service wrapper is needed.
 
 ## Ownership and configuration
 

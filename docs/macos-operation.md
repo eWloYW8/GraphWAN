@@ -29,6 +29,9 @@ Edges in the management UI. Peer traffic uses the configured port, default 24752
 The adapter uses the built-in kernel control socket and the system utilities
 `/sbin/ifconfig` and `/sbin/route`; it does not require a third-party TUN extension.
 
+For startup at boot and background operation, use the built-in
+[service commands](service-management.md), which install a system LaunchDaemon.
+
 ## Interface, routes and configuration
 
 An empty requested interface name asks the kernel to allocate an unused `utunN`.

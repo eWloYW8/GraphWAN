@@ -12,6 +12,7 @@ require (
 	github.com/hashicorp/raft v1.8.0
 	github.com/hashicorp/raft-boltdb/v2 v2.4.2
 	github.com/hashicorp/yamux v0.1.2
+	github.com/kardianos/service v1.2.4
 	github.com/oschwald/maxminddb-golang/v2 v2.6.0
 	github.com/pion/stun/v3 v3.1.7
 	github.com/quic-go/quic-go v0.63.0

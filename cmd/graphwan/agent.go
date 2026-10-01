@@ -18,6 +18,15 @@ import (
 )
 
 func runAgent(args []string) error {
+	if len(args) > 0 && args[0] == "service" {
+		return runManagedService("agent", args[1:])
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runAgentContext(ctx, args)
+}
+
+func runAgentContext(parent context.Context, args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
 		case "enroll":
@@ -79,7 +88,7 @@ func runAgent(args []string) error {
 	if reg == nil && *server == "" {
 		return errors.New("first enrollment requires --server")
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	var client *agent.Client
 	runtime, err := agent.NewDataPlane(ctx, cache.PrivateKey(), agent.DataPlaneOptions{Endpoints: func(endpoints []model.Endpoint) error {
