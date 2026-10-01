@@ -20,6 +20,8 @@ import { FloatingEdge, FloatingConnection, LineConnection } from './FloatingEdge
 import { planAnchors } from './edgeGeometry'
 import { planRoutes, planLabels, type LineStyle } from './edgeRouting'
 import { activePath } from './activePath'
+import WireGuardNode from './WireGuardNode'
+import { wireGuardNodeState } from './wireguard'
 import { ResourceDetails } from './Resources'
 import { Badge, Field } from './components'
 import { connectionViews, endpointParts } from './connections'
@@ -59,7 +61,14 @@ function FitLayout({ count }: { count: number }) {
 }
 
 type GraphNode = FlowNode<
-  { name: string; address: string; state: string; connecting: boolean; path: boolean },
+  {
+    name: string
+    address: string
+    state: string
+    connecting: boolean
+    path: boolean
+    wireguard: boolean
+  },
   'agent'
 >
 function AgentNode({ data, isConnectable }: NodeProps<GraphNode>) {
@@ -83,7 +92,7 @@ function AgentNode({ data, isConnectable }: NodeProps<GraphNode>) {
       />
       <div className="node-content">
         <div className="node-icon">
-          <Server size={18} />
+          {data.wireguard ? <Cable size={18} /> : <Server size={18} />}
         </div>
         <div>
           <strong>{data.name}</strong>
@@ -154,13 +163,8 @@ export default function Topology({
     }
   }
   const validConnection = ({ source, target }: { source: string | null; target: string | null }) =>
-    !!source &&
-    !!target &&
-    source !== target &&
-    !network.edges.some(
-      (edge) =>
-        (edge.a === source && edge.b === target) || (edge.a === target && edge.b === source),
-    )
+    !!source && !!target && !!createEdge(network, source, target)
+
   const path = useMemo(
     () =>
       selection?.type === 'path'
@@ -197,17 +201,20 @@ export default function Topology({
         data: {
           connecting,
           path: path?.nodes.includes(n.id) ?? false,
+          wireguard: !!n.wireguard,
           name: n.name,
           address: n.address,
-          state: nodeState(
-            state.agents.find((a) => a.id === n.agent_id),
-            status.get(n.agent_id),
-            live,
-          ),
+          state: n.wireguard
+            ? wireGuardNodeState(network, n, state, statuses, live)
+            : nodeState(
+                state.agents.find((a) => a.id === n.agent_id),
+                status.get(n.agent_id),
+                live,
+              ),
         },
         ariaLabel: `${n.name}, ${n.address}`,
       })),
-    [network.nodes, selection, state.agents, status, live, connecting, path],
+    [network, selection, state, statuses, status, live, connecting, path],
   )
   const [nodes, setNodes, applyNodeChanges] = useNodesState<GraphNode>([])
   useEffect(() => {
@@ -280,7 +287,7 @@ export default function Topology({
       label: editing
         ? `Weight ${e.weight}`
         : view.state === 'Connected'
-          ? `${view.active!.transport.toUpperCase()} · ${view.active!.rtt_ms.toFixed(1)} ms${(view.tx ?? 0) > 0 ? ` · ${rate(view.tx)}` : ''}`
+          ? `${view.active!.transport.toUpperCase()}${view.active!.transport === 'wireguard' ? '' : ` · ${view.active!.rtt_ms.toFixed(1)} ms`}${(view.tx ?? 0) > 0 ? ` · ${rate(view.tx)}` : ''}`
           : view.state,
       style: {
         stroke: focused ? '#087b66' : view.state === 'Connected' ? '#278f79' : '#91a3a0',
@@ -565,7 +572,7 @@ export default function Topology({
                     {view && (
                       <small>
                         {view.state === 'Connected'
-                          ? `${view.active!.transport.toUpperCase()} · ${view.active!.rtt_ms.toFixed(1)} ms`
+                          ? `${view.active!.transport.toUpperCase()}${view.active!.transport === 'wireguard' ? '' : ` · ${view.active!.rtt_ms.toFixed(1)} ms`}`
                           : view.state}
                       </small>
                     )}
@@ -583,6 +590,18 @@ export default function Topology({
               Reverse direction
             </button>
           </>
+        ) : node?.wireguard ? (
+          <WireGuardNode
+            key={node.id}
+            node={node}
+            network={network}
+            state={state}
+            statuses={statuses}
+            editing={editing}
+            live={live}
+            change={change}
+            removed={() => select(null)}
+          />
         ) : node ? (
           <>
             <div className="inspector-intro">
@@ -872,66 +891,70 @@ export default function Topology({
                   onChange={(e) => updateEdge({ weight: Number(e.target.value) })}
                 />
               </Field>
-              <h4>Allowed transports</h4>
-              <div className="checks">
-                {(['udp', 'tcp', 'quic', 'ws', 'wss', 'grpc'] as const).map((t) => (
-                  <label className="check" key={t}>
-                    <input
-                      type="checkbox"
-                      checked={edge.transports.includes(t)}
-                      onChange={(e) =>
-                        updateEdge({
-                          transports: e.target.checked
-                            ? [...edge.transports, t]
-                            : edge.transports.filter((v) => v !== t),
-                        })
-                      }
-                    />
-                    {t.toUpperCase()}
-                  </label>
-                ))}
-              </div>
-              <h4>Connection methods</h4>
-              {(
-                [
-                  ['ipv4_direct', 'IPv4 direct'],
-                  ['ipv6_direct', 'IPv6 direct'],
-                  ['hole_punch', 'NAT hole punching'],
-                ] as const
-              ).map(([key, label]) => (
-                <label className="check" key={key}>
-                  <input
-                    type="checkbox"
-                    checked={edge.methods[key]}
-                    onChange={(e) =>
-                      updateEdge({ methods: { ...edge.methods, [key]: e.target.checked } })
-                    }
-                  />
-                  {label}
-                </label>
-              ))}
-              <Field label="Preferred path">
-                <select
-                  value={edge.preferred_candidate ?? ''}
-                  onChange={(e) => updateEdge({ preferred_candidate: e.target.value })}
-                >
-                  <option value="">Automatic · Lowest RTT</option>
-                  {[...new Map(connections.map((c) => [c.candidate, c])).values()].map((c) => (
-                    <option key={c.candidate} value={c.candidate}>
-                      {c.transport.toUpperCase()} · {c.ends[0].address ?? 'Unknown'} ↔{' '}
-                      {c.ends[1].address ?? 'Unknown'}
-                    </option>
+              {!edge.transports.includes('wireguard') && (
+                <>
+                  <h4>Allowed transports</h4>
+                  <div className="checks">
+                    {(['udp', 'tcp', 'quic', 'ws', 'wss', 'grpc'] as const).map((t) => (
+                      <label className="check" key={t}>
+                        <input
+                          type="checkbox"
+                          checked={edge.transports.includes(t)}
+                          onChange={(e) =>
+                            updateEdge({
+                              transports: e.target.checked
+                                ? [...edge.transports, t]
+                                : edge.transports.filter((v) => v !== t),
+                            })
+                          }
+                        />
+                        {t.toUpperCase()}
+                      </label>
+                    ))}
+                  </div>
+                  <h4>Connection methods</h4>
+                  {(
+                    [
+                      ['ipv4_direct', 'IPv4 direct'],
+                      ['ipv6_direct', 'IPv6 direct'],
+                      ['hole_punch', 'NAT hole punching'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label className="check" key={key}>
+                      <input
+                        type="checkbox"
+                        checked={edge.methods[key]}
+                        onChange={(e) =>
+                          updateEdge({ methods: { ...edge.methods, [key]: e.target.checked } })
+                        }
+                      />
+                      {label}
+                    </label>
                   ))}
-                  {edge.preferred_candidate &&
-                    !edgeView(network, edge, statuses, rates, live).links.some(
-                      (l) => l.candidate_id === edge.preferred_candidate,
-                    ) && (
-                      <option value={edge.preferred_candidate}>
-                        Saved path · {shortID(edge.preferred_candidate)}
-                      </option>
-                    )}
-                </select>
-              </Field>
+                  <Field label="Preferred path">
+                    <select
+                      value={edge.preferred_candidate ?? ''}
+                      onChange={(e) => updateEdge({ preferred_candidate: e.target.value })}
+                    >
+                      <option value="">Automatic · Lowest RTT</option>
+                      {[...new Map(connections.map((c) => [c.candidate, c])).values()].map((c) => (
+                        <option key={c.candidate} value={c.candidate}>
+                          {c.transport.toUpperCase()} · {c.ends[0].address ?? 'Unknown'} ↔{' '}
+                          {c.ends[1].address ?? 'Unknown'}
+                        </option>
+                      ))}
+                      {edge.preferred_candidate &&
+                        !edgeView(network, edge, statuses, rates, live).links.some(
+                          (l) => l.candidate_id === edge.preferred_candidate,
+                        ) && (
+                          <option value={edge.preferred_candidate}>
+                            Saved path · {shortID(edge.preferred_candidate)}
+                          </option>
+                        )}
+                    </select>
+                  </Field>
+                </>
+              )}
             </fieldset>
             <h4>Connections · {connections.length}</h4>
             {connections.map((c) => (
@@ -956,8 +979,12 @@ export default function Topology({
                       </div>
                       {end.report ? (
                         <div className="link-metrics">
-                          <span>{end.report.rtt_ms.toFixed(1)} ms RTT</span>
-                          <span>{(end.report.loss * 100).toFixed(1)}% loss</span>
+                          {end.report.transport !== 'wireguard' && (
+                            <>
+                              <span>{end.report.rtt_ms.toFixed(1)} ms RTT</span>
+                              <span>{(end.report.loss * 100).toFixed(1)}% loss</span>
+                            </>
+                          )}
                           <span>↓ {bytes(end.report.rx_bytes)}</span>
                           <span>↑ {bytes(end.report.tx_bytes)}</span>
                         </div>
@@ -974,11 +1001,19 @@ export default function Topology({
               <button
                 className="danger wide"
                 onClick={() => {
-                  change({ ...network, edges: network.edges.filter((e) => e.id !== edge.id) })
+                  change({
+                    ...network,
+                    edges: network.edges.filter((e) => e.id !== edge.id),
+                    nodes: network.nodes.filter(
+                      (n) => !(n.wireguard && (n.id === edge.a || n.id === edge.b)),
+                    ),
+                  })
                   select(null)
                 }}
               >
-                Remove edge
+                {edge.transports.includes('wireguard')
+                  ? 'Remove edge and WireGuard node'
+                  : 'Remove edge'}
               </button>
             )}
           </>

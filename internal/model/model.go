@@ -19,17 +19,18 @@ const (
 type Transport string
 
 const (
-	UDP  Transport = "udp"
-	TCP  Transport = "tcp"
-	QUIC Transport = "quic"
-	WS   Transport = "ws"
-	WSS  Transport = "wss"
-	GRPC Transport = "grpc"
+	WireGuard Transport = "wireguard"
+	UDP       Transport = "udp"
+	TCP       Transport = "tcp"
+	QUIC      Transport = "quic"
+	WS        Transport = "ws"
+	WSS       Transport = "wss"
+	GRPC      Transport = "grpc"
 )
 
 func (t Transport) Valid() bool {
 	switch t {
-	case UDP, TCP, QUIC, WS, WSS, GRPC:
+	case UDP, TCP, QUIC, WS, WSS, GRPC, WireGuard:
 		return true
 	}
 	return false
@@ -82,7 +83,13 @@ type AdvertisedSubnet struct {
 	GatewayMode GatewayMode  `json:"gateway_mode"`
 }
 
+type WireGuardNode struct {
+	PublicKey string `json:"public_key"`
+	Endpoint  string `json:"endpoint,omitempty"`
+}
+
 type Node struct {
+	WireGuard         *WireGuardNode     `json:"wireguard,omitempty"`
 	AdvertisedSubnets []AdvertisedSubnet `json:"advertised_subnets,omitempty"`
 	ID                ID                 `json:"id"`
 	AgentID           ID                 `json:"agent_id"`
@@ -178,6 +185,10 @@ func (s State) Clone() State {
 }
 
 func (n Node) Clone() Node {
+	if n.WireGuard != nil {
+		copy := *n.WireGuard
+		n.WireGuard = &copy
+	}
 	n.AdvertisedSubnets = append([]AdvertisedSubnet(nil), n.AdvertisedSubnets...)
 	return n
 }

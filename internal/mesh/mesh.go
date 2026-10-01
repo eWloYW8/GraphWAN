@@ -22,6 +22,7 @@ import (
 	"github.com/eWloYW8/GraphWAN/internal/peer"
 	"github.com/eWloYW8/GraphWAN/internal/secure"
 	"github.com/eWloYW8/GraphWAN/internal/transport"
+	"github.com/eWloYW8/GraphWAN/internal/wgaccess"
 	"google.golang.org/grpc"
 )
 
@@ -37,6 +38,7 @@ type policy struct {
 	endpoints []model.Endpoint
 }
 type Mesh struct {
+	wireguard      *wgaccess.Hub
 	dns            *endpointDNS
 	identity       ed25519.PrivateKey
 	ctx            context.Context
@@ -136,6 +138,9 @@ func (m *Mesh) Close() error {
 	for _, conn := range pending {
 		conn.Close()
 	}
+	if m.wireguard != nil {
+		m.wireguard.Close()
+	}
 	m.udp.Close()
 	for _, session := range punches {
 		session.Close()
@@ -153,6 +158,11 @@ func (m *Mesh) Close() error {
 func (m *Mesh) Apply(snapshot model.Snapshot) error {
 	if err := snapshot.Validate(snapshot.AgentID); err != nil {
 		return err
+	}
+	if m.wireguard != nil {
+		if err := m.wireguard.Apply(snapshot); err != nil {
+			return err
+		}
 	}
 	m.mu.Lock()
 	if m.closed {
@@ -183,6 +193,9 @@ func (m *Mesh) Apply(snapshot model.Snapshot) error {
 	var retiredLinks []*link.Link
 	for _, network := range snapshot.Networks {
 		for _, p := range network.Peers {
+			if p.Node.WireGuard != nil {
+				continue
+			}
 			k := key{network.ID, p.Node.ID}
 			cfg := &policy{network: network.ID, self: network.Self.ID, cipher: network.Cipher, peer: p, endpoints: snapshot.Endpoints}
 			if existing := old[k]; existing != nil && compatible(existing.policy.Load(), cfg) {
@@ -228,6 +241,11 @@ func compatible(a, b *policy) bool {
 }
 
 func (m *Mesh) Send(ctx context.Context, network, remote model.ID, frame []byte) error {
+	if m.wireguard != nil {
+		if found, err := m.wireguard.SendFrame(network, remote, frame); found {
+			return err
+		}
+	}
 	m.mu.Lock()
 	g := m.groups[key{network, remote}]
 	m.mu.Unlock()
@@ -239,6 +257,16 @@ func (m *Mesh) Send(ctx context.Context, network, remote model.ID, frame []byte)
 
 // SendOwnedBatch consumes frames on both successful enqueue and policy errors.
 func (m *Mesh) SendOwnedBatch(ctx context.Context, network, remote model.ID, frames []*packetbuf.Buffer) error {
+	if m.wireguard != nil && len(frames) > 0 {
+		if found, err := m.wireguard.SendFrame(network, remote, frames[0].Data); found {
+			for _, f := range frames[1:] {
+				_, e := m.wireguard.SendFrame(network, remote, f.Data)
+				err = errors.Join(err, e)
+			}
+			packetbuf.ReleaseAll(frames)
+			return err
+		}
+	}
 	m.mu.Lock()
 	g := m.groups[key{network, remote}]
 	m.mu.Unlock()
@@ -256,6 +284,9 @@ func (m *Mesh) Report() []model.LinkStatus {
 	}
 	m.mu.Unlock()
 	result := []model.LinkStatus{}
+	if m.wireguard != nil {
+		result = append(result, m.wireguard.Report()...)
+	}
 	for _, g := range groups {
 		result = append(result, g.edge.Report()...)
 	}
@@ -565,4 +596,10 @@ func candidateIngress(candidate link.Candidate, conn transport.Conn) bool {
 		return transport.WebSocketPath(parsed) == path.EndpointPath()
 	}
 	return candidate.Family == addressFamily(conn.RemoteAddr())
+}
+
+// EnableWireGuard is called once before this Mesh is published to the dataplane.
+func (m *Mesh) EnableWireGuard(receive func(model.ID, []byte)) {
+	m.wireguard = wgaccess.New(m.ctx, m.identity, m.Port(), m.udp.SendWireGuard, receive)
+	m.udp.SetWireGuardReceiver(m.wireguard.Receive)
 }

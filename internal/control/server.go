@@ -347,7 +347,22 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 					nodes = append(nodes, node)
 				}
 			}
-			n.Nodes = nodes
+			for _, node := range nodes {
+				if node.WireGuard == nil {
+					continue
+				}
+				for _, edge := range n.Edges {
+					if edge.A == node.ID && removed[edge.B] || edge.B == node.ID && removed[edge.A] {
+						removed[node.ID] = true
+					}
+				}
+			}
+			n.Nodes = nodes[:0]
+			for _, node := range nodes {
+				if !removed[node.ID] {
+					n.Nodes = append(n.Nodes, node)
+				}
+			}
 			edges := []model.Edge{}
 			for _, edge := range n.Edges {
 				if !removed[edge.A] && !removed[edge.B] {

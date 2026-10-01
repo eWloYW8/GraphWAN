@@ -4,6 +4,7 @@ import Globe, { type ViewCommand } from './Globe'
 import type { Appearance, GlobeEdge, GlobeNode, Selection as GlobeSelection } from './types'
 import type { Selection } from '../Topology'
 import { edgeView, nodeState, type Network, type State, type AgentStatus } from '../model'
+import { wireGuardNodeState } from '../wireguard'
 import type { Locations } from './useAgentLocations'
 import './globe.css'
 
@@ -64,7 +65,9 @@ export default function NetworkGlobe({
     return {
       nodes: Object.fromEntries(
         network.nodes.map((node) => {
-          const health = nodeState(agents.get(node.agent_id), status.get(node.agent_id), live)
+          const health = node.wireguard
+            ? wireGuardNodeState(network, node, state, statuses, live)
+            : nodeState(agents.get(node.agent_id), status.get(node.agent_id), live)
           const location = locations?.agents[node.agent_id]?.location
           return [
             node.id,

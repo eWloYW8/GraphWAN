@@ -32,14 +32,57 @@ export function activePath(
     ])
   const useLive = live && !!saved && routingKey(saved) === routingKey(network)
   const available = (a: string, b: string, edgeID: string) => {
-    const endpoint = (id: string) => statuses.find((s) => s.agent_id === network.nodes.find((n) => n.id === id)?.agent_id)
-    const healthy = (s: AgentStatus | undefined) => !!s?.connected && Date.now() - Date.parse(s.last_seen) <= 45000 && !s.config_error && !s.runtime_error
-    const left = endpoint(a), right = endpoint(b)
-    return healthy(left) && healthy(right) && (left?.links ?? []).some((l) =>
-      l.network_id === network.id && l.edge_id === edgeID && l.healthy &&
-      (right?.links ?? []).some((r) => r.network_id === network.id && r.edge_id === edgeID && r.healthy && r.link_id === l.link_id && r.transport === l.transport))
+    const endpoint = (id: string) =>
+      statuses.find((s) => s.agent_id === network.nodes.find((n) => n.id === id)?.agent_id)
+    const healthy = (s: AgentStatus | undefined) =>
+      !!s?.connected &&
+      Date.now() - Date.parse(s.last_seen) <= 45000 &&
+      !s.config_error &&
+      !s.runtime_error
+    const left = endpoint(a),
+      right = endpoint(b)
+    if (
+      network.nodes.find((n) => n.id === a)?.wireguard ||
+      network.nodes.find((n) => n.id === b)?.wireguard
+    ) {
+      const gateway = network.nodes.find((n) => n.id === a)?.wireguard ? right : left
+      return (
+        healthy(gateway) &&
+        !!gateway?.links?.some(
+          (l) =>
+            l.network_id === network.id &&
+            l.edge_id === edgeID &&
+            l.transport === 'wireguard' &&
+            l.healthy,
+        )
+      )
+    }
+    return (
+      healthy(left) &&
+      healthy(right) &&
+      (left?.links ?? []).some(
+        (l) =>
+          l.network_id === network.id &&
+          l.edge_id === edgeID &&
+          l.healthy &&
+          (right?.links ?? []).some(
+            (r) =>
+              r.network_id === network.id &&
+              r.edge_id === edgeID &&
+              r.healthy &&
+              r.link_id === l.link_id &&
+              r.transport === l.transport,
+          ),
+      )
+    )
   }
-  const edges = network.edges.filter((e) => e.enabled && !excluded.has(e.a) && !excluded.has(e.b) && (!useLive || available(e.a, e.b, e.id)))
+  const edges = network.edges.filter(
+    (e) =>
+      e.enabled &&
+      !excluded.has(e.a) &&
+      !excluded.has(e.b) &&
+      (!useLive || available(e.a, e.b, e.id)),
+  )
   const result: PathView = { nodes: [source], edges: [], weight: 0, state: 'Unknown' }
   // Drafts have not passed the controller's validation. A negative undirected
   // edge would make Dijkstra revisit the same nodes indefinitely.
@@ -88,16 +131,22 @@ export function activePath(
       (e) => (e.a === current && e.b === next) || (e.b === current && e.a === next),
     )
     if (!next || !edge || result.nodes.includes(next))
-      return { ...result, state: 'Unavailable', reason: useLive ? 'No available route.' : 'No configured route.' }
+      return {
+        ...result,
+        state: 'Unavailable',
+        reason: useLive ? 'No available route.' : 'No configured route.',
+      }
     result.edges.push(edge.id)
     result.nodes.push(next)
     result.weight += edge.weight
     current = next
   }
   if (!live) return { ...result, reason: 'Live telemetry is unavailable.' }
-  if (!useLive) return { ...result, reason: 'Unsaved routing changes; showing the configured draft path.' }
+  if (!useLive)
+    return { ...result, reason: 'Unsaved routing changes; showing the configured draft path.' }
   for (const id of result.nodes) {
     const node = network.nodes.find((n) => n.id === id)!
+    if (node.wireguard) continue
     const status = statuses.find((s) => s.agent_id === node.agent_id)
     if (!status?.connected)
       return { ...result, state: 'Unavailable', reason: `${node.name} is offline.` }
@@ -118,5 +167,13 @@ export function activePath(
       return { ...result, reason: 'Hop latency is unavailable.' }
     rtt += view.active!.rtt_ms
   }
-  return { ...result, state: 'Active', rtt_ms: rtt }
+  return {
+    ...result,
+    state: 'Active',
+    rtt_ms: result.edges.some((id) =>
+      network.edges.find((e) => e.id === id)?.transports.includes('wireguard'),
+    )
+      ? undefined
+      : rtt,
+  }
 }

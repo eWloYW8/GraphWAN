@@ -160,6 +160,7 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 		if err != nil {
 			return fmt.Errorf("listen for peers: %w", err)
 		}
+		next.mesh.EnableWireGuard(r.receiveWireGuard)
 		newMesh = true
 	}
 	forwardingSnapshot := carryLiveRoutes(snapshot, r.lastRoutes)
@@ -355,4 +356,11 @@ func (r *DataPlane) deliverBatch(ctx context.Context, network model.ID, packets 
 		r.failTunnel(network, device, err)
 	}
 	return err
+}
+
+func (r *DataPlane) receiveWireGuard(network model.ID, raw []byte) {
+	state := r.state.Load()
+	if state != nil {
+		_ = state.router.FromWireGuard(r.ctx, network, raw)
+	}
 }

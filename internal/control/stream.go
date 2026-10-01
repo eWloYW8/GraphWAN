@@ -260,6 +260,13 @@ func validateReport(snapshot model.Snapshot, report model.AgentReport) error {
 		if !ok || !slices.Contains(edge.Transports, link.Transport) || len(link.LinkID) == 0 || len(link.LinkID) > 128 || len(link.CandidateID) > 256 || len(link.Remote) > 2048 || len(link.Local) > 2048 || len(link.ObservedLocal) > 2048 || links[link.LinkID] {
 			return errors.New("invalid link identity")
 		}
+		if link.Transport == model.WireGuard {
+			if err := model.ValidateWireGuardKey(link.WireGuardPublicKey); err != nil {
+				return err
+			}
+		} else if link.WireGuardPublicKey != "" || !link.LastHandshake.IsZero() {
+			return errors.New("unexpected WireGuard metadata")
+		}
 		links[link.LinkID] = true
 		if math.IsNaN(link.RTTMillis) || math.IsInf(link.RTTMillis, 0) || link.RTTMillis < 0 || math.IsNaN(link.Loss) || link.Loss < 0 || link.Loss > 1 {
 			return errors.New("invalid link metrics")

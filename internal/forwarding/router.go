@@ -52,6 +52,7 @@ type network struct {
 	subnets       map[netip.Prefix]*node
 	prefixLengths []int
 	byNode        map[[16]byte]*node
+	wireguard     map[netip.Addr]*node
 	peers         map[model.ID]bool
 	routes        map[model.ID]model.ID
 }
@@ -127,7 +128,11 @@ func (r *Router) Configure(snapshot model.Snapshot) error {
 		}
 		slices.Sort(n.prefixLengths)
 		slices.Reverse(n.prefixLengths)
+		n.wireguard = map[netip.Addr]*node{}
 		for _, peer := range config.Peers {
+			if peer.Node.WireGuard != nil {
+				n.wireguard[peer.Node.Address] = n.byAddress[peer.Node.Address]
+			}
 			n.peers[peer.Node.ID] = true
 		}
 		for _, route := range config.Routes {
@@ -210,6 +215,9 @@ func (r *Router) FromTunnelBatch(ctx context.Context, networkID model.ID, packet
 }
 
 func (r *Router) encapsulate(ctx context.Context, n *network, raw []byte) (*packetbuf.Buffer, model.ID, error) {
+	return r.encapsulateSource(ctx, n, raw, nil)
+}
+func (r *Router) encapsulateSource(ctx context.Context, n *network, raw []byte, client *node) (*packetbuf.Buffer, model.ID, error) {
 	if len(raw) > n.mtu {
 		return nil, "", ErrMTU
 	}
@@ -217,7 +225,11 @@ func (r *Router) encapsulate(ctx context.Context, n *network, raw []byte) (*pack
 	if err != nil {
 		return nil, "", err
 	}
-	if info.Source != n.self.Address {
+	if client != nil {
+		if info.Source != client.address {
+			return nil, "", ErrSource
+		}
+	} else if info.Source != n.self.Address {
 		source := n.owner(info.Source)
 		if source == nil || source.id != n.self.ID {
 			return nil, "", ErrSource
@@ -237,6 +249,9 @@ func (r *Router) encapsulate(ctx context.Context, n *network, raw []byte) (*pack
 	buffer := packetbuf.GetHeadroom(packet.HeaderSize+len(raw), 1)
 	frame := buffer.Data
 	copy(frame, n.header[:])
+	if client != nil {
+		copy(frame[24:40], client.wire[:])
+	}
 	binary.BigEndian.PutUint16(frame[4:6], uint16(len(raw)))
 	copy(frame[40:56], destination.wire[:])
 	binary.BigEndian.PutUint64(frame[64:72], info.Flow)
@@ -361,4 +376,27 @@ func (n *network) owner(ip netip.Addr) *node {
 		}
 	}
 	return nil
+}
+
+// FromWireGuard accepts plaintext only after WireGuard authenticates the peer
+// and enforces its /32 or /128 AllowedIP. The active snapshot checks it again.
+func (r *Router) FromWireGuard(ctx context.Context, networkID model.ID, raw []byte) error {
+	n := r.state.Load().networks[networkID]
+	if n == nil {
+		return ErrNetwork
+	}
+	info, err := packet.InspectAddresses(raw)
+	if err != nil {
+		return err
+	}
+	client := n.wireguard[info.Source]
+	if client == nil {
+		return ErrSource
+	}
+	buffer, hop, err := r.encapsulateSource(ctx, n, raw, client)
+	if err != nil || buffer == nil {
+		return err
+	}
+	defer buffer.Release()
+	return r.send(ctx, networkID, hop, buffer.Data)
 }

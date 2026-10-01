@@ -27,7 +27,7 @@ func (e Endpoint) Validate() error {
 	if err := e.ID.Validate(); err != nil {
 		return err
 	}
-	if !e.Transport.Valid() {
+	if !e.Transport.Valid() || e.Transport == WireGuard {
 		return fmt.Errorf("invalid transport %q", e.Transport)
 	}
 	if e.Source != Interface && e.Source != Observed && e.Source != Manual {
@@ -210,6 +210,7 @@ func (s State) Validate() error {
 		agents[a.ID] = a
 	}
 	memberships := map[ID][]netip.Prefix{}
+	wgKeys := map[string]bool{}
 	for _, n := range s.Networks {
 		if err := addID(n.ID); err != nil {
 			return err
@@ -243,19 +244,32 @@ func (s State) Validate() error {
 			if err := validateName(node.Name); err != nil {
 				return fmt.Errorf("node %s: %w", node.ID, err)
 			}
-			if _, ok := agents[node.AgentID]; !ok {
-				return fmt.Errorf("node %s: unknown agent", node.ID)
-			}
-			if members[node.AgentID] {
-				return fmt.Errorf("agent belongs to a network more than once")
-			}
-			members[node.AgentID] = true
-			for _, prefix := range memberships[node.AgentID] {
-				if prefix.Overlaps(n.CIDR) {
-					return fmt.Errorf("agent %s has overlapping networks", node.AgentID)
+			if node.WireGuard != nil {
+				if node.AgentID != "" || len(node.AdvertisedSubnets) != 0 {
+					return fmt.Errorf("WireGuard nodes cannot have an agent identity or advertised subnets")
 				}
+				if err := node.WireGuard.Validate(); err != nil {
+					return err
+				}
+				if wgKeys[node.WireGuard.PublicKey] {
+					return fmt.Errorf("duplicate WireGuard public key")
+				}
+				wgKeys[node.WireGuard.PublicKey] = true
+			} else {
+				if _, ok := agents[node.AgentID]; !ok {
+					return fmt.Errorf("node %s: unknown agent", node.ID)
+				}
+				if members[node.AgentID] {
+					return fmt.Errorf("agent belongs to a network more than once")
+				}
+				members[node.AgentID] = true
+				for _, prefix := range memberships[node.AgentID] {
+					if prefix.Overlaps(n.CIDR) {
+						return fmt.Errorf("agent %s has overlapping networks", node.AgentID)
+					}
+				}
+				memberships[node.AgentID] = append(memberships[node.AgentID], n.CIDR)
 			}
-			memberships[node.AgentID] = append(memberships[node.AgentID], n.CIDR)
 			a := node.Address
 			if err := validateVirtualAddress(n.CIDR, a); err != nil {
 				return fmt.Errorf("node %s: %w", node.ID, err)
@@ -268,6 +282,11 @@ func (s State) Validate() error {
 				return fmt.Errorf("invalid node position")
 			}
 			nodes[node.ID] = true
+		}
+		wgNodes := map[ID]bool{}
+		degrees := map[ID]int{}
+		for _, node := range n.Nodes {
+			wgNodes[node.ID] = node.WireGuard != nil
 		}
 		pairs := map[[2]ID]bool{}
 		for _, e := range n.Edges {
@@ -286,6 +305,22 @@ func (s State) Validate() error {
 				return fmt.Errorf("duplicate edge between %s and %s", a, b)
 			}
 			pairs[pair] = true
+			degrees[e.A]++
+			degrees[e.B]++
+			if wgNodes[e.A] || wgNodes[e.B] {
+				if wgNodes[e.A] && wgNodes[e.B] {
+					return fmt.Errorf("WireGuard nodes require a regular Agent neighbor")
+				}
+				if len(e.Transports) != 1 || e.Transports[0] != WireGuard || e.PreferredCandidate != "" {
+					return fmt.Errorf("WireGuard edges require only the wireguard transport")
+				}
+			} else {
+				for _, t := range e.Transports {
+					if t == WireGuard {
+						return fmt.Errorf("WireGuard transport requires a WireGuard node")
+					}
+				}
+			}
 			if e.Weight == 0 {
 				return fmt.Errorf("edge %s: weight must be positive", e.ID)
 			}
@@ -304,6 +339,11 @@ func (s State) Validate() error {
 			}
 			if len(e.PreferredCandidate) > 256 {
 				return fmt.Errorf("preferred candidate too long")
+			}
+		}
+		for id, wg := range wgNodes {
+			if wg && degrees[id] != 1 {
+				return fmt.Errorf("WireGuard node must have exactly one Agent connection")
 			}
 		}
 	}

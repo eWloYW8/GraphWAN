@@ -28,7 +28,7 @@ for (const [name, pkg] of [...packages.entries()].sort(([a], [b]) => a.localeCom
   if (!licenses.length) throw new Error(`Missing license notice for ${name}`)
   notices.push(`${'='.repeat(72)}\n${name}\n${'='.repeat(72)}\n`)
   for (const file of licenses)
-    notices.push(`${readFileSync(join(pkg.path, file), 'utf8').trim()}\n`)
+    notices.push(`${readFileSync(join(pkg.path, file), 'utf8').replace(/\r\n/g, '\n').trim()}\n`)
 }
 notices.push(readFileSync('src/globe/assets/NOTICE.txt', 'utf8'))
 writeFileSync('../internal/webui/dist/THIRD_PARTY_LICENSES.txt', notices.join('\n'))

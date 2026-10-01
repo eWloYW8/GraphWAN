@@ -1,4 +1,4 @@
-export type Transport = 'udp' | 'tcp' | 'quic' | 'ws' | 'wss' | 'grpc'
+export type Transport = 'udp' | 'tcp' | 'quic' | 'ws' | 'wss' | 'grpc' | 'wireguard'
 export const transports: Transport[] = ['udp', 'tcp', 'quic', 'ws', 'wss', 'grpc']
 export type Endpoint = {
   id: string
@@ -19,6 +19,7 @@ export type Agent = {
 }
 export type AdvertisedSubnet = { prefix: string; gateway_mode: 'off' | 'route' | 'snat' }
 export type Node = {
+  wireguard?: { public_key: string; endpoint?: string }
   advertised_subnets?: AdvertisedSubnet[]
   id: string
   agent_id: string
@@ -69,6 +70,8 @@ export type State = {
   agents: Agent[]
 }
 export type Link = {
+  wireguard_public_key?: string
+  last_handshake?: string
   network_id: string
   edge_id: string
   link_id: string
@@ -185,7 +188,9 @@ export function edgeView(
       })),
   )
   const active = links.filter((l) => l.active && l.healthy)
-  const same = active.length === 2 && active[0].link_id === active[1].link_id
+  const same = edge.transports.includes('wireguard')
+    ? active.length === 1
+    : active.length === 2 && active[0].link_id === active[1].link_id
   const chosen = active[0]
   const speed = chosen ? rates[linkKey(chosen.agent, chosen.link_id)] : undefined
   return {
@@ -204,10 +209,15 @@ export function edgeView(
   }
 }
 export function removeNode(network: Network, id: string): Network {
+  const removed = new Set([id])
+  for (const edge of network.edges) {
+    const other = edge.a === id ? edge.b : edge.b === id ? edge.a : ''
+    if (network.nodes.find((n) => n.id === other)?.wireguard) removed.add(other)
+  }
   return {
     ...network,
-    nodes: network.nodes.filter((n) => n.id !== id),
-    edges: network.edges.filter((e) => e.a !== id && e.b !== id),
+    nodes: network.nodes.filter((n) => !removed.has(n.id)),
+    edges: network.edges.filter((e) => !removed.has(e.a) && !removed.has(e.b)),
   }
 }
 export function createEdge(network: Network, a: string, b: string): Edge | undefined {
@@ -218,13 +228,18 @@ export function createEdge(network: Network, a: string, b: string): Edge | undef
     network.edges.some((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a))
   )
     return
+  const left = network.nodes.find((n) => n.id === a)!,
+    right = network.nodes.find((n) => n.id === b)!
+  if (left.wireguard && right.wireguard) return
+  const wg = left.wireguard ? left : right.wireguard ? right : undefined
+  if (wg && network.edges.some((e) => e.a === wg.id || e.b === wg.id)) return
   return {
     id: newID(),
     a,
     b,
     weight: 10,
     enabled: true,
-    transports: ['udp', 'tcp'],
+    transports: wg ? ['wireguard'] : ['udp', 'tcp'],
     methods: { ipv4_direct: true, ipv6_direct: true, hole_punch: false },
   }
 }

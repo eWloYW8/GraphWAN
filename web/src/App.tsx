@@ -30,6 +30,7 @@ import {
   createEdge,
   nodeState,
 } from './model'
+import { generateClientKey, nextAddress, forgetWireGuardKeys } from './wireguard'
 import Topology, { type Selection } from './Topology'
 import Agents, { Enrollment } from './Agents'
 import Servers from './Servers'
@@ -324,6 +325,7 @@ export default function App() {
           if (dirty && !confirm('Discard unsaved changes and sign out?')) return
           try {
             await request('/logout', { method: 'POST', csrf })
+            forgetWireGuardKeys()
             clearSession()
           } catch (e) {
             setError(errorText(e))
@@ -746,41 +748,80 @@ function AddNode({
   const available = state.agents.filter(
     (a) => !a.revoked && !network.nodes.some((n) => n.agent_id === a.id),
   )
+  const gateways = network.nodes.filter(
+    (n) => !n.wireguard && !state.agents.find((a) => a.id === n.agent_id)?.revoked,
+  )
+  const [kind, setKind] = useState('agent')
   const [agent, setAgent] = useState(available[0]?.id ?? '')
+  const [gateway, setGateway] = useState(gateways[0]?.id ?? '')
   const [name, setName] = useState(available[0]?.name ?? '')
-  const [address, setAddress] = useState('')
+  const [address, setAddress] = useState(nextAddress(network))
+  const [keyMode, setKeyMode] = useState('generate')
+  const [publicKey, setPublicKey] = useState('')
+  const [endpoint, setEndpoint] = useState('')
+  const [error, setError] = useState('')
   return (
     <Modal title="Add node" close={close}>
-      {!available.length ? (
-        <p>No available agents.</p>
-      ) : (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            save({
-              ...network,
-              nodes: [
-                ...network.nodes,
-                {
-                  id: newID(),
-                  agent_id: agent,
-                  name,
-                  address,
-                  position: {
-                    x: (network.nodes.length % 3) * 280,
-                    y: Math.floor(network.nodes.length / 3) * 150,
-                  },
-                },
-              ],
-            })
-          }}
-        >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          setError('')
+          try {
+            const id = newID()
+            const node = {
+              id,
+              agent_id: kind === 'wireguard' ? '' : agent,
+              name,
+              address,
+              position: {
+                x: (network.nodes.length % 3) * 280,
+                y: Math.floor(network.nodes.length / 3) * 150,
+              },
+              ...(kind === 'wireguard'
+                ? {
+                    wireguard: {
+                      public_key: keyMode === 'generate' ? generateClientKey(id) : publicKey.trim(),
+                      endpoint: endpoint.trim(),
+                    },
+                  }
+                : {}),
+            }
+            let updated: Network = { ...network, nodes: [...network.nodes, node] }
+            if (kind === 'wireguard') {
+              const edge = createEdge(updated, id, gateway)
+              if (!edge) throw new Error('Choose a regular Agent access node.')
+              updated = { ...updated, edges: [...updated.edges, edge] }
+            }
+            save(updated)
+          } catch (e) {
+            setError(errorText(e))
+          }
+        }}
+      >
+        <Field label="Node type">
+          <select
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value)
+              setName(
+                e.target.value === 'wireguard'
+                  ? 'WireGuard client'
+                  : (available.find((a) => a.id === agent)?.name ?? ''),
+              )
+            }}
+          >
+            <option value="agent">GraphWAN Agent</option>
+            <option value="wireguard">WireGuard</option>
+          </select>
+        </Field>
+        {kind === 'agent' ? (
           <Field label="Agent">
             <select
+              required
               value={agent}
               onChange={(e) => {
                 setAgent(e.target.value)
-                setName(available.find((a) => a.id === e.target.value)!.name)
+                setName(available.find((a) => a.id === e.target.value)?.name ?? '')
               }}
             >
               {available.map((a) => (
@@ -790,28 +831,52 @@ function AddNode({
               ))}
             </select>
           </Field>
-          <Field label="Node name">
-            <input
-              required
-              maxLength={128}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </Field>
-          <Field label="Virtual IP">
-            <input
-              required
-              placeholder="10.42.0.1"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
-          </Field>
-          <button className="primary wide">Add to draft</button>
-        </form>
-      )}
+        ) : (
+          <>
+            <Field label="Access node">
+              <select required value={gateway} onChange={(e) => setGateway(e.target.value)}>
+                {gateways.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Client key">
+              <select value={keyMode} onChange={(e) => setKeyMode(e.target.value)}>
+                <option value="generate">Generate in this browser</option>
+                <option value="manual">Provide public key</option>
+              </select>
+            </Field>
+            {keyMode === 'manual' && (
+              <Field label="Client public key">
+                <input required value={publicKey} onChange={(e) => setPublicKey(e.target.value)} />
+              </Field>
+            )}
+            <Field label="Endpoint override">
+              <input
+                placeholder="Automatic, or vpn.example.com:24752"
+                value={endpoint}
+                onChange={(e) => setEndpoint(e.target.value)}
+              />
+            </Field>
+          </>
+        )}
+        <Field label="Node name">
+          <input required maxLength={128} value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="Virtual IP">
+          <input required value={address} onChange={(e) => setAddress(e.target.value)} />
+        </Field>
+        {error && <ErrorBox>{error}</ErrorBox>}
+        <button className="primary wide" disabled={kind === 'agent' ? !agent : !gateway}>
+          Add to draft
+        </button>
+      </form>
     </Modal>
   )
 }
+
 function AddEdge({
   network,
   save,

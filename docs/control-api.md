@@ -40,6 +40,17 @@ IDs are 32 lowercase hexadecimal characters. Nodes have `id`, `agent_id`, `name`
 `address`, and `position: {x,y}`. Missing Node/Edge IDs are generated, but when
 creating both Nodes and referencing Edges in one request, assign Node IDs first.
 An Agent can be a member of many networks, once each, without overlapping CIDRs.
+WireGuard Nodes instead use `agent_id: ""` and
+`wireguard: {public_key: "<base64 X25519 key>", endpoint: "vpn.example.com:24752"}`.
+`endpoint` is an optional client configuration override. Exactly one Edge to a
+regular Node is required, with `transports: ["wireguard"]`; the Edge may be disabled.
+Client public keys are unique across the configuration. Client private keys are
+never part of this API. WireGuard Nodes cannot advertise subnets. Deleting an
+Agent also removes its attached WireGuard leaf nodes. See [WireGuard access](wireguard.md).
+WireGuard Link telemetry includes `wireguard_public_key` (the access Agent's key)
+and `last_handshake`, as well as endpoint and byte counters. One access Agent
+report is sufficient for this attachment; no client control connection is needed.
+
 Nodes also accept an optional `advertised_subnets` array, for example:
 
 ```json

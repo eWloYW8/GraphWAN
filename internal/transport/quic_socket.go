@@ -49,7 +49,7 @@ func (s *quicSocket) ReadFrom(raw []byte) (int, net.Addr, error) {
 				if len(p.raw) >= 4 && [4]byte(p.raw[:4]) == udpMagic {
 					native[nativeCount] = p
 					nativeCount++
-				} else if !s.hub.receiveSTUN(p.raw, p.remote) {
+				} else if !s.hub.receiveWireGuard(p.raw, p.remote, p.control) && !s.hub.receiveSTUN(p.raw, p.remote) {
 					s.packets[quicCount] = p
 					quicCount++
 				}

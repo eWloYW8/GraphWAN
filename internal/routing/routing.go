@@ -4,6 +4,7 @@ package routing
 import (
 	"cmp"
 	"container/heap"
+	"encoding/base64"
 	"fmt"
 	"slices"
 
@@ -132,6 +133,9 @@ func Compile(state model.State, agentID model.ID) (model.Snapshot, error) {
 			}
 			node := nodes[peerID]
 			agent := agents[node.AgentID]
+			if node.WireGuard != nil {
+				agent.PublicKey, _ = base64.StdEncoding.DecodeString(node.WireGuard.PublicKey)
+			}
 			edge.Transports = append([]model.Transport{}, edge.Transports...)
 			config.Peers = append(config.Peers, model.Peer{Node: node, PublicKey: append([]byte{}, agent.PublicKey...), Endpoints: append([]model.Endpoint{}, agent.Endpoints...), Edge: edge})
 		}

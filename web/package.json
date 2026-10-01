@@ -11,14 +11,18 @@
     "format:check": "prettier --check src scripts *.ts *.json index.html"
   },
   "dependencies": {
+    "@noble/curves": "^2.4.0",
     "@xyflow/react": "^12.12.0",
+    "ipaddr.js": "^2.5.0",
     "lucide-react": "^1.48.0",
+    "qrcode": "^1.5.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "three": "^0.186.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/three": "^0.186.0",

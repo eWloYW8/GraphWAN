@@ -74,6 +74,9 @@ Nodes can advertise external subnets within a Network, with optional automatic
 gateway forwarding and Linux SNAT. External OS routes remain administrator-managed;
 see [advertised subnets](docs/advertised-subnets.md).
 
+iOS, Android and other standard WireGuard clients can join as leaf nodes through
+an Agent, with configuration downloads and QR codes. See [WireGuard access](docs/wireguard.md).
+
 For built-in Linux, Windows and macOS service management, see
 [service management](docs/service-management.md).
 

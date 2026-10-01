@@ -31,6 +31,7 @@ type udpKey struct {
 // family. The same socket is used for STUN and hole punching; a NAT mapping must
 // never be discovered on a different socket than the one carrying peer traffic.
 type UDP struct {
+	wireguard    WireGuardReceiver
 	sockets      []*net.UDPConn
 	batchSockets map[*net.UDPConn]*udpBatchSocket
 	mu           sync.Mutex
