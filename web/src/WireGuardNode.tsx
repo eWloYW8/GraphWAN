@@ -8,7 +8,15 @@ import {
   wireGuardAccess,
   wireGuardNodeState,
 } from './wireguard'
-import { bytes, removeNode, type Node, type Network, type State, type AgentStatus } from './model'
+import {
+  linkRTT,
+  bytes,
+  removeNode,
+  type Node,
+  type Network,
+  type State,
+  type AgentStatus,
+} from './model'
 
 export default function WireGuardNode({
   node,
@@ -166,6 +174,12 @@ export default function WireGuardNode({
         <dd className="mono">{access.endpoint || 'Not configured'}</dd>
         <dt>Access public key</dt>
         <dd className="mono">{publicKey || 'Not reported'}</dd>
+        <dt>Latency (ICMP RTT)</dt>
+        <dd>
+          {live && access.status?.connected && linkRTT(access.link) !== undefined
+            ? `${linkRTT(access.link)!.toFixed(1)} ms`
+            : 'Unknown'}
+        </dd>
         <dt>Last handshake</dt>
         <dd>
           {access.link?.last_handshake && !access.link.last_handshake.startsWith('0001')

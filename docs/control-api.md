@@ -199,7 +199,11 @@ errors trigger reports at that cadence; applied configuration is ACKed promptly.
 When idle, a full report is sent approximately every 15 seconds, including in
 response to controller heartbeats. One final unchanged sample clears displayed
 traffic rates when transfers stop. CPU, memory, RTT and loss samples alone do not
-trigger extra reports. A 45-second receive timeout detects a silent connection:
+trigger extra reports for ordinary links. WireGuard ICMP sample validity and
+measurement timestamps trigger updates: `rtt_valid` marks an available sample,
+`rtt_measured_at` is its timestamp, and `rtt_ms` is the tunnel round-trip time.
+Missing replies or samples older than 40 seconds are displayed as unknown,
+independently of handshake health. A 45-second receive timeout detects a silent connection:
 
 - `{"type":"ack","report":{"version":"...","applied_revision":N,"links":[],"config_error":"..."}}`
 - `{"type":"endpoints","endpoints":[...]}`: full discovered endpoint set.

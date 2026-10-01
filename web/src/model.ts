@@ -70,6 +70,8 @@ export type State = {
   agents: Agent[]
 }
 export type Link = {
+  rtt_valid?: boolean
+  rtt_measured_at?: string
   wireguard_public_key?: string
   last_handshake?: string
   network_id: string
@@ -86,6 +88,24 @@ export type Link = {
   loss: number
   rx_bytes: number
   tx_bytes: number
+}
+// WireGuard uses optional ICMP samples; missing replies never imply zero RTT.
+export function linkRTT(link: Link | undefined): number | undefined {
+  if (!link || !Number.isFinite(link.rtt_ms) || link.rtt_ms < 0) return undefined
+  if (
+    link.transport === 'wireguard' &&
+    (!link.rtt_valid ||
+      !link.healthy ||
+      !link.rtt_measured_at ||
+      !Number.isFinite(Date.parse(link.rtt_measured_at)) ||
+      Date.now() - Date.parse(link.rtt_measured_at) > 40_000)
+  )
+    return undefined
+  return link.rtt_ms
+}
+export function latencyLabel(link: Link | undefined) {
+  const rtt = linkRTT(link)
+  return rtt === undefined ? 'RTT unknown' : `${rtt.toFixed(1)} ms`
 }
 export type ResourceUsage = {
   cpu_percent?: number

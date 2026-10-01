@@ -261,6 +261,9 @@ func validateReport(snapshot model.Snapshot, report model.AgentReport) error {
 			return errors.New("invalid link identity")
 		}
 		if link.Transport == model.WireGuard {
+			if link.RTTValid && (link.RTTMeasuredAt.IsZero() || link.RTTMillis >= 3000) {
+				return errors.New("invalid WireGuard RTT sample")
+			}
 			if err := model.ValidateWireGuardKey(link.WireGuardPublicKey); err != nil {
 				return err
 			}

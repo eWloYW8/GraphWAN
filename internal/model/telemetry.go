@@ -3,6 +3,8 @@ package model
 import "time"
 
 type LinkStatus struct {
+	RTTValid           bool      `json:"rtt_valid,omitempty"`
+	RTTMeasuredAt      time.Time `json:"rtt_measured_at,omitempty"`
 	WireGuardPublicKey string    `json:"wireguard_public_key,omitempty"`
 	LastHandshake      time.Time `json:"last_handshake,omitempty"`
 	NetworkID          ID        `json:"network_id"`

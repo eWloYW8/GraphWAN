@@ -1,4 +1,4 @@
-import { edgeView, type AgentStatus, type Network, type State } from './model'
+import { linkRTT, edgeView, type AgentStatus, type Network, type State } from './model'
 
 export type PathView = {
   nodes: string[]
@@ -154,6 +154,7 @@ export function activePath(
       return { ...result, reason: `${node.name} has not confirmed the current configuration.` }
   }
   let rtt = 0
+  let measured = true
   for (const id of result.edges) {
     const edge = network.edges.find((e) => e.id === id)!
     const view = edgeView(network, edge, statuses, {}, live)
@@ -163,17 +164,13 @@ export function activePath(
         state: 'Unavailable',
         reason: 'A configured hop has no healthy active link.',
       }
-    if (!Number.isFinite(view.active?.rtt_ms) || view.active!.rtt_ms < 0)
-      return { ...result, reason: 'Hop latency is unavailable.' }
-    rtt += view.active!.rtt_ms
+    const sample = linkRTT(view.active)
+    if (sample === undefined) measured = false
+    else rtt += sample
   }
   return {
     ...result,
     state: 'Active',
-    rtt_ms: result.edges.some((id) =>
-      network.edges.find((e) => e.id === id)?.transports.includes('wireguard'),
-    )
-      ? undefined
-      : rtt,
+    rtt_ms: measured ? rtt : undefined,
   }
 }

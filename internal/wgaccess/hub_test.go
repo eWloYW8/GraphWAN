@@ -56,13 +56,24 @@ func TestSharedPortWireGuard(t *testing.T) {
 		if i == 1 {
 			address = netip.MustParseAddr("fd42:2::2")
 		}
-		snapshot.Networks = append(snapshot.Networks, model.NetworkConfig{ID: id, MTU: 1420, Peers: []model.Peer{{Node: model.Node{ID: node, Address: address, WireGuard: &model.WireGuardNode{PublicKey: base64.StdEncoding.EncodeToString(private.PublicKey().Bytes())}}, PublicKey: private.PublicKey().Bytes(), Edge: model.Edge{ID: testutil.ID(120 + i)}}}})
+		source := netip.MustParseAddr(fmt.Sprintf("10.%d.0.1", i+1))
+		if i == 1 {
+			source = netip.MustParseAddr("fd42:2::1")
+		}
+		snapshot.Networks = append(snapshot.Networks, model.NetworkConfig{ID: id, MTU: 1420, Self: model.Node{Address: source}, Peers: []model.Peer{{Node: model.Node{ID: node, Address: address, WireGuard: &model.WireGuardNode{PublicKey: base64.StdEncoding.EncodeToString(private.PublicKey().Bytes())}}, PublicKey: private.PublicKey().Bytes(), Edge: model.Edge{ID: testutil.ID(120 + i)}}}})
 		if err := h.Apply(snapshot); err != nil {
 			t.Fatal(err)
 		}
 		received[i] = make(chan []byte, 16)
 		receive := received[i]
-		tun := newTUN(1420, id, func(_ model.ID, raw []byte) { receive <- bytes.Clone(raw) })
+		var tun *memoryTUN
+		tun = newTUN(1420, id, func(_ model.ID, raw []byte) {
+			if len(raw) == 52 && raw[0]>>4 == 4 && raw[9] == 1 && raw[20] == 8 || len(raw) == 72 && raw[0]>>4 == 6 && raw[6] == 58 && raw[40] == 128 {
+				_ = tun.send(probeReply(raw))
+				return
+			}
+			receive <- bytes.Clone(raw)
+		})
 		client := device.NewDevice(tun, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, ""))
 		defer client.Close()
 		key, _ := base64.StdEncoding.DecodeString(h.networks[id].publicKey)
@@ -127,6 +138,21 @@ func TestSharedPortWireGuard(t *testing.T) {
 		if !report.Healthy || report.WireGuardPublicKey == "" {
 			t.Fatalf("missing handshake report: %+v", report)
 		}
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		reports := h.Report()
+		valid := len(reports) == 2
+		for _, r := range reports {
+			valid = valid && r.RTTValid && r.RTTMillis > 0 && !r.RTTMeasuredAt.IsZero()
+		}
+		if valid {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("missing tunneled IPv4/IPv6 RTT", reports)
+		}
+		time.Sleep(time.Millisecond)
 	}
 	// A client cannot impersonate a different network's address.
 	tunnels[0].send(testIPv4("10.2.0.2", "10.1.0.1"))

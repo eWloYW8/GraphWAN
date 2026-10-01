@@ -70,8 +70,12 @@ Telemetry includes the latest handshake, client endpoint and byte counters.
 An enabled attachment is routable while the Agent reports a handshake within
 three minutes. Before a handshake the panel shows Waiting; after expiry it shows
 Idle, which does not prove the client is offline. Default keepalive maintains
-NAT reachability and refreshes sessions. WireGuard RTT is not measured and should
-not be interpreted as zero latency. A fresh handshake restores the live route
+NAT reachability and refreshes sessions. The access Agent sends an IPv4/IPv6 ICMP
+Echo Request through each established WireGuard tunnel approximately every 30
+seconds, with a 3-second reply timeout. The panel displays the measured round-trip
+time in node details, connections and paths. Unanswered or stale probes show
+unknown latency; they never change handshake health or routing. Clients must allow
+ICMP Echo Requests from the access Agent’s overlay address. A fresh handshake restores the live route
 on the following Agent report. Routes through failed ordinary Edges remain excluded.
 Disabling the Edge removes the admitted WireGuard peer. Removing an access node
 also removes its attached WireGuard nodes. Normal endpoint/position/name updates

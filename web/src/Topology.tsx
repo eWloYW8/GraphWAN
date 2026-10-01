@@ -33,6 +33,7 @@ import {
   type Rates,
   type Edge,
   nodeState,
+  latencyLabel,
   edgeView,
   createEdge,
   removeNode,
@@ -287,7 +288,7 @@ export default function Topology({
       label: editing
         ? `Weight ${e.weight}`
         : view.state === 'Connected'
-          ? `${view.active!.transport.toUpperCase()}${view.active!.transport === 'wireguard' ? '' : ` · ${view.active!.rtt_ms.toFixed(1)} ms`}${(view.tx ?? 0) > 0 ? ` · ${rate(view.tx)}` : ''}`
+          ? `${view.active!.transport.toUpperCase()} · ${latencyLabel(view.active)}${(view.tx ?? 0) > 0 ? ` · ${rate(view.tx)}` : ''}`
           : view.state,
       style: {
         stroke: focused ? '#087b66' : view.state === 'Connected' ? '#278f79' : '#91a3a0',
@@ -572,7 +573,7 @@ export default function Topology({
                     {view && (
                       <small>
                         {view.state === 'Connected'
-                          ? `${view.active!.transport.toUpperCase()}${view.active!.transport === 'wireguard' ? '' : ` · ${view.active!.rtt_ms.toFixed(1)} ms`}`
+                          ? `${view.active!.transport.toUpperCase()} · ${latencyLabel(view.active)}`
                           : view.state}
                       </small>
                     )}
@@ -979,11 +980,12 @@ export default function Topology({
                       </div>
                       {end.report ? (
                         <div className="link-metrics">
+                          <span>
+                            {latencyLabel(end.report)}
+                            {end.report.transport === 'wireguard' ? ' · ICMP' : ' RTT'}
+                          </span>
                           {end.report.transport !== 'wireguard' && (
-                            <>
-                              <span>{end.report.rtt_ms.toFixed(1)} ms RTT</span>
-                              <span>{(end.report.loss * 100).toFixed(1)}% loss</span>
-                            </>
+                            <span>{(end.report.loss * 100).toFixed(1)}% loss</span>
                           )}
                           <span>↓ {bytes(end.report.rx_bytes)}</span>
                           <span>↑ {bytes(end.report.tx_bytes)}</span>

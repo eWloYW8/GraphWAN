@@ -27,6 +27,7 @@ import (
 
 type Send func(context.Context, []byte, netip.AddrPort, []byte) error
 type network struct {
+	probes      *pinger
 	id          model.ID
 	fingerprint string
 	publicKey   string
@@ -152,9 +153,10 @@ func (h *Hub) Apply(snapshot model.Snapshot) error {
 			identities = append(identities, peerIdentity{p.Node.ID, p.Edge.ID, p.Node.Address, p.Node.WireGuard.PublicKey})
 		}
 		raw, _ := json.Marshal(struct {
-			MTU   int
-			Peers []peerIdentity
-		}{cfg.MTU, identities})
+			MTU    int
+			Source netip.Addr
+			Peers  []peerIdentity
+		}{cfg.MTU, cfg.Self.Address, identities})
 		fingerprint := string(raw)
 		if prior := old[cfg.ID]; prior != nil && prior.fingerprint == fingerprint {
 			next[cfg.ID] = prior
@@ -171,13 +173,14 @@ func (h *Hub) Apply(snapshot model.Snapshot) error {
 			return err
 		}
 		n := &network{id: cfg.ID, fingerprint: fingerprint, publicKey: base64.StdEncoding.EncodeToString(key.PublicKey().Bytes()), peers: map[model.ID]model.Peer{}, byKey: map[string]model.Peer{}}
+		n.probes = newPinger(cfg.Self.Address, peers)
 		n.macKey = blake2s.Sum256(append([]byte("mac1----"), key.PublicKey().Bytes()...))
 		n.bind = &bind{hub: h, owner: n}
 		n.tun = newTUN(cfg.MTU, cfg.ID, func(id model.ID, raw []byte) {
 			h.mu.Lock()
 			current := h.networks[id] == n
 			h.mu.Unlock()
-			if current {
+			if current && !n.probes.consume(raw) {
 				h.receive(id, raw)
 			}
 		})
@@ -297,7 +300,14 @@ func (h *Hub) Report() []model.LinkStatus {
 			healthy := !handshake.IsZero() && time.Since(handshake) < 3*time.Minute
 			rx, _ := strconv.ParseUint(f["rx_bytes"], 10, 64)
 			tx, _ := strconv.ParseUint(f["tx_bytes"], 10, 64)
-			out = append(out, model.LinkStatus{NetworkID: n.id, EdgeID: p.Edge.ID, LinkID: "wg:" + string(n.id) + ":" + string(p.Node.ID), CandidateID: "wireguard", Transport: model.WireGuard, WireGuardPublicKey: n.publicKey, LastHandshake: handshake, Remote: f["endpoint"], Healthy: healthy, Active: healthy, RXBytes: rx, TXBytes: tx})
+			request, rtt, measured, valid := n.probes.sample(p.Node.ID, healthy, time.Now())
+			if request != nil {
+				if err := n.tun.send(request); err != nil {
+					n.probes.failed(p.Node.ID)
+					rtt, valid, measured = 0, false, time.Time{}
+				}
+			}
+			out = append(out, model.LinkStatus{RTTMillis: rtt, RTTValid: valid, RTTMeasuredAt: measured, NetworkID: n.id, EdgeID: p.Edge.ID, LinkID: "wg:" + string(n.id) + ":" + string(p.Node.ID), CandidateID: "wireguard", Transport: model.WireGuard, WireGuardPublicKey: n.publicKey, LastHandshake: handshake, Remote: f["endpoint"], Healthy: healthy, Active: healthy, RXBytes: rx, TXBytes: tx})
 		}
 	}
 	return out
