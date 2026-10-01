@@ -1,4 +1,4 @@
-// Package geoip locates advertised public Agent endpoints using a local MMDB.
+// Package geoip locates advertised public Agent endpoints using the IP.SB API.
 package geoip
 
 import (

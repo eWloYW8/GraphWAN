@@ -47,7 +47,6 @@ type Options struct {
 	Password       string
 	Logger         *slog.Logger
 	GeoIPDirectory string
-	GeoIPDatabase  string
 }
 
 func New(db *store.Store, options Options) (*Server, error) {
@@ -63,7 +62,7 @@ func New(db *store.Store, options Options) (*Server, error) {
 		options.Logger = slog.Default()
 	}
 	s := &Server{
-		geoip:  geoip.New(options.GeoIPDirectory, options.GeoIPDatabase, options.Logger),
+		geoip:  geoip.New(options.GeoIPDirectory, options.Logger),
 		reload: make(chan struct{}), db: db, auth: auth, ca: ca, log: options.Logger, mux: http.NewServeMux(),
 		done: make(chan struct{}), eventClients: map[[32]byte]int{},
 		streams: map[model.ID]*websocket.Conn{}, watchers: map[chan struct{}]bool{},

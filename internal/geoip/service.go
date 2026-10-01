@@ -1,8 +1,8 @@
 package geoip
 
 import (
-	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,13 +12,18 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/eWloYW8/GraphWAN/internal/model"
-	maxminddb "github.com/oschwald/maxminddb-golang/v2"
+)
+
+const (
+	cacheTTL        = 7 * 24 * time.Hour
+	retryDelay      = 15 * time.Minute
+	requestInterval = 650 * time.Millisecond // Below IP.SB's 100/minute and 5/second limits.
+	maxCacheEntries = 8192
 )
 
 type Location struct {
@@ -35,278 +40,262 @@ type AgentLocation struct {
 	Reason    string    `json:"reason,omitempty"`
 }
 type Result struct {
-	Agents       map[model.ID]AgentLocation `json:"agents"`
-	Pending      bool                       `json:"pending"`
-	Error        string                     `json:"error,omitempty"`
-	Database     string                     `json:"database,omitempty"`
-	DatabaseDate string                     `json:"database_date,omitempty"`
+	Agents   map[model.ID]AgentLocation `json:"agents"`
+	Pending  bool                       `json:"pending"`
+	Error    string                     `json:"error,omitempty"`
+	Database string                     `json:"database,omitempty"` // Retained for API compatibility; identifies the provider.
 }
-
+type cacheEntry struct {
+	Location  *Location `json:"location,omitempty"`
+	ExpiresAt time.Time `json:"expires_at"`
+	RetryAt   time.Time `json:"retry_at,omitempty"`
+	Error     string    `json:"error,omitempty"`
+}
 type Service struct {
-	mu                    sync.Mutex
-	wg                    sync.WaitGroup
-	ctx                   context.Context
-	cancel                context.CancelFunc
-	directory, customPath string
-	reader                *maxminddb.Reader
-	month                 string
-	loading, closed       bool
-	retryAt               time.Time
-	lastError             string
-	log                   *slog.Logger
+	mu                   sync.Mutex
+	wg                   sync.WaitGroup
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	directory            string
+	cache                map[netip.Addr]cacheEntry
+	loading, closed      bool
+	nextRequest, retryAt time.Time
+	client               *http.Client
+	log                  *slog.Logger
 }
 
-// New does no disk or network I/O. A database is loaded/downloaded only when
-// an administrator opens the globe or requests a node's location information.
-func New(directory, customPath string, log *slog.Logger) *Service {
+// New loads a small local cache. Network requests run only when a geography
+// consumer requests public endpoints, never on the routing or Agent paths.
+func New(directory string, log *slog.Logger) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{directory: directory, customPath: customPath, ctx: ctx, cancel: cancel, log: log}
+	s := &Service{directory: directory, ctx: ctx, cancel: cancel, log: log,
+		cache: make(map[netip.Addr]cacheEntry), client: &http.Client{Timeout: 10 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	s.loadCache()
+	return s
 }
 
 func (s *Service) Locations(agents []model.Agent) Result {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
-	candidates := make([][]netip.Addr, len(agents))
-	hasPublicIP := false
-	for i, agent := range agents {
-		candidates[i] = publicEndpoints(agent.Endpoints, now)
-		hasPublicIP = hasPublicIP || len(candidates[i]) > 0
-	}
-	if hasPublicIP {
-		s.ensure(now)
-	}
-	result := Result{Agents: make(map[model.ID]AgentLocation, len(agents)), Pending: s.loading, Error: s.lastError}
-	if s.reader != nil {
-		result.Database = s.reader.Metadata.DatabaseType
-		result.DatabaseDate = s.reader.Metadata.BuildTime().UTC().Format("2006-01-02")
-	}
-	// Deduplicate shared IPs and UDP/TCP advertisements within the response.
-	cache := map[netip.Addr]*Location{}
-	for i, agent := range agents {
-		ips := candidates[i]
+	result := Result{Agents: make(map[model.ID]AgentLocation, len(agents)), Database: "IP.SB"}
+	var due []netip.Addr
+	seen := make(map[netip.Addr]bool)
+	for _, agent := range agents {
+		ips := publicEndpoints(agent.Endpoints, now)
 		entry := AgentLocation{PublicIPs: make([]string, 0, len(ips))}
 		for _, ip := range ips {
 			entry.PublicIPs = append(entry.PublicIPs, ip.String())
+			cached := s.cache[ip]
+			if entry.Location == nil && cached.Location != nil {
+				entry.Location = cached.Location
+			}
+			if cached.Error != "" {
+				result.Error = "IP.SB lookup failed; cached locations remain available. Retrying later."
+			}
+			if !seen[ip] && !now.Before(cached.ExpiresAt) && !now.Before(cached.RetryAt) {
+				due = append(due, ip)
+				seen[ip] = true
+			}
 		}
-		switch {
-		case len(ips) == 0:
+		if len(ips) == 0 {
 			entry.Reason = "No valid public IP endpoint"
-		case s.reader == nil:
-			entry.Reason = "GeoIP database unavailable"
-		default:
-			for _, ip := range ips {
-				location, found := cache[ip]
-				if !found {
-					location = lookup(s.reader, ip)
-					cache[ip] = location
-				}
-				if location != nil {
-					entry.Location = location
-					break
-				}
-			}
-			if entry.Location == nil {
-				entry.Reason = "Public IP not located in the GeoIP database"
-			}
+		} else if entry.Location == nil {
+			entry.Reason = "Public IP location unavailable from IP.SB"
 		}
 		result.Agents[agent.ID] = entry
 	}
+	if len(due) > 0 && !s.closed && !s.loading && !now.Before(s.retryAt) {
+		s.loading = true
+		s.wg.Add(1)
+		go s.refresh(due)
+	}
+	result.Pending = s.loading
 	return result
 }
 
-func lookup(reader *maxminddb.Reader, ip netip.Addr) *Location {
-	var record struct {
-		Location struct {
-			Latitude  *float64 `maxminddb:"latitude"`
-			Longitude *float64 `maxminddb:"longitude"`
-		} `maxminddb:"location"`
-		City struct {
-			Names map[string]string `maxminddb:"names"`
-		} `maxminddb:"city"`
-		Country struct {
-			Names   map[string]string `maxminddb:"names"`
-			ISOCode string            `maxminddb:"iso_code"`
-		} `maxminddb:"country"`
-	}
-	result := reader.Lookup(ip)
-	if !result.Found() || result.Decode(&record) != nil || record.Location.Latitude == nil || record.Location.Longitude == nil {
-		return nil
-	}
-	lat, lon := *record.Location.Latitude, *record.Location.Longitude
-	if math.IsNaN(lat) || math.IsNaN(lon) || math.IsInf(lat, 0) || math.IsInf(lon, 0) || math.Abs(lat) > 90 || math.Abs(lon) > 180 {
-		return nil
-	}
-	return &Location{IP: ip.String(), Latitude: lat, Longitude: lon, City: record.City.Names["en"], Country: record.Country.Names["en"], CountryCode: record.Country.ISOCode}
-}
-
-// Called under mu; a single background load serves every HTTP request. An old
-// database stays usable while the current month downloads or a refresh fails.
-func (s *Service) ensure(now time.Time) {
-	month := now.UTC().Format("2006-01")
-	if s.closed || s.loading || now.Before(s.retryAt) || s.reader != nil && (s.customPath != "" || s.month == month) {
-		return
-	}
-	s.loading = true
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		err := s.load(month)
+// One serial worker deduplicates overlapping panel requests and bounds API use.
+// Stale successful results survive both network failures and Server restarts.
+func (s *Service) refresh(ips []netip.Addr) {
+	defer s.wg.Done()
+	defer func() { s.mu.Lock(); s.loading = false; s.mu.Unlock() }()
+	for _, ip := range ips {
+		timer := time.NewTimer(time.Until(s.nextRequest))
+		select {
+		case <-s.ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		s.nextRequest = time.Now().Add(requestInterval)
+		location, cooldown, err := s.lookup(ip)
+		if s.ctx.Err() != nil {
+			return
+		}
+		now := time.Now()
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.loading = false
-		if err != nil && !s.closed {
-			s.retryAt = time.Now().Add(15 * time.Minute)
-			s.lastError = "GeoIP database unavailable; retry later or configure GRAPHWAN_GEOIP_DB."
-			if s.reader != nil {
-				s.lastError = "GeoIP update failed; using the cached database."
-			}
-			s.log.Warn("GeoIP database load failed", "error", err)
-		} else {
-			s.lastError = ""
-		}
-	}()
-}
-
-func open(path string) (*maxminddb.Reader, error) {
-	reader, err := maxminddb.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	if !strings.Contains(strings.ToLower(reader.Metadata.DatabaseType), "city") {
-		reader.Close()
-		return nil, errors.New("GeoIP requires a city MMDB with coordinates")
-	}
-	return reader, nil
-}
-
-func (s *Service) install(reader *maxminddb.Reader, month string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		reader.Close()
-		return context.Canceled
-	}
-	if s.reader != nil {
-		s.reader.Close()
-	}
-	s.reader, s.month = reader, month
-	return nil
-}
-
-func (s *Service) load(month string) error {
-	if s.customPath != "" {
-		reader, err := open(s.customPath)
+		entry := s.cache[ip]
 		if err != nil {
-			return err
-		}
-		return s.install(reader, month)
-	}
-	if s.directory == "" {
-		return errors.New("GeoIP storage directory is not configured")
-	}
-	name := "dbip-city-lite-" + month + ".mmdb"
-	destination := filepath.Join(s.directory, name)
-	if reader, err := open(destination); err == nil {
-		return s.install(reader, month)
-	}
-	// Reuse the most recent local database across restarts, including offline.
-	s.mu.Lock()
-	loaded := s.reader != nil
-	s.mu.Unlock()
-	if !loaded {
-		files, _ := filepath.Glob(filepath.Join(s.directory, "dbip-city-lite-????-??.mmdb"))
-		slices.Sort(files)
-		for i := len(files) - 1; i >= 0; i-- {
-			if reader, err := open(files[i]); err == nil {
-				if err := s.install(reader, ""); err != nil {
-					return err
-				}
-				break
+			entry.RetryAt = now.Add(retryDelay)
+			entry.Error = "IP.SB lookup failed"
+			if cooldown > 0 {
+				s.retryAt = now.Add(cooldown)
 			}
+		} else {
+			entry = cacheEntry{Location: location, ExpiresAt: now.Add(cacheTTL)}
+		}
+		if len(s.cache) >= maxCacheEntries {
+			// Evict the oldest entry instead of letting endpoint churn grow the cache.
+			var oldest netip.Addr
+			var expires time.Time
+			for key, value := range s.cache {
+				if !oldest.IsValid() || value.ExpiresAt.Before(expires) {
+					oldest, expires = key, value.ExpiresAt
+				}
+			}
+			delete(s.cache, oldest)
+		}
+		s.cache[ip] = entry
+		s.mu.Unlock()
+		if err != nil {
+			s.log.Warn("IP.SB GeoIP lookup failed", "ip", ip, "error", err)
+		}
+		if err := s.saveCache(); err != nil {
+			s.log.Warn("GeoIP cache save failed", "error", err)
+		}
+		if cooldown > 0 {
+			return
 		}
 	}
-	if err := os.MkdirAll(s.directory, 0700); err != nil {
-		return err
-	}
-	if err := s.download(destination, month); err != nil {
-		return err
-	}
-	reader, err := open(destination)
-	if err != nil {
-		return err
-	}
-	if err = s.install(reader, month); err != nil {
-		return err
-	}
-	// Managed files only. Keep the current and immediately previous month.
-	previous, _ := time.Parse("2006-01", month)
-	keepPrevious := "dbip-city-lite-" + previous.AddDate(0, -1, 0).Format("2006-01") + ".mmdb"
-	files, _ := filepath.Glob(filepath.Join(s.directory, "dbip-city-lite-????-??.mmdb"))
-	for _, file := range files {
-		if filepath.Base(file) != name && filepath.Base(file) != keepPrevious {
-			_ = os.Remove(file)
-		}
-	}
-	return nil
 }
 
-func (s *Service) download(destination, month string) error {
-	ctx, cancel := context.WithTimeout(s.ctx, 3*time.Minute)
-	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://download.db-ip.com/free/dbip-city-lite-"+month+".mmdb.gz", nil)
+func validCoordinates(lat, lon float64) bool {
+	return !math.IsNaN(lat) && !math.IsNaN(lon) && !math.IsInf(lat, 0) && !math.IsInf(lon, 0) && math.Abs(lat) <= 90 && math.Abs(lon) <= 180
+}
+
+func (s *Service) lookup(ip netip.Addr) (*Location, time.Duration, error) {
+	req, err := http.NewRequestWithContext(s.ctx, http.MethodGet, "https://api.ip.sb/geoip/"+ip.String(), nil)
 	if err != nil {
-		return err
+		return nil, retryDelay, err
 	}
-	request.Header.Set("User-Agent", "GraphWAN-GeoIP")
-	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if req.URL.Scheme != "https" || len(via) >= 10 {
-			return errors.New("invalid GeoIP download redirect")
-		}
-		return nil
-	}}
-	response, err := client.Do(request)
+	req.Header.Set("User-Agent", "GraphWAN-GeoIP/1.0 (+https://github.com/eWloYW8/GraphWAN)")
+	req.Header.Set("Accept", "application/json")
+	response, err := s.client.Do(req)
 	if err != nil {
-		return err
+		return nil, retryDelay, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("GeoIP download HTTP %d", response.StatusCode)
+		cooldown := retryDelay
+		if value := response.Header.Get("Retry-After"); value != "" {
+			if seconds, err := strconv.ParseInt(value, 10, 32); err == nil && seconds > 0 {
+				cooldown = max(cooldown, time.Duration(seconds)*time.Second)
+			} else if date, err := http.ParseTime(value); err == nil {
+				cooldown = max(cooldown, time.Until(date))
+			}
+		}
+		return nil, cooldown, fmt.Errorf("IP.SB HTTP %d", response.StatusCode)
 	}
-	zipped, err := gzip.NewReader(io.LimitReader(response.Body, 128<<20))
+	const limit = 64 << 10
+	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return nil, retryDelay, err
+	}
+	if len(body) > limit {
+		return nil, retryDelay, errors.New("IP.SB response exceeds size limit")
+	}
+	var record struct {
+		IP          string   `json:"ip"`
+		Latitude    *float64 `json:"latitude"`
+		Longitude   *float64 `json:"longitude"`
+		City        string   `json:"city"`
+		Country     string   `json:"country"`
+		CountryCode string   `json:"country_code"`
+	}
+	if err := json.Unmarshal(body, &record); err != nil {
+		return nil, retryDelay, err
+	}
+	returnedIP, err := netip.ParseAddr(record.IP)
+	if err != nil || returnedIP.Unmap() != ip {
+		return nil, retryDelay, errors.New("IP.SB returned a different IP")
+	}
+	// Missing coordinates mean unlocated, never an invented point at (0, 0).
+	if record.Latitude == nil || record.Longitude == nil {
+		return nil, 0, nil
+	}
+	if !validCoordinates(*record.Latitude, *record.Longitude) {
+		return nil, retryDelay, errors.New("IP.SB returned invalid coordinates")
+	}
+	return &Location{IP: ip.String(), Latitude: *record.Latitude, Longitude: *record.Longitude,
+		City: record.City, Country: record.Country, CountryCode: record.CountryCode}, 0, nil
+}
+
+func (s *Service) loadCache() {
+	if s.directory == "" {
+		return
+	}
+	f, err := os.Open(filepath.Join(s.directory, "ip-sb-cache.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		s.log.Warn("GeoIP cache open failed", "error", err)
+		return
+	}
+	defer f.Close()
+	var entries map[netip.Addr]cacheEntry
+	data, err := io.ReadAll(io.LimitReader(f, (16<<20)+1))
+	if err != nil || len(data) > 16<<20 || json.Unmarshal(data, &entries) != nil {
+		s.log.Warn("Ignoring invalid GeoIP cache")
+		return
+	}
+	for ip, entry := range entries {
+		if !publicIP(ip) || ip != ip.Unmap() {
+			continue
+		}
+		if entry.Location != nil && (entry.Location.IP != ip.String() || !validCoordinates(entry.Location.Latitude, entry.Location.Longitude)) {
+			continue
+		}
+		s.cache[ip] = entry
+		if len(s.cache) >= maxCacheEntries {
+			break
+		}
+	}
+}
+
+func (s *Service) saveCache() error {
+	if s.directory == "" {
+		return nil
+	}
+	s.mu.Lock()
+	data, err := json.Marshal(s.cache)
+	s.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	defer zipped.Close()
-	temp, err := os.CreateTemp(s.directory, ".geoip-*.tmp")
+	if err = os.MkdirAll(s.directory, 0700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(s.directory, ".ip-sb-*.tmp")
 	if err != nil {
 		return err
 	}
-	defer os.Remove(temp.Name())
-	defer temp.Close()
-	const maxSize = 256 << 20
-	n, err := io.Copy(temp, io.LimitReader(zipped, maxSize+1))
-	if err != nil {
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if _, err = f.Write(data); err != nil {
 		return err
 	}
-	if n > maxSize {
-		return errors.New("GeoIP database exceeds size limit")
-	}
-	if err = temp.Sync(); err != nil {
+	if err = f.Sync(); err != nil {
 		return err
 	}
-	if err = temp.Close(); err != nil {
+	if err = f.Close(); err != nil {
 		return err
 	}
-	verified, err := open(temp.Name())
-	if err != nil {
-		return err
-	}
-	verified.Close()
-	return os.Rename(temp.Name(), destination)
+	return os.Rename(f.Name(), filepath.Join(s.directory, "ip-sb-cache.json"))
 }
 
 func (s *Service) Close() {
@@ -315,10 +304,5 @@ func (s *Service) Close() {
 	s.cancel()
 	s.mu.Unlock()
 	s.wg.Wait()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.reader != nil {
-		s.reader.Close()
-		s.reader = nil
-	}
+	s.client.CloseIdleConnections()
 }

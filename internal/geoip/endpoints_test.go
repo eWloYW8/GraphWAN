@@ -35,11 +35,11 @@ func TestPublicEndpoints(t *testing.T) {
 	}
 }
 
-func TestPrivateAgentsDoNotDownloadDatabase(t *testing.T) {
-	service := New(t.TempDir(), "", nil)
+func TestPrivateAgentsDoNotQueryProvider(t *testing.T) {
+	service := New(t.TempDir(), nil)
 	defer service.Close()
 	result := service.Locations([]model.Agent{{ID: "private", Endpoints: []model.Endpoint{{URL: "tcp://10.1.2.4:24752", Source: model.Interface}}}})
 	if result.Pending || result.Agents["private"].Location != nil || len(result.Agents["private"].PublicIPs) != 0 || result.Agents["private"].Reason == "" {
-		t.Fatalf("private-only agents should remain unlocated without a download: %+v", result)
+		t.Fatalf("private-only agents should remain unlocated without an API request: %+v", result)
 	}
 }

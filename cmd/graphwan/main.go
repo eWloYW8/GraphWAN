@@ -108,7 +108,6 @@ func serveController(ctx context.Context, listen, data, hosts string, insecure b
 	app, err := control.New(db, control.Options{
 		Password:       os.Getenv("GRAPHWAN_ADMIN_PASSWORD"),
 		GeoIPDirectory: filepath.Join(data, "geoip"),
-		GeoIPDatabase:  os.Getenv("GRAPHWAN_GEOIP_DB"),
 	})
 	if err != nil {
 		return false, err

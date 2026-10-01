@@ -115,7 +115,7 @@ export default function NetworkGlobe({
   const message =
     error ||
     locations?.error ||
-    (locations?.pending ? 'Loading GeoIP database…' : !locations ? 'Locating agents…' : '')
+    (locations?.pending ? 'Locating agents…' : !locations ? 'Locating agents…' : '')
   return (
     <div className="network-globe">
       <Globe
@@ -177,8 +177,8 @@ export default function NetworkGlobe({
         </button>
       </div>
       <div className="network-globe-attribution">
-        <a href="https://db-ip.com" target="_blank" rel="noreferrer">
-          IP Geolocation by DB-IP
+        <a href="https://ip.sb/api/" target="_blank" rel="noreferrer">
+          IP Geolocation by IP.SB
         </a>
         <span> · </span>
         <a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">

@@ -139,18 +139,24 @@ excluded. STUN observations take priority, followed by public interface IPs and
 manual literal IPs; IPv4 is preferred within each source. DNS-only manual
 endpoints are not resolved for geolocation because they can point to proxies.
 
-On first use with a public endpoint, the Server downloads DB-IP City Lite over
-HTTPS into `<data-dir>/geoip/`. No Agent upgrade or extra Agent telemetry is
-required. The monthly database is cached locally and refreshed on demand; a
-cached database remains usable if downloading an update fails. Downloads are
-performed in the background and do not block controller startup or routing.
-Every Server replica maintains its own cache outside the replicated state.
+On demand, the Server queries `https://api.ip.sb/geoip/{IP}` over HTTPS with a
+custom GraphWAN User-Agent. IP.SB supports IPv4 and IPv6 and credits MaxMind GeoIP
+as its data source. Only advertised public endpoint IPs are sent; no Agent
+upgrade or extra Agent telemetry is required. Missing coordinates remain unlocated.
 
-For offline operation, set `GRAPHWAN_GEOIP_DB` to an absolute path to a city
-MMDB (DB-IP City Lite or GeoLite2-City) before starting the Server. This disables
-automatic downloads; restart the Server after replacing that file. The MMDB is
-not embedded in release binaries. Data attribution is preserved in the globe,
-node details and bundled third-party notices.
+Results are cached for seven days in `<data-dir>/geoip/ip-sb-cache.json`, including
+across restarts. Expired successful locations remain usable while refreshing or
+when the API is unavailable. Unknown locations are also cached. Requests run in
+one background worker at least 650 ms apart (below the documented 100/minute and
+5/second limits); failures back off for 15 minutes or a longer `Retry-After`.
+Queries do not block controller startup, management HTTP requests or routing.
+Every Server replica maintains its own cache outside the replicated state;
+replicas sharing a public egress IP also share IP.SB's external rate limit.
+
+The former DB-IP downloads and `GRAPHWAN_GEOIP_DB` override are no longer used.
+Existing MMDB files may be removed; they are neither read nor refreshed.
+Provider attribution is preserved in the globe, node details and bundled notices.
+See https://ip.sb/api/ for service limits and commercial-use plans.
 
 ## Upgrade, back up and remove
 

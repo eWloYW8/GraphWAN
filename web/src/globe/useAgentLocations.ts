@@ -16,12 +16,11 @@ export type Locations = {
   pending: boolean
   error?: string
   database?: string
-  database_date?: string
 }
 
 // Only geography consumers subscribe. Telemetry changes do not cause lookups;
 // endpoint changes refresh immediately, and a slow timer handles lease expiry
-// and database availability/updates without adding an Agent wire protocol.
+// and location availability/updates without adding an Agent wire protocol.
 export function useAgentLocations(agents: Agent[], active: boolean) {
   const [data, setData] = useState<Locations>()
   const [error, setError] = useState('')

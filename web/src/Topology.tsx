@@ -773,7 +773,7 @@ export default function Topology({
                       .join(', ') || 'Unknown city'
                   : geography.error ||
                     (geography.data?.pending
-                      ? 'Loading GeoIP database…'
+                      ? 'Locating agents…'
                       : geography.data?.error || nodeGeography?.reason || 'Not located')}
               </dd>
               {nodeGeography?.location && (
@@ -787,14 +787,13 @@ export default function Topology({
                   <dd className="mono">{nodeGeography.location.ip}</dd>
                   <dt>GeoIP source</dt>
                   <dd>
-                    {geography.data?.database?.toLowerCase().includes('dbip') ? (
-                      <a href="https://db-ip.com" target="_blank" rel="noreferrer">
-                        IP Geolocation by DB-IP
+                    {geography.data?.database === 'IP.SB' ? (
+                      <a href="https://ip.sb/api/" target="_blank" rel="noreferrer">
+                        IP Geolocation by IP.SB
                       </a>
                     ) : (
                       geography.data?.database
                     )}
-                    {geography.data?.database_date && ` · ${geography.data.database_date}`}
                   </dd>
                 </>
               )}

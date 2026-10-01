@@ -683,7 +683,6 @@ https://www.naturalearthdata.com/about/terms-of-use/
 Source: https://github.com/nvkelso/natural-earth-vector/blob/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_110m_admin_0_countries.geojson
 Derived by retaining polygon rings and rounding coordinates to three decimal places.
 
-Default GeoIP: DB-IP City Lite, downloaded separately (not embedded).
-IP Geolocation by DB-IP: https://db-ip.com/
-License: https://creativecommons.org/licenses/by/4.0/
-Database data is not modified. GeoIP coordinates are approximate.
+GeoIP: IP.SB online API, backed by MaxMind GeoIP according to its documentation.
+https://ip.sb/api/
+No GeoIP database is embedded. Coordinates are approximate.
