@@ -70,6 +70,10 @@ The default peer listen port is 24752. No controller packet relay is
 used. Agents keep forwarding and can restart from cached configuration while the
 controller is unavailable.
 
+Nodes can advertise external subnets within a Network, with optional automatic
+gateway forwarding and Linux SNAT. External OS routes remain administrator-managed;
+see [advertised subnets](docs/advertised-subnets.md).
+
 For built-in Linux, Windows and macOS service management, see
 [service management](docs/service-management.md).
 

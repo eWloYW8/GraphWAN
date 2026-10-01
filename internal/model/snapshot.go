@@ -29,8 +29,9 @@ type NetworkConfig struct {
 }
 
 type Destination struct {
-	NodeID  ID         `json:"node_id"`
-	Address netip.Addr `json:"address"`
+	AdvertisedSubnets []AdvertisedSubnet `json:"advertised_subnets,omitempty"`
+	NodeID            ID                 `json:"node_id"`
+	Address           netip.Addr         `json:"address"`
 }
 
 type Peer struct {
@@ -55,11 +56,16 @@ func (s Snapshot) Clone() Snapshot {
 	out.Networks = append([]NetworkConfig{}, s.Networks...)
 	for i := range out.Networks {
 		n := &out.Networks[i]
+		n.Self = n.Self.Clone()
 		n.Directory = append([]Destination{}, n.Directory...)
+		for j := range n.Directory {
+			n.Directory[j].AdvertisedSubnets = append([]AdvertisedSubnet(nil), n.Directory[j].AdvertisedSubnets...)
+		}
 		n.Routes = append([]Route{}, n.Routes...)
 		n.Peers = append([]Peer{}, n.Peers...)
 		for j := range n.Peers {
 			p := &n.Peers[j]
+			p.Node = p.Node.Clone()
 			p.PublicKey = append([]byte{}, p.PublicKey...)
 			p.Endpoints = append([]Endpoint{}, p.Endpoints...)
 			p.Edge.Transports = append([]Transport{}, p.Edge.Transports...)

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"net/netip"
+	"slices"
 )
 
 // Validate checks a compiled snapshot before an Agent persists or applies it.
@@ -79,7 +80,13 @@ func (s Snapshot) Validate(agentID ID) error {
 		}
 		directory := map[ID]netip.Addr{}
 		addresses := map[netip.Addr]bool{}
+		advertised := map[netip.Prefix]bool{}
+		subnetDirectory := map[ID][]AdvertisedSubnet{}
 		for _, d := range n.Directory {
+			if err := validateAdvertised(n.CIDR, d.AdvertisedSubnets, advertised); err != nil {
+				return err
+			}
+			subnetDirectory[d.NodeID] = d.AdvertisedSubnets
 			if err := addID(d.NodeID); err != nil {
 				return err
 			}
@@ -95,9 +102,15 @@ func (s Snapshot) Validate(agentID ID) error {
 		if addr, ok := directory[n.Self.ID]; !ok || addr != n.Self.Address {
 			return fmt.Errorf("self is absent from address directory")
 		}
+		if !slices.Equal(n.Self.AdvertisedSubnets, subnetDirectory[n.Self.ID]) {
+			return fmt.Errorf("self advertised subnets disagree with directory")
+		}
 		peers := map[ID]Peer{}
 		members := map[ID]bool{agentID: true}
 		for _, p := range n.Peers {
+			if !slices.Equal(p.Node.AdvertisedSubnets, subnetDirectory[p.Node.ID]) {
+				return fmt.Errorf("peer advertised subnets disagree with directory")
+			}
 			if p.Node.ID == n.Self.ID || peers[p.Node.ID].Node.ID != "" {
 				return fmt.Errorf("duplicate or self peer")
 			}

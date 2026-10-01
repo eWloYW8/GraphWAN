@@ -1780,3 +1780,18 @@ td small,
     display: none;
   }
 }
+
+.advertised-subnets {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.advertised-subnet {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, #78908555);
+}
+.advertised-subnet .field {
+  margin-bottom: 0;
+}

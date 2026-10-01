@@ -17,7 +17,9 @@ export type Agent = {
   stun_servers?: string[]
   exclude_container_ips?: boolean
 }
+export type AdvertisedSubnet = { prefix: string; gateway_mode: 'off' | 'route' | 'snat' }
 export type Node = {
+  advertised_subnets?: AdvertisedSubnet[]
   id: string
   agent_id: string
   name: string

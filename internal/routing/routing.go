@@ -99,6 +99,7 @@ func Compile(state model.State, agentID model.ID) (model.Snapshot, error) {
 		nodes := map[model.ID]model.Node{}
 		excluded := map[model.ID]bool{}
 		for _, node := range network.Nodes {
+			node = node.Clone()
 			nodes[node.ID] = node
 			if node.AgentID == agentID {
 				me = node
@@ -113,7 +114,7 @@ func Compile(state model.State, agentID model.ID) (model.Snapshot, error) {
 		config := model.NetworkConfig{ID: network.ID, Name: network.Name, CIDR: network.CIDR, MTU: network.MTU, Cipher: network.Cipher, Self: me, Directory: []model.Destination{}, Peers: []model.Peer{}, Routes: shortest(network, me.ID, excluded)}
 		for _, node := range network.Nodes {
 			if !excluded[node.ID] {
-				config.Directory = append(config.Directory, model.Destination{NodeID: node.ID, Address: node.Address})
+				config.Directory = append(config.Directory, model.Destination{NodeID: node.ID, Address: node.Address, AdvertisedSubnets: append([]model.AdvertisedSubnet(nil), node.AdvertisedSubnets...)})
 			}
 		}
 		for _, edge := range network.Edges {

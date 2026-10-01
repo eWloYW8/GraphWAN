@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"sync/atomic"
 
 	"github.com/eWloYW8/GraphWAN/internal/model"
@@ -42,14 +43,17 @@ type node struct {
 }
 
 type network struct {
-	id        model.ID
-	header    [packet.HeaderSize]byte
-	self      model.Node
-	mtu       int
-	byAddress map[netip.Addr]*node
-	byNode    map[[16]byte]*node
-	peers     map[model.ID]bool
-	routes    map[model.ID]model.ID
+	id            model.ID
+	header        [packet.HeaderSize]byte
+	self          model.Node
+	mtu           int
+	byAddress     map[netip.Addr]*node
+	overlay       netip.Prefix
+	subnets       map[netip.Prefix]*node
+	prefixLengths []int
+	byNode        map[[16]byte]*node
+	peers         map[model.ID]bool
+	routes        map[model.ID]model.ID
 }
 type table struct {
 	agentID  model.ID
@@ -103,6 +107,9 @@ func (r *Router) Configure(snapshot model.Snapshot) error {
 		}
 		copy(n.header[:], header)
 		next.byWire[[16]byte(header[8:24])] = n
+		n.overlay = config.CIDR
+		n.subnets = map[netip.Prefix]*node{}
+		lengths := map[int]bool{}
 		for _, dest := range config.Directory {
 			entry := &node{id: dest.NodeID, address: dest.Address}
 			if _, err := hex.Decode(entry.wire[:], []byte(dest.NodeID)); err != nil {
@@ -110,7 +117,16 @@ func (r *Router) Configure(snapshot model.Snapshot) error {
 			}
 			n.byAddress[dest.Address] = entry
 			n.byNode[entry.wire] = entry
+			for _, subnet := range dest.AdvertisedSubnets {
+				n.subnets[subnet.Prefix] = entry
+				lengths[subnet.Prefix.Bits()] = true
+			}
 		}
+		for bits := range lengths {
+			n.prefixLengths = append(n.prefixLengths, bits)
+		}
+		slices.Sort(n.prefixLengths)
+		slices.Reverse(n.prefixLengths)
 		for _, peer := range config.Peers {
 			n.peers[peer.Node.ID] = true
 		}
@@ -202,10 +218,13 @@ func (r *Router) encapsulate(ctx context.Context, n *network, raw []byte) (*pack
 		return nil, "", err
 	}
 	if info.Source != n.self.Address {
-		return nil, "", ErrSource
+		source := n.owner(info.Source)
+		if source == nil || source.id != n.self.ID {
+			return nil, "", ErrSource
+		}
 	}
-	destination, ok := n.byAddress[info.Destination]
-	if !ok {
+	destination := n.owner(info.Destination)
+	if destination == nil {
 		return nil, "", ErrDestination
 	}
 	if destination.id == n.self.ID {
@@ -296,10 +315,10 @@ func (r *Router) fromPeer(ctx context.Context, peerID model.ID, frame []byte, de
 	if err != nil {
 		return err
 	}
-	if info.Source != source.address {
+	if info.Source != source.address && n.owner(info.Source) != source {
 		return ErrSource
 	}
-	if info.Destination != destination.address {
+	if info.Destination != destination.address && n.owner(info.Destination) != destination {
 		return ErrDestination
 	}
 	if destination.id == n.self.ID {
@@ -322,4 +341,24 @@ func (r *Router) fromPeer(ctx context.Context, peerID model.ID, frame []byte, de
 	copy(buffer.Data, frame)
 	buffer.Data[3]--
 	return r.send(ctx, n.id, nextHop, buffer.Data)
+}
+
+// owner performs longest-prefix matching without allocations. Overlay hosts take
+// precedence over external routes, including /0, and unknown overlay IPs drop.
+func (n *network) owner(ip netip.Addr) *node {
+	if host := n.byAddress[ip]; host != nil {
+		return host
+	}
+	if n.overlay.Contains(ip) || !ip.IsGlobalUnicast() {
+		return nil
+	}
+	for _, bits := range n.prefixLengths {
+		if bits > ip.BitLen() {
+			continue
+		}
+		if destination := n.subnets[netip.PrefixFrom(ip, bits).Masked()]; destination != nil {
+			return destination
+		}
+	}
+	return nil
 }

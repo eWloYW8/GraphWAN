@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 
 	"github.com/eWloYW8/GraphWAN/internal/forwarding"
+	"github.com/eWloYW8/GraphWAN/internal/gateway"
 	"github.com/eWloYW8/GraphWAN/internal/mesh"
 	"github.com/eWloYW8/GraphWAN/internal/model"
 	"github.com/eWloYW8/GraphWAN/internal/packet"
@@ -34,6 +35,7 @@ type runtimeState struct {
 }
 
 type DataPlane struct {
+	gateway       gateway.Manager
 	identity      ed25519.PrivateKey
 	options       DataPlaneOptions
 	ctx           context.Context
@@ -98,8 +100,14 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 	updatedTunnels := 0
 	committed := false
 	newMesh := false
+	gatewayChanged := false
 	defer func() {
 		if !committed {
+			if gatewayChanged {
+				if err := r.gateway.Apply(context.Background(), snapshot.AgentID, gatewayEntries(previous)); err != nil {
+					r.options.Logger.Error("gateway rollback failed", "error", err)
+				}
+			}
 			for i := updatedTunnels - 1; i >= 0; i-- {
 				update := tunnelUpdates[i]
 				if err := update.apply(update.before); err != nil {
@@ -172,6 +180,10 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 		}
 		updatedTunnels++
 	}
+	if err := r.gateway.Apply(ctx, snapshot.AgentID, gatewayEntries(next)); err != nil {
+		return fmt.Errorf("configure gateway: %w", err)
+	}
+	gatewayChanged = true
 	if err := next.mesh.Apply(snapshot); err != nil {
 		return err
 	}
@@ -216,6 +228,10 @@ func (r *DataPlane) Close() error {
 	r.closed = true
 	r.cancel()
 	state := r.state.Swap(nil)
+	gatewayErr := r.gateway.Close()
+	if gatewayErr != nil {
+		r.options.Logger.Error("gateway cleanup failed", "error", gatewayErr)
+	}
 	r.applyMu.Unlock()
 	if state != nil {
 		for _, device := range state.devices {
@@ -224,7 +240,7 @@ func (r *DataPlane) Close() error {
 		state.mesh.Close()
 	}
 	r.wg.Wait()
-	return nil
+	return gatewayErr
 }
 func (r *DataPlane) readTunnel(network model.ID, device *runtimeTunnel) {
 	defer r.wg.Done()

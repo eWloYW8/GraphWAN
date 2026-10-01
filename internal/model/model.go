@@ -69,12 +69,26 @@ type Position struct {
 	Y float64 `json:"y"`
 }
 
+type GatewayMode string
+
+const (
+	GatewayOff   GatewayMode = "off"
+	GatewayRoute GatewayMode = "route"
+	GatewaySNAT  GatewayMode = "snat"
+)
+
+type AdvertisedSubnet struct {
+	Prefix      netip.Prefix `json:"prefix"`
+	GatewayMode GatewayMode  `json:"gateway_mode"`
+}
+
 type Node struct {
-	ID       ID         `json:"id"`
-	AgentID  ID         `json:"agent_id"`
-	Name     string     `json:"name"`
-	Address  netip.Addr `json:"address"`
-	Position Position   `json:"position"`
+	AdvertisedSubnets []AdvertisedSubnet `json:"advertised_subnets,omitempty"`
+	ID                ID                 `json:"id"`
+	AgentID           ID                 `json:"agent_id"`
+	Name              string             `json:"name"`
+	Address           netip.Addr         `json:"address"`
+	Position          Position           `json:"position"`
 }
 
 type ConnectionMethods struct {
@@ -152,10 +166,18 @@ func (s State) Clone() State {
 	for i := range out.Networks {
 		n := &out.Networks[i]
 		n.Nodes = append([]Node{}, n.Nodes...)
+		for j := range n.Nodes {
+			n.Nodes[j] = n.Nodes[j].Clone()
+		}
 		n.Edges = append([]Edge{}, n.Edges...)
 		for j := range n.Edges {
 			n.Edges[j].Transports = append([]Transport{}, n.Edges[j].Transports...)
 		}
 	}
 	return out
+}
+
+func (n Node) Clone() Node {
+	n.AdvertisedSubnets = append([]AdvertisedSubnet(nil), n.AdvertisedSubnets...)
+	return n
 }

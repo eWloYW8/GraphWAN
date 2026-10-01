@@ -232,7 +232,11 @@ func (s State) Validate() error {
 		nodes := map[ID]bool{}
 		members := map[ID]bool{}
 		addresses := map[netip.Addr]bool{}
+		advertised := map[netip.Prefix]bool{}
 		for _, node := range n.Nodes {
+			if err := validateAdvertised(n.CIDR, node.AdvertisedSubnets, advertised); err != nil {
+				return fmt.Errorf("node %s: %w", node.ID, err)
+			}
 			if err := addID(node.ID); err != nil {
 				return err
 			}

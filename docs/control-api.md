@@ -40,6 +40,22 @@ IDs are 32 lowercase hexadecimal characters. Nodes have `id`, `agent_id`, `name`
 `address`, and `position: {x,y}`. Missing Node/Edge IDs are generated, but when
 creating both Nodes and referencing Edges in one request, assign Node IDs first.
 An Agent can be a member of many networks, once each, without overlapping CIDRs.
+Nodes also accept an optional `advertised_subnets` array, for example:
+
+```json
+"advertised_subnets": [
+  { "prefix": "192.168.10.0/24", "gateway_mode": "off" },
+  { "prefix": "172.20.0.0/16", "gateway_mode": "snat" }
+]
+```
+
+Modes are `off`, `route` and `snat`. Entries are scoped to the Network;
+duplicate exact prefixes across its Nodes are rejected. Limits are 64 entries
+per Node and 1,024 per Network. This field is included in the normal complete
+Network write and persisted/replicated with the topology. See
+[advertised subnets](advertised-subnets.md) for routing behavior and platform
+support. Automatic mode failures appear in Agent configuration telemetry.
+
 
 Edges have `id`, `a`, `b`, positive `weight`, `enabled`, `transports`,
 `methods: {ipv4_direct, ipv6_direct, hole_punch}`, and optional

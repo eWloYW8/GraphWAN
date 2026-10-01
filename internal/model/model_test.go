@@ -13,6 +13,17 @@ func TestValidateTopology(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := map[string]func(*model.State){
+		"invalid gateway mode": func(s *model.State) {
+			s.Networks[0].Nodes[0].AdvertisedSubnets = []model.AdvertisedSubnet{{Prefix: netip.MustParsePrefix("192.168.0.0/24"), GatewayMode: "invalid"}}
+		},
+		"duplicate advertised subnet": func(s *model.State) {
+			for i := 0; i < 2; i++ {
+				s.Networks[0].Nodes[i].AdvertisedSubnets = []model.AdvertisedSubnet{{Prefix: netip.MustParsePrefix("192.168.0.0/24"), GatewayMode: model.GatewayOff}}
+			}
+		},
+		"advertised overlay subnet": func(s *model.State) {
+			s.Networks[0].Nodes[0].AdvertisedSubnets = []model.AdvertisedSubnet{{Prefix: netip.MustParsePrefix("10.42.0.0/25"), GatewayMode: model.GatewayOff}}
+		},
 		"duplicate ID":        func(s *model.State) { s.Networks[0].ID = s.Agents[0].ID },
 		"zero ID":             func(s *model.State) { s.Networks[0].ID = "00000000000000000000000000000000" },
 		"duplicate identity":  func(s *model.State) { s.Agents[1].PublicKey = s.Agents[0].PublicKey },

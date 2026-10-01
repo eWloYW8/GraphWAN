@@ -25,6 +25,7 @@ import { Badge, Field } from './components'
 import { connectionViews, endpointParts } from './connections'
 import {
   type State,
+  type AdvertisedSubnet,
   type Network,
   type AgentStatus,
   type Rates,
@@ -473,11 +474,7 @@ export default function Topology({
               <FitLayout count={nodes.length} />
               <Background color="#c9d9d4" gap={22} size={1} />
               <Controls showInteractive={false} />
-              <MiniMap
-                style={{ width: 115, height: 75 }}
-                pannable
-                zoomable
-              />
+              <MiniMap style={{ width: 115, height: 75 }} pannable zoomable />
             </ReactFlow>
           )}
           {network.nodes.length === 0 && (
@@ -645,6 +642,113 @@ export default function Topology({
                   }
                 />
               </Field>
+              <div className="advertised-subnets">
+                <strong>Advertised subnets</strong>
+                {(node.advertised_subnets || []).map((subnet, index) => (
+                  <div className="advertised-subnet" key={index}>
+                    <Field label="Subnet">
+                      <input
+                        aria-label={`Advertised subnet ${index + 1}`}
+                        placeholder="192.168.10.0/24"
+                        value={subnet.prefix}
+                        onChange={(e) =>
+                          change({
+                            ...network,
+                            nodes: network.nodes.map((n) =>
+                              n.id === node.id
+                                ? {
+                                    ...n,
+                                    advertised_subnets: (n.advertised_subnets || []).map((s, i) =>
+                                      i === index ? { ...s, prefix: e.target.value } : s,
+                                    ),
+                                  }
+                                : n,
+                            ),
+                          })
+                        }
+                      />
+                    </Field>
+                    <Field label="Automatic gateway">
+                      <select
+                        value={subnet.gateway_mode}
+                        onChange={(e) =>
+                          change({
+                            ...network,
+                            nodes: network.nodes.map((n) =>
+                              n.id === node.id
+                                ? {
+                                    ...n,
+                                    advertised_subnets: (n.advertised_subnets || []).map((s, i) =>
+                                      i === index
+                                        ? {
+                                            ...s,
+                                            gateway_mode: e.target
+                                              .value as AdvertisedSubnet['gateway_mode'],
+                                          }
+                                        : s,
+                                    ),
+                                  }
+                                : n,
+                            ),
+                          })
+                        }
+                      >
+                        <option value="off">Off</option>
+                        <option value="route">Routing</option>
+                        <option value="snat">SNAT (Linux)</option>
+                      </select>
+                    </Field>
+                    {editing && (
+                      <button
+                        type="button"
+                        className="subtle"
+                        onClick={() =>
+                          change({
+                            ...network,
+                            nodes: network.nodes.map((n) =>
+                              n.id === node.id
+                                ? {
+                                    ...n,
+                                    advertised_subnets: (n.advertised_subnets || []).filter(
+                                      (_, i) => i !== index,
+                                    ),
+                                  }
+                                : n,
+                            ),
+                          })
+                        }
+                      >
+                        Remove subnet
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {editing && (
+                  <button
+                    type="button"
+                    className="subtle wide"
+                    disabled={(node.advertised_subnets || []).length >= 64}
+                    onClick={() =>
+                      change({
+                        ...network,
+                        nodes: network.nodes.map((n) =>
+                          n.id === node.id
+                            ? {
+                                ...n,
+                                advertised_subnets: [
+                                  ...(n.advertised_subnets || []),
+                                  { prefix: '', gateway_mode: 'off' },
+                                ],
+                              }
+                            : n,
+                        ),
+                      })
+                    }
+                  >
+                    Add subnet
+                  </button>
+                )}
+              </div>
             </fieldset>
             <dl>
               <dt>Public IP</dt>
