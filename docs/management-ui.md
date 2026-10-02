@@ -149,8 +149,8 @@ available without write quorum.
 ## Full mesh groups and node-to-group links
 
 In a Network's **Edit** mode, choose **Add group**, select at least two regular
-nodes, and choose shared transports and connection methods. Internal connections
-have routing weight 1 and use the Network's encryption suite. A node belongs to
+nodes, and choose a shared routing weight, transports and connection methods.
+Internal connections default to weight 1 and use the Network's encryption suite. A node belongs to
 at most one group; WireGuard leaf nodes cannot join groups.
 
 The main canvas hides internal edges behind a dashed, shaded group boundary.
@@ -189,3 +189,7 @@ edges. The 100,000-edge Network limit includes all expanded internal and aggrega
 edges. Upgrade every Server to v0.2.4 or newer before creating groups. Existing
 Agents receive ordinary peer/route snapshots and do not require a wire-format
 upgrade. Do not edit grouped networks using older Servers or administrative tools.
+
+The topology toolbar's **Enter fullscreen** button expands the graph and toolbar
+across the browser viewport in both view and edit modes, including 3D. Use
+**Exit fullscreen** or **Esc** to return to the normal layout.

@@ -22,7 +22,16 @@ import {
   type NodeProps,
   type Node as FlowNode,
 } from '@xyflow/react'
-import { Server, Plus, Settings2, Cable, MousePointer2, Globe2 } from 'lucide-react'
+import {
+  Server,
+  Plus,
+  Settings2,
+  Cable,
+  MousePointer2,
+  Globe2,
+  Maximize2,
+  Minimize2,
+} from 'lucide-react'
 import { useAgentLocations } from './globe/useAgentLocations'
 import { FloatingEdge, FloatingConnection, LineConnection } from './FloatingEdge'
 import { planAnchors, groupFrameDimensions } from './edgeGeometry'
@@ -165,6 +174,25 @@ export default function Topology({
   addNode: () => void
   addEdge: () => void
 }) {
+  const [fullscreen, setFullscreen] = useState(false)
+  const fullscreenButton = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!fullscreen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !document.querySelector('dialog[open]')) {
+        event.preventDefault()
+        setFullscreen(false)
+        fullscreenButton.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', escape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', escape)
+    }
+  }, [fullscreen])
   const [scope, setScope] = useState<{ kind: 'group' | 'link'; id: string } | null>(null)
   const [groupEditor, setGroupEditor] = useState<GroupEditorTarget | null>(null)
   const allEdges = useMemo(() => effectiveEdges(network), [network])
@@ -511,7 +539,10 @@ export default function Topology({
           close={() => setGroupEditor(null)}
         />
       )}
-      <section className="canvas-card" aria-label="Network topology">
+      <section
+        className={`canvas-card${fullscreen ? ' canvas-fullscreen' : ''}`}
+        aria-label="Network topology"
+      >
         <div className="canvas-toolbar">
           {scope && (
             <button
@@ -559,6 +590,16 @@ export default function Topology({
             </div>
           )}
           <div className="drawing-control">
+            <button
+              ref={fullscreenButton}
+              className="icon"
+              aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              title={fullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen'}
+              aria-pressed={fullscreen}
+              onClick={() => setFullscreen((value) => !value)}
+            >
+              {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
             <span>Drawing</span>
             <div className="drawing-switch" role="group" aria-label="Line drawing">
               <button aria-pressed={viewStyle === 'line'} onClick={() => chooseLineStyle('line')}>
@@ -763,6 +804,8 @@ export default function Topology({
               <Badge>{scopeSummary.state}</Badge>
             </div>
             <dl className="inspector-summary">
+              <dt>Routing weight</dt>
+              <dd>{scopeGroup ? (scopeGroup.weight ?? 1) : scopeLink?.weight}</dd>
               <dt>Total traffic</dt>
               <dd>{rate(scopeSummary.speed)}</dd>
               <dt>Maximum RTT</dt>

@@ -407,7 +407,8 @@ with ordinary configuration and obey the same revision checks. A group has:
 A `group_links` entry has `id`, `node` (an external regular node ID), `group`
 (group ID), `weight`, `enabled`, `transports` and `methods`. The methods also
 accept `hole_punch_extension`, which requires `hole_punch`. Both group types
-inherit Network encryption. Internal mesh edges are always enabled with weight 1.
+inherit Network encryption. Internal mesh edges are always enabled and share the group's optional `weight`
+(1–4294967295, default 1 when omitted).
 
 Groups require at least two regular nodes; membership cannot overlap. Group links
 cannot point back into their own group. Validation rejects all duplicate expanded

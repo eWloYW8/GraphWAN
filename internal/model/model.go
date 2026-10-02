@@ -186,6 +186,10 @@ func (s State) Clone() State {
 		}
 		n.Groups = append([]FullMeshGroup(nil), n.Groups...)
 		for j := range n.Groups {
+			if n.Groups[j].Weight != nil {
+				weight := *n.Groups[j].Weight
+				n.Groups[j].Weight = &weight
+			}
 			n.Groups[j].Members = append([]ID(nil), n.Groups[j].Members...)
 			n.Groups[j].Transports = append([]Transport(nil), n.Groups[j].Transports...)
 		}

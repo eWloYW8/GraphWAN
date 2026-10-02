@@ -12,6 +12,7 @@ import {
 export type FullMeshGroup = {
   id: string
   name: string
+  weight?: number
   members: string[]
   transports: Edge['transports']
   methods: Edge['methods']
@@ -37,7 +38,7 @@ export function internalEdges(group: FullMeshGroup): Edge[] {
       id: groupEdgeID(group.id, a, b),
       a,
       b,
-      weight: 1,
+      weight: group.weight ?? 1,
       enabled: true,
       transports: group.transports,
       methods: group.methods,

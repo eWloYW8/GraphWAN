@@ -20,6 +20,11 @@ func meshFixture() model.State {
 
 func TestGroupedTopologyRouting(t *testing.T) {
 	s := meshFixture()
+	if s.Networks[0].EffectiveEdges()[0].Weight != 1 {
+		t.Fatal("legacy group must default to weight 1")
+	}
+	weight := uint32(9)
+	s.Networks[0].Groups[0].Weight = &weight
 	n := s.Networks[0]
 	if err := s.Validate(); err != nil {
 		t.Fatal(err)
@@ -69,12 +74,20 @@ func TestGroupedTopologyRouting(t *testing.T) {
 		t.Fatalf("down children reintroduced: %+v", routes)
 	}
 	for _, r := range routes {
-		if r.NextHop != n.Nodes[0].ID || (r.Destination == n.Nodes[1].ID && r.Cost != 8) {
+		if r.NextHop != n.Nodes[0].ID || (r.Destination == n.Nodes[1].ID && r.Cost != 16) {
 			t.Fatalf("unexpected route: %+v", r)
 		}
 	}
 	// Reordering membership cannot cause session IDs to churn.
 	clone := s.Clone()
+	*clone.Networks[0].Groups[0].Weight = 0
+	if clone.Validate() == nil {
+		t.Fatal("zero group weight accepted")
+	}
+	if n.Groups[0].RoutingWeight() != 9 {
+		t.Fatal("clone aliases group weight")
+	}
+	*clone.Networks[0].Groups[0].Weight = 9
 	slices.Reverse(clone.Networks[0].Groups[0].Members)
 	for _, e := range n.EffectiveEdges() {
 		if !slices.ContainsFunc(clone.Networks[0].EffectiveEdges(), func(v model.Edge) bool { return v.ID == e.ID }) {

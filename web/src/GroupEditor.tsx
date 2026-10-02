@@ -85,6 +85,7 @@ export default function GroupEditor({
       network.groups?.find((g) => g.id === target.id) ?? {
         id: newID(),
         name: 'Full mesh',
+        weight: 1,
         members: [],
         ...defaults,
       },
@@ -118,6 +119,11 @@ export default function GroupEditor({
         link.weight > 4294967295)
     ) {
       setError('Choose a node and a valid positive routing weight.')
+      return
+    }
+    const weight = value.weight ?? 1
+    if (!Number.isInteger(weight) || weight < 1 || weight > 4294967295) {
+      setError('Choose a valid positive routing weight.')
       return
     }
     let updated = { ...network }
@@ -171,6 +177,17 @@ export default function GroupEditor({
                 onChange={(e) => setGroup({ ...group, name: e.target.value })}
               />
             </Field>
+            <Field label="Routing weight">
+              <input
+                type="number"
+                min={1}
+                max={4294967295}
+                step={1}
+                required
+                value={group.weight ?? 1}
+                onChange={(e) => setGroup({ ...group, weight: Number(e.target.value) })}
+              />
+            </Field>
             <h4>Members · {group.members.length}</h4>
             <div className="mesh-members">
               {network.nodes
@@ -201,7 +218,8 @@ export default function GroupEditor({
                 })}
             </div>
             <div className="mesh-note">
-              {(group.members.length * (group.members.length - 1)) / 2} internal edges · Weight 1
+              {(group.members.length * (group.members.length - 1)) / 2} internal edges · Weight{' '}
+              {group.weight ?? 1}
             </div>
           </>
         ) : (

@@ -12,9 +12,18 @@ import (
 type FullMeshGroup struct {
 	ID         ID                `json:"id"`
 	Name       string            `json:"name"`
+	Weight     *uint32           `json:"weight,omitempty"`
 	Members    []ID              `json:"members"`
 	Transports []Transport       `json:"transports"`
 	Methods    ConnectionMethods `json:"methods"`
+}
+
+// RoutingWeight preserves weight 1 for groups saved before weight was configurable.
+func (g FullMeshGroup) RoutingWeight() uint32 {
+	if g.Weight == nil {
+		return 1
+	}
+	return *g.Weight
 }
 
 // GroupLink expands one node-to-group connection into independently routed edges.
@@ -47,7 +56,7 @@ func (n Network) EffectiveEdges() []Edge {
 		slices.Sort(members)
 		for i, a := range members {
 			for _, b := range members[i+1:] {
-				edges = append(edges, Edge{ID: GroupEdgeID(g.ID, a, b), A: a, B: b, Weight: 1, Enabled: true, Transports: slices.Clone(g.Transports), Methods: g.Methods})
+				edges = append(edges, Edge{ID: GroupEdgeID(g.ID, a, b), A: a, B: b, Weight: g.RoutingWeight(), Enabled: true, Transports: slices.Clone(g.Transports), Methods: g.Methods})
 			}
 		}
 	}
