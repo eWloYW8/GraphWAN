@@ -190,11 +190,11 @@ export default function Topology({
     ...network.edges,
     ...(network.group_links ?? []).map((l) => ({ ...l, a: l.node, b: l.group })),
   ]
-  const displayNetwork = {
-    ...network,
-    nodes: network.nodes.filter((n) => scopeMembers.has(n.id)),
-    edges: displayEdges,
-  }
+  const globeNetwork = useMemo(
+    () => ({ ...network, groups: [], group_links: [], edges: allEdges }),
+    [network, allEdges],
+  )
+
   const enter = (kind: 'group' | 'link', id: string) => {
     setScope({ kind, id })
     select(null)
@@ -216,6 +216,10 @@ export default function Topology({
   })
   const lineStyle = viewStyle === 'globe' ? 'line' : viewStyle
   const chooseLineStyle = (style: LineStyle | 'globe') => {
+    if (style === 'globe' && scope) {
+      setScope(null)
+      select(null)
+    }
     setViewStyle(style)
     try {
       localStorage.setItem('graphwan:line-style', style)
@@ -388,7 +392,7 @@ export default function Topology({
     }
   }, [geometryKey, edgeKey, dragging, lineStyle])
   const focus = new Set(
-    displayEdges
+    (viewStyle === 'globe' ? allEdges : displayEdges)
       .filter((e) =>
         selection?.type === 'node'
           ? e.a === selection.id || e.b === selection.id
@@ -594,32 +598,7 @@ export default function Topology({
             <Suspense fallback={<div className="canvas-empty">Loading 3D view…</div>}>
               <NetworkGlobe
                 key={network.id}
-                network={displayNetwork}
-                rates={rates}
-                showMetrics={!!scope}
-                groups={
-                  scope
-                    ? []
-                    : (network.groups ?? []).map((g) => ({
-                        ...g,
-                        summary: aggregate(network, internalEdges(g), statuses, rates, live).label,
-                      }))
-                }
-                groupLinks={
-                  scope
-                    ? []
-                    : (network.group_links ?? []).map((l) => {
-                        const summary = aggregate(
-                          network,
-                          childEdges(network, l),
-                          statuses,
-                          rates,
-                          live,
-                        )
-                        return { ...l, summary: summary.label, state: summary.state }
-                      })
-                }
-                enterGroup={enter}
+                network={globeNetwork}
                 state={state}
                 statuses={statuses}
                 live={live}

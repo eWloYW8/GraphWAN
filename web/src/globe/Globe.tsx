@@ -2,14 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import countries from './assets/countries.json'
-import type {
-  GlobeGroup,
-  GlobeGroupLink,
-  GlobeNode,
-  GlobeEdge,
-  Selection,
-  Appearance,
-} from './types'
+import type { GlobeNode, GlobeEdge, Selection, Appearance } from './types'
 
 export type ViewCommand = { kind: 'reset' | 'in' | 'out' | 'focus'; id?: string; serial: number }
 const teal = '#69e8c0'
@@ -95,9 +88,6 @@ function arc(a: THREE.Vector3, b: THREE.Vector3) {
 
 export default function Globe({
   nodes,
-  groups = [],
-  groupLinks = [],
-  enterGroup,
   edges,
   selection,
   select,
@@ -108,9 +98,6 @@ export default function Globe({
   connect,
 }: {
   nodes: GlobeNode[]
-  groups?: GlobeGroup[]
-  groupLinks?: GlobeGroupLink[]
-  enterGroup?: (kind: 'group' | 'link', id: string) => void
   edges: GlobeEdge[]
   selection: Selection
   select: (selection: Selection, multiple?: boolean) => void
@@ -122,30 +109,8 @@ export default function Globe({
 }) {
   const host = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
-  const options = useRef({
-    nodes,
-    selection,
-    select,
-    rotating,
-    labels,
-    appearance,
-    connect,
-    groups,
-    groupLinks,
-    enterGroup,
-  })
-  options.current = {
-    nodes,
-    selection,
-    select,
-    rotating,
-    labels,
-    appearance,
-    connect,
-    groups,
-    groupLinks,
-    enterGroup,
-  }
+  const options = useRef({ nodes, selection, select, rotating, labels, appearance, connect })
+  options.current = { nodes, selection, select, rotating, labels, appearance, connect }
   const cameraPosition = useRef<THREE.Vector3 | null>(null)
   const cameraAspect = useRef(1)
   // Live status updates must never rebuild geometry or reset the orbit position.
@@ -184,9 +149,6 @@ export default function Globe({
     leaders.classList.add('globe-label-leaders')
     leaders.setAttribute('aria-hidden', 'true')
     element.appendChild(leaders)
-    const groupLayer = document.createElementNS(svgNS, 'svg')
-    groupLayer.classList.add('globe-group-layer')
-    element.appendChild(groupLayer)
     const makeColumn = (side: 'left' | 'right') => {
       const viewport = document.createElement('div')
       viewport.className = 'globe-label-column'
@@ -342,7 +304,7 @@ export default function Globe({
       mesh.userData.selection = { type: 'edge', id: edge.id }
       scene.add(mesh)
       picks.push(mesh)
-      return [{ edge, mesh, midpoint: points[Math.floor(points.length / 2)] }]
+      return [{ edge, mesh }]
     })
 
     let width = cameraAspect.current,
@@ -376,87 +338,6 @@ export default function Globe({
         const x = gutter + (project.x * 0.5 + 0.5) * globeWidth,
           y = (-project.y * 0.5 + 0.5) * height
         visibleNodes.push({ id, marker, x, y })
-      }
-      groupLayer.setAttribute('viewBox', `0 0 ${width} ${height}`)
-      groupLayer.replaceChildren()
-      const boxes = new Map<string, { x: number; y: number; width: number; height: number }>()
-      for (const group of options.current.groups) {
-        const points = visibleNodes.filter((n) => group.members.includes(n.id))
-        if (!points.length) continue
-        const x = Math.min(...points.map((p) => p.x)) - 24,
-          y = Math.min(...points.map((p) => p.y)) - 44
-        const box = {
-          x,
-          y,
-          width: Math.max(...points.map((p) => p.x)) - x + 24,
-          height: Math.max(...points.map((p) => p.y)) - y + 24,
-        }
-        boxes.set(group.id, box)
-        const shape = document.createElementNS(svgNS, 'rect')
-        for (const [key, value] of Object.entries(box)) shape.setAttribute(key, String(value))
-        shape.setAttribute('rx', '16')
-        shape.setAttribute('class', 'globe-mesh-boundary')
-        shape.addEventListener('click', (event) => {
-          const rect = groupLayer.getBoundingClientRect(),
-            px = event.clientX - rect.left,
-            py = event.clientY - rect.top
-          const node = visibleNodes.find((n) => Math.hypot(n.x - px, n.y - py) < 14)
-          if (node)
-            options.current.select({ type: 'node', id: node.id }, event.ctrlKey || event.metaKey)
-          else options.current.enterGroup?.('group', group.id)
-        })
-        groupLayer.appendChild(shape)
-        const label = document.createElementNS(svgNS, 'text')
-        label.setAttribute('x', String(x + 10))
-        label.setAttribute('y', String(y + 19))
-        label.setAttribute('class', 'globe-mesh-caption')
-        label.textContent = `${group.name} · ${group.summary}`
-        label.addEventListener('click', () => options.current.enterGroup?.('group', group.id))
-        groupLayer.appendChild(label)
-      }
-      for (const link of options.current.groupLinks) {
-        const box = boxes.get(link.group),
-          source = visibleNodes.find((n) => n.id === link.node)
-        if (!box || !source) continue
-        const cx = box.x + box.width / 2,
-          cy = box.y + box.height / 2,
-          dx = source.x - cx,
-          dy = source.y - cy
-        const scale =
-          1 / Math.max(Math.abs(dx) / (box.width / 2), Math.abs(dy) / (box.height / 2), 1)
-        const x = cx + dx * scale,
-          y = cy + dy * scale
-        const path = document.createElementNS(svgNS, 'path')
-        path.setAttribute(
-          'd',
-          `M${source.x},${source.y} Q${(source.x + x) / 2},${Math.min(source.y, y) - 35} ${x},${y}`,
-        )
-        path.setAttribute('class', 'globe-mesh-link')
-        path.dataset.state = link.state
-        path.addEventListener('click', () => options.current.enterGroup?.('link', link.id))
-        groupLayer.appendChild(path)
-        const label = document.createElementNS(svgNS, 'text')
-        label.setAttribute('x', String((source.x + x) / 2))
-        label.setAttribute('y', String((source.y + y) / 4 + (Math.min(source.y, y) - 35) / 2 - 8))
-        label.setAttribute('text-anchor', 'middle')
-        label.setAttribute('class', 'globe-mesh-caption')
-        label.textContent = link.summary
-        label.addEventListener('click', () => options.current.enterGroup?.('link', link.id))
-        groupLayer.appendChild(label)
-      }
-      for (const { edge, midpoint } of lines) {
-        const labelText = options.current.appearance?.edges[edge.id]?.label
-        if (!labelText || midpoint.clone().normalize().dot(camera.position) < 1.04) continue
-        project.copy(midpoint).project(camera)
-        if (Math.abs(project.x) > 0.98 || Math.abs(project.y) > 0.98) continue
-        const label = document.createElementNS(svgNS, 'text')
-        label.setAttribute('x', String(gutter + (project.x * 0.5 + 0.5) * globeWidth))
-        label.setAttribute('y', String((-project.y * 0.5 + 0.5) * height))
-        label.setAttribute('text-anchor', 'middle')
-        label.setAttribute('class', 'globe-mesh-caption')
-        label.textContent = labelText
-        label.addEventListener('click', () => options.current.select({ type: 'edge', id: edge.id }))
-        groupLayer.appendChild(label)
       }
       // Balance the two gutters, preferring the previous side near the split
       // to avoid labels flickering left/right as adjacent markers move.
@@ -725,7 +606,6 @@ export default function Globe({
       window.removeEventListener('pointercancel', cancelPointer)
       for (const { label } of markers.values()) label.remove()
       leaders.remove()
-      groupLayer.remove()
       columns.left.viewport.remove()
       columns.right.viewport.remove()
       scene.traverse((object) => {
@@ -743,7 +623,7 @@ export default function Globe({
   }, [geometryKey])
   useEffect(() => {
     api.current?.refresh()
-  }, [nodes, selection, rotating, labels, appearance, groups, groupLinks])
+  }, [nodes, selection, rotating, labels, appearance])
   useEffect(() => {
     api.current?.command(command)
   }, [command])

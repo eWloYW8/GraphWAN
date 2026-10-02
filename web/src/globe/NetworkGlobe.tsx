@@ -1,16 +1,7 @@
-import { aggregate } from '../groups'
-import type { Rates } from '../model'
 import { useEffect, useMemo, useState } from 'react'
 import { LocateFixed, Minus, Plus } from 'lucide-react'
 import Globe, { type ViewCommand } from './Globe'
-import type {
-  GlobeGroup,
-  GlobeGroupLink,
-  Appearance,
-  GlobeEdge,
-  GlobeNode,
-  Selection as GlobeSelection,
-} from './types'
+import type { Appearance, GlobeEdge, GlobeNode, Selection as GlobeSelection } from './types'
 import type { Selection } from '../Topology'
 import { edgeView, nodeState, type Network, type State, type AgentStatus } from '../model'
 import { wireGuardNodeState } from '../wireguard'
@@ -19,11 +10,6 @@ import './globe.css'
 
 export default function NetworkGlobe({
   network,
-  rates,
-  showMetrics,
-  groups,
-  groupLinks,
-  enterGroup,
   state,
   statuses,
   live,
@@ -39,11 +25,6 @@ export default function NetworkGlobe({
   connect,
 }: {
   network: Network
-  rates: Rates
-  showMetrics: boolean
-  groups: GlobeGroup[]
-  groupLinks: GlobeGroupLink[]
-  enterGroup: (kind: 'group' | 'link', id: string) => void
   state: State
   statuses: AgentStatus[]
   live: boolean
@@ -74,11 +55,8 @@ export default function NetworkGlobe({
     [network.nodes, locations],
   )
   const edges = useMemo<GlobeEdge[]>(
-    () =>
-      network.edges
-        .filter((e) => !groupLinks.some((l) => l.id === e.id))
-        .map(({ id, a, b }) => ({ id, a, b })),
-    [network.edges, groupLinks],
+    () => network.edges.map(({ id, a, b }) => ({ id, a, b })),
+    [network.edges],
   )
   const missing = network.nodes.filter((node) => !locations?.agents[node.agent_id]?.location)
   const appearance = useMemo<Appearance>(() => {
@@ -115,9 +93,6 @@ export default function NetworkGlobe({
             {
               color: health === 'Connected' ? '#69e8c0' : '#899daa',
               dashed: health !== 'Connected',
-              label: showMetrics
-                ? aggregate(network, [edge], statuses, rates, live).label
-                : undefined,
             },
           ]
         }),
@@ -126,19 +101,7 @@ export default function NetworkGlobe({
       focusedEdges,
       dimmed: selection !== null,
     }
-  }, [
-    network,
-    state.agents,
-    statuses,
-    live,
-    locations,
-    source,
-    selection,
-    pathNodes,
-    focusedEdges,
-    rates,
-    showMetrics,
-  ])
+  }, [network, state.agents, statuses, live, locations, source, selection, pathNodes, focusedEdges])
   const choose = (picked: GlobeSelection, multiple = false) => {
     if (picked?.type === 'node') {
       if (connecting) {
@@ -159,9 +122,6 @@ export default function NetworkGlobe({
   return (
     <div className="network-globe">
       <Globe
-        groups={groups}
-        groupLinks={groupLinks}
-        enterGroup={enterGroup}
         nodes={nodes}
         edges={edges}
         selection={selection?.type === 'path' ? null : selection}

@@ -156,9 +156,10 @@ at most one group; WireGuard leaf nodes cannot join groups.
 The main canvas hides internal edges behind a dashed, shaded group boundary.
 Click the boundary or shaded area to open the group; **← Network** returns to the
 main topology. The inspector also lists groups and aggregate links, including
-those without geolocation. Line, Bezier and 3D views support navigation. In 3D,
-group boundaries surround currently visible, located markers in the projected
-view; rotate the globe to see members on the far side.
+those without geolocation. Line and Bezier views support group navigation. The 3D view always expands the
+whole network into actual node-to-node edges, including internal mesh edges and
+aggregate children. It shows no group regions or edge information labels; click
+a node or edge to inspect its details.
 
 Use **Node → group**, or drag a connection between a regular node and a group
 boundary, to create an aggregate link. Its weight, enabled state, transports and
