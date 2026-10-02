@@ -36,6 +36,39 @@ export function boundary(rect: Rect, toward: { x: number; y: number }, fallback 
   }
 }
 
+// Group frames are derived on each render rather than stored in useNodesState.
+// Supply their measurements and handle bounds explicitly: React Flow otherwise
+// clears handleBounds when a new node object has no `measured`, hiding its edges.
+// These invisible bounds only initialize React Flow; planAnchors determines the
+// actual continuous attachment points on the node and group perimeters.
+export function groupFrameDimensions(width: number, height: number) {
+  return {
+    width,
+    height,
+    measured: { width, height },
+    handles: [
+      {
+        id: 'surface',
+        type: 'source' as const,
+        position: Position.Top,
+        x: -8,
+        y: -8,
+        width: width + 16,
+        height: height + 16,
+      },
+      {
+        id: 'target',
+        type: 'target' as const,
+        position: Position.Top,
+        x: width / 2,
+        y: 0,
+        width: 1,
+        height: 1,
+      },
+    ],
+  }
+}
+
 export function planAnchors(
   rectangles: Map<string, Rect>,
   edges: { id: string; a: string; b: string }[],

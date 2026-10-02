@@ -25,7 +25,7 @@ import {
 import { Server, Plus, Settings2, Cable, MousePointer2, Globe2 } from 'lucide-react'
 import { useAgentLocations } from './globe/useAgentLocations'
 import { FloatingEdge, FloatingConnection, LineConnection } from './FloatingEdge'
-import { planAnchors } from './edgeGeometry'
+import { planAnchors, groupFrameDimensions } from './edgeGeometry'
 import { planRoutes, planLabels, type LineStyle } from './edgeRouting'
 import { activePath } from './activePath'
 import WireGuardNode from './WireGuardNode'
@@ -335,8 +335,7 @@ export default function Topology({
             id: g.id,
             type: 'meshGroup' as const,
             position: { x, y },
-            width,
-            height,
+            ...groupFrameDimensions(width, height),
             style: { width, height },
             zIndex: -10,
             draggable: false,
