@@ -776,12 +776,27 @@ export default function Topology({
         </div>
         {!selection && scope && scopeSummary ? (
           <>
-            <h3>
-              {scopeGroup?.name ??
-                `${network.nodes.find((n) => n.id === scopeLink?.node)?.name} → ${network.groups?.find((g) => g.id === scopeLink?.group)?.name}`}
-            </h3>
-            <Badge>{scopeSummary.state}</Badge>
-            <p>{scopeSummary.label}</p>
+            <div className="inspector-intro">
+              <h3>
+                {scopeGroup?.name ??
+                  `${network.nodes.find((n) => n.id === scopeLink?.node)?.name} → ${network.groups?.find((g) => g.id === scopeLink?.group)?.name}`}
+              </h3>
+              <Badge>{scopeSummary.state}</Badge>
+            </div>
+            <dl className="inspector-summary">
+              <dt>Total traffic</dt>
+              <dd>{rate(scopeSummary.speed)}</dd>
+              <dt>Maximum RTT</dt>
+              <dd>
+                {scopeSummary.maximum === undefined
+                  ? 'Unknown'
+                  : `${scopeSummary.maximum.toFixed(1)} ms`}
+              </dd>
+              <dt>Connected edges</dt>
+              <dd>
+                {live ? scopeSummary.connected : '—'} / {scopeSummary.total}
+              </dd>
+            </dl>
             {editing && (
               <div className="actions">
                 <button onClick={() => setGroupEditor(scope)}>
