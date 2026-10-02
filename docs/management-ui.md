@@ -32,7 +32,8 @@ no CDN, external font or separate frontend service is required.
 Network settings include name, subnet, MTU and cipher. Node settings include
 name, Agent membership and virtual IP. Agent **Manage** changes the machine name,
 listen port, revocation and manual endpoints, including protocol-specific URL
-paths. **Exclude container IPs** controls the optional [Linux container interface
+paths. **Exclude container IPs** is enabled for newly enrolled Agents and can be
+disabled in **Manage**. It controls the [Linux container interface
 filter](endpoint-resolution.md#automatic-interface-discovery). Discovered endpoints are read-only. Deleting an Agent removes its network
 memberships; deleting a Network removes all its memberships and Edges.
 

@@ -221,8 +221,10 @@ An Agent may acknowledge an older revision while applying an update. Its old Lin
 statistics are omitted until it catches up. Endpoint updates may only contain
 `interface` and `observed` TCP/UDP entries; manual entries remain authoritative
 on the controller. Observed endpoints include expiration and mapped port.
-`exclude_container_ips` is an optional boolean, default false. On Linux it filters
-container veth endpoints while retaining an unbridged default-route uplink.
+`exclude_container_ips` is an optional boolean, enabled by default for newly
+enrolled Agents. Existing saved settings are preserved. On Linux it filters
+container veth endpoints and isolated container bridges while retaining the
+default-route uplink and bridges backed by physical interfaces.
 Omission preserves the saved setting. Manual endpoints are unaffected.
 
 Each Link report includes `remote` (the socket peer), optional `local` (the local

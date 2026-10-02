@@ -125,7 +125,7 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(records.Get(enrollmentKey(token)), &record); err != nil || !time.Now().Before(record.Expires) {
 				return errInvalidToken
 			}
-			state.Agents = append(state.Agents, model.Agent{ID: id, Name: in.Name, PublicKey: pub, ListenPort: model.DefaultPort, STUNServers: model.DefaultSTUNServers(), Endpoints: []model.Endpoint{}})
+			state.Agents = append(state.Agents, model.Agent{ID: id, Name: in.Name, PublicKey: pub, ListenPort: model.DefaultPort, ExcludeContainerIPs: true, STUNServers: model.DefaultSTUNServers(), Endpoints: []model.Endpoint{}})
 			if requestID != "" {
 				receipt = enrollmentReceipt{RequestID: requestID, RequestHash: requestHash, Expires: record.Expires, AgentID: id, Certificate: certificate, Revision: state.Revision + 1}
 				raw, err := json.Marshal(receipt)
