@@ -553,6 +553,8 @@ fieldset:disabled select {
   overflow: hidden;
 }
 .canvas-toolbar {
+  flex-wrap: nowrap;
+  min-width: 0;
   height: 51px;
   border-bottom: 1px solid #e6ece2;
   padding: 0 16px;
@@ -563,8 +565,11 @@ fieldset:disabled select {
   color: #82917d;
   font-size: 10px;
 }
-.canvas-toolbar .actions {
+.canvas-toolbar > * {
   flex-shrink: 0;
+}
+.canvas-toolbar .actions {
+  flex-wrap: nowrap;
 }
 .canvas-toolbar button {
   font-size: 10px;
@@ -1840,9 +1845,6 @@ td small,
 .mesh-note {
   margin: 12px 0;
   font-size: 13px;
-}
-.canvas-toolbar {
-  flex-wrap: wrap;
 }
 @media (prefers-color-scheme: dark) {
   .mesh-group-boundary {
