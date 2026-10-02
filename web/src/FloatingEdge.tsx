@@ -16,6 +16,7 @@ export type FloatingFlowEdge = Edge<
     anchors: Anchors
     route: Route
     labelPoint: { x: number; y: number }
+    labelScale?: number
     open?: () => void
     focused: boolean
     dimmed: boolean
@@ -24,7 +25,7 @@ export type FloatingFlowEdge = Edge<
 >
 export function FloatingEdge(props: EdgeProps<FloatingFlowEdge>) {
   if (!props.data?.anchors) return null
-  const { route, labelPoint, focused, dimmed } = props.data
+  const { route, labelPoint, labelScale = 1, focused, dimmed } = props.data
   if (!route) return null
   return (
     <>
@@ -34,7 +35,7 @@ export function FloatingEdge(props: EdgeProps<FloatingFlowEdge>) {
           <div
             className={`graph-edge-label nodrag nopan ${focused ? 'focused' : ''}`}
             style={{
-              transform: `translate(-50%, -50%) translate(${labelPoint.x}px, ${labelPoint.y}px)`,
+              transform: `translate(-50%, -50%) translate(${labelPoint.x}px, ${labelPoint.y}px) scale(${labelScale})`,
               zIndex: focused ? 1000 : 10,
               pointerEvents: props.data.open ? 'all' : 'none',
               cursor: props.data.open ? 'pointer' : undefined,

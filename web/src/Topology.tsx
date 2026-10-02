@@ -437,6 +437,7 @@ export default function Topology({
       .map((e) => e.id),
   )
   const focusKey = [...focus].sort().join('/')
+  const labelScale = scope ? 0.5 : 1
   const labels = useMemo(
     () =>
       dragging
@@ -449,8 +450,9 @@ export default function Topology({
               [...geometry.rectangles].filter(([id]) => !network.groups?.some((g) => g.id === id)),
             ),
             focus,
+            labelScale,
           ),
-    [geometry, focusKey, dragging],
+    [geometry, focusKey, dragging, labelScale],
   )
   const edges = displayEdges.map((e) => {
     const link = !scope ? network.group_links?.find((l) => l.id === e.id) : undefined
@@ -474,6 +476,7 @@ export default function Topology({
         anchors: geometry.anchors.get(e.id)!,
         route: geometry.routes.get(e.id)!,
         labelPoint: labels.get(e.id)!,
+        labelScale,
         focused,
         dimmed,
       },

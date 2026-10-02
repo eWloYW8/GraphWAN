@@ -186,7 +186,10 @@ export function planLabels(
   routes: Map<string, Route>,
   rectangles: Map<string, Rect>,
   priority: Set<string>,
+  labelScale = 1,
 ) {
+  const width = 188 * labelScale
+  const height = 28 * labelScale
   const labels: Rect[] = []
   const result = new Map<string, Point>()
   const entries = [...routes].sort(
@@ -197,7 +200,7 @@ export function planLabels(
       score = Infinity
     for (const index of [12, 9, 15, 6, 18, 4, 20]) {
       const p = route.points[index],
-        box = { x: p.x - 94, y: p.y - 14, width: 188, height: 28 }
+        box = { x: p.x - width / 2, y: p.y - height / 2, width, height }
       const overlaps = (r: Rect) =>
         box.x < r.x + r.width &&
         box.x + box.width > r.x &&
@@ -209,7 +212,7 @@ export function planLabels(
       for (const [otherID, other] of routes)
         if (otherID !== id) {
           for (let i = 1; i < other.points.length; i++) {
-            if (separation(p, other.points[i - 1], other.points[i]) < 22) cost += 30
+            if (separation(p, other.points[i - 1], other.points[i]) < 22 * labelScale) cost += 30
           }
         }
       if (cost < score) {
@@ -218,7 +221,7 @@ export function planLabels(
       }
     }
     result.set(id, best)
-    labels.push({ x: best.x - 94, y: best.y - 14, width: 188, height: 28 })
+    labels.push({ x: best.x - width / 2, y: best.y - height / 2, width, height })
   }
   return result
 }
