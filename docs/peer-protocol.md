@@ -304,7 +304,12 @@ for both directions of an Edge. Its measured RTT drives automatic selection;
 standby probes and telemetry continue at both endpoints. Explicit candidate
 preference overrides RTT. Automatic selection chooses the lowest measured RTT
 among the retained healthy candidates, with Link ID as a deterministic tie break.
-There is no minimum RTT improvement or hold-time threshold. The coordinated
+When the current healthy Link has carried user data in either direction within
+the last five seconds, automatic switching requires at least a 10% RTT reduction.
+Activity is sampled from user-byte counters during maintenance/selection; control
+messages do not extend the window. Idle Links use the lowest RTT without this
+margin. Explicit preferences, failure recovery and required session replacement
+bypass the margin. The coordinated
 switch below still completes before the follower starts using the selected Link.
 
 Selection messages are encrypted application messages on the **proposed Link**.

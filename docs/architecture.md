@@ -16,7 +16,10 @@ Healthy Links on distinct endpoint-IP/transport paths remain open. When both
 Agents support address exchange, sessions differing only in endpoint ports or
 dialing direction are consolidated into one healthy Link per path; suppressed
 candidates resume dialing if that Link fails. Automatic selection uses the
-lowest measured RTT across retained candidates. Only the selected Link sends user traffic; heartbeats
+lowest measured RTT across retained candidates, requiring at least a 10%
+improvement while the current healthy Link has carried user data within five
+seconds. Explicit preferences and required session replacement bypass this margin.
+Only the selected Link sends user traffic; heartbeats
 and negotiation may use standby Links. A Session is the active Link of an Edge.
 
 Automatic endpoints use TCP/UDP only. Manual endpoints can use TCP, UDP, QUIC,

@@ -175,7 +175,7 @@ func (e *Edge) bestLocked(now time.Time) *Link {
 			newest[l.Info().CandidateID] = l.Created()
 		}
 	}
-	var best, preferred *Link
+	var best, preferred, current *Link
 	var bestRTT float64
 	for id, link := range e.links {
 		if replacement := e.links[e.replacements[id]]; replacement != nil && replacement.healthy() {
@@ -185,6 +185,9 @@ func (e *Edge) bestLocked(now time.Time) *Link {
 		if !stats.Healthy || link.RenewalDue() && link.Created().Before(newest[stats.CandidateID]) {
 			continue
 		}
+		if id == e.active {
+			current = link
+		}
 		if best == nil || stats.RTTMillis < bestRTT || stats.RTTMillis == bestRTT && id < best.ID() {
 			best = link
 			bestRTT = stats.RTTMillis
@@ -193,9 +196,16 @@ func (e *Edge) bestLocked(now time.Time) *Link {
 			preferred = link
 		}
 	}
-	selected := best
+	// Explicit preferences and mandatory session replacement take precedence.
+	// Otherwise keep a busy healthy path unless RTT improves by at least 10%.
 	if preferred != nil {
-		selected = preferred
+		return preferred
 	}
-	return selected
+	if current != nil && best != nil && best != current && current.recentlyActive(now) {
+		currentRTT := current.Stats().RTTMillis
+		if currentRTT <= 0 || bestRTT <= 0 || bestRTT > currentRTT*0.9 {
+			return current
+		}
+	}
+	return best
 }

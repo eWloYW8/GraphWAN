@@ -57,8 +57,10 @@ logging, managed updates and OpenWrt persistent-storage requirements.
   restore one-second probes, with a five-second response timeout; detecting a
   silent idle failure can therefore take approximately fifteen seconds.
 - An available manually preferred candidate wins immediately. Otherwise the
-  lowest measured RTT among retained candidates wins, without a minimum
-  improvement or hold-time threshold. An unhealthy active Link
+  lowest measured RTT among retained candidates wins. If the active Link carried
+  user data in either direction within the last five seconds, switching requires
+  at least a 10% RTT reduction. Required session replacement bypasses this margin.
+  An unhealthy active Link
   triggers selection of a fallback. The lower Node ID coordinates a common Link
   through authenticated prepare/accept/commit/confirm messages; the follower
   briefly pauses sending during the switch. See [the peer protocol](peer-protocol.md).

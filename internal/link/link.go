@@ -553,6 +553,23 @@ func (l *Link) recordPong(nonce uint64, now time.Time) {
 	}
 }
 
+// Sample user-byte counters during maintenance/selection, not on the packet
+// hot path. Control messages and keepalives do not extend the activity window.
+func (l *Link) sampleTrafficLocked(now time.Time) {
+	rx, tx := l.rx.Load(), l.tx.Load()
+	if rx != l.sampledRX || tx != l.sampledTX {
+		l.lastTraffic = now
+		l.sampledRX, l.sampledTX = rx, tx
+	}
+}
+
+func (l *Link) recentlyActive(now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sampleTrafficLocked(now)
+	return !l.lastTraffic.IsZero() && now.Sub(l.lastTraffic) < 5*time.Second
+}
+
 // Only the health worker calls heartbeat. Sampling existing user-byte counters
 // avoids adding clocks or synchronization to the packet forwarding hot path.
 func (l *Link) heartbeat(now time.Time) bool {
@@ -571,11 +588,7 @@ func (l *Link) heartbeat(now time.Time) bool {
 	if !l.probeSince.IsZero() && now.Sub(l.probeSince) >= l.options.Timeout {
 		return false
 	}
-	rx, tx := l.rx.Load(), l.tx.Load()
-	if rx != l.sampledRX || tx != l.sampledTX {
-		l.lastTraffic = now
-		l.sampledRX, l.sampledTX = rx, tx
-	}
+	l.sampleTrafficLocked(now)
 	interval := l.options.IdleHeartbeat
 	if l.lastPong.IsZero() || !l.probeSince.IsZero() || now.Sub(l.lastTraffic) < l.options.IdleHeartbeat {
 		interval = l.options.Heartbeat
