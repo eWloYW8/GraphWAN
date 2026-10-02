@@ -145,3 +145,46 @@ existing cluster password. Coordinator election is automatic and every Server
 provides the same controls. Three voting members are needed to keep configuration
 writes available after one fails. Agent connections and data forwarding remain
 available without write quorum.
+
+## Full mesh groups and node-to-group links
+
+In a Network's **Edit** mode, choose **Add group**, select at least two regular
+nodes, and choose shared transports and connection methods. Internal connections
+have routing weight 1 and use the Network's encryption suite. A node belongs to
+at most one group; WireGuard leaf nodes cannot join groups.
+
+The main canvas hides internal edges behind a dashed, shaded group boundary.
+Click the boundary or shaded area to open the group; **← Network** returns to the
+main topology. The inspector also lists groups and aggregate links, including
+those without geolocation. Line, Bezier and 3D views support navigation. In 3D,
+group boundaries surround currently visible, located markers in the projected
+view; rotate the globe to see members on the far side.
+
+Use **Node → group**, or drag a connection between a regular node and a group
+boundary, to create an aggregate link. Its weight, enabled state, transports and
+connection methods apply to every child connection. Click the aggregate edge to
+view its children individually. The external node cannot belong to the target
+group. Group-to-group links are not supported.
+
+Aggregate links and individual edges to the same members are mutually exclusive.
+The editor asks before replacing conflicting individual edges with shared policy,
+or replacing an aggregate with one individual edge. Shared edges cannot be edited
+or removed individually: open their shared settings instead. All changes remain a
+draft until **Save changes**. Membership changes automatically add/remove derived
+edges; dissolving a group removes its internal edges and aggregate links, while
+preserving its nodes and unrelated individual edges. Removing a node prunes its
+membership; groups with fewer than two remaining members are removed.
+
+Summaries display the sum of measured RX+TX rates across child edges (one endpoint
+report per session, not both), maximum RTT among connected selected links, and
+connected/total edge count. Missing measurements display a dash or `RTT unknown`;
+partial connectivity remains visible. These are link traffic and direct-link RTT,
+not unique application throughput or end-to-end routed ping. Forwarded traffic
+crossing multiple edges contributes on each edge. Child failures only withdraw the
+failed routes; the remaining children can still carry traffic.
+
+Groups simplify drawing, not connection count: N members create N×(N−1)/2 internal
+edges. The 100,000-edge Network limit includes all expanded internal and aggregate
+edges. Upgrade every Server to v0.2.4 or newer before creating groups. Existing
+Agents receive ordinary peer/route snapshots and do not require a wire-format
+upgrade. Do not edit grouped networks using older Servers or administrative tools.

@@ -1,3 +1,11 @@
+import GroupEditor, { type GroupEditorTarget } from './GroupEditor'
+import {
+  effectiveEdges,
+  internalEdges,
+  childEdges,
+  aggregate,
+  individualConnection,
+} from './groups'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ReactFlow,
@@ -69,8 +77,9 @@ type GraphNode = FlowNode<
     connecting: boolean
     path: boolean
     wireguard: boolean
+    summary?: string
   },
-  'agent'
+  'agent' | 'meshGroup'
 >
 function AgentNode({ data, isConnectable }: NodeProps<GraphNode>) {
   return (
@@ -104,7 +113,31 @@ function AgentNode({ data, isConnectable }: NodeProps<GraphNode>) {
     </div>
   )
 }
-const nodeTypes = { agent: AgentNode }
+function MeshGroupNode({ data, isConnectable }: NodeProps<GraphNode>) {
+  return (
+    <div className={`mesh-group-boundary ${data.path ? 'focused' : ''}`}>
+      <Handle
+        id="surface"
+        type="source"
+        position={Position.Top}
+        className="node-connect-surface"
+        isConnectable={isConnectable}
+      />
+      <Handle
+        id="target"
+        type="target"
+        position={Position.Top}
+        className="node-hidden-target"
+        isConnectable={isConnectable}
+      />
+      <div className="mesh-group-caption">
+        <strong>{data.name}</strong>
+        <span>{data.summary}</span>
+      </div>
+    </div>
+  )
+}
+const nodeTypes = { agent: AgentNode, meshGroup: MeshGroupNode }
 const edgeTypes = { floating: FloatingEdge }
 const NetworkGlobe = lazy(() => import('./globe/NetworkGlobe'))
 export default function Topology({
@@ -132,6 +165,47 @@ export default function Topology({
   addNode: () => void
   addEdge: () => void
 }) {
+  const [scope, setScope] = useState<{ kind: 'group' | 'link'; id: string } | null>(null)
+  const [groupEditor, setGroupEditor] = useState<GroupEditorTarget | null>(null)
+  const allEdges = useMemo(() => effectiveEdges(network), [network])
+  const scopeGroup =
+    scope?.kind === 'group' ? network.groups?.find((g) => g.id === scope.id) : undefined
+  const scopeLink =
+    scope?.kind === 'link' ? network.group_links?.find((l) => l.id === scope.id) : undefined
+  const scopedEdges = scopeGroup
+    ? internalEdges(scopeGroup)
+    : scopeLink
+      ? childEdges(network, scopeLink)
+      : undefined
+  const scopeMembers = new Set(
+    scopeGroup?.members ??
+      (scopeLink
+        ? [
+            scopeLink.node,
+            ...(network.groups?.find((g) => g.id === scopeLink.group)?.members ?? []),
+          ]
+        : network.nodes.map((n) => n.id)),
+  )
+  const displayEdges = scopedEdges ?? [
+    ...network.edges,
+    ...(network.group_links ?? []).map((l) => ({ ...l, a: l.node, b: l.group })),
+  ]
+  const displayNetwork = {
+    ...network,
+    nodes: network.nodes.filter((n) => scopeMembers.has(n.id)),
+    edges: displayEdges,
+  }
+  const enter = (kind: 'group' | 'link', id: string) => {
+    setScope({ kind, id })
+    select(null)
+  }
+  useEffect(() => {
+    setScope(null)
+    setGroupEditor(null)
+  }, [network.id])
+  useEffect(() => {
+    if (scope && !scopeGroup && !scopeLink) setScope(null)
+  }, [scope, scopeGroup, scopeLink])
   const [viewStyle, setViewStyle] = useState<LineStyle | 'globe'>(() => {
     try {
       const saved = localStorage.getItem('graphwan:line-style')
@@ -157,14 +231,31 @@ export default function Topology({
   }, [editing, network.id])
   const connect = (source: string, target: string) => {
     if (!editing) return
-    const edge = createEdge(network, source, target)
+    const group = network.groups?.find((g) => g.id === source || g.id === target)
+    if (group) {
+      const node = source === group.id ? target : source
+      if (!group.members.includes(node) && network.nodes.some((n) => n.id === node && !n.wireguard))
+        setGroupEditor({ kind: 'link', node, group: group.id })
+      return
+    }
+    const updated = individualConnection(network, source, target)
+    if (!updated) return
+    const edge = createEdge(updated, source, target)
     if (edge) {
-      change({ ...network, edges: [...network.edges, edge] })
+      change({ ...updated, edges: [...updated.edges, edge] })
       select({ type: 'edge', id: edge.id })
     }
   }
   const validConnection = ({ source, target }: { source: string | null; target: string | null }) =>
-    !!source && !!target && !!createEdge(network, source, target)
+    !!source &&
+    !!target &&
+    (network.groups?.some(
+      (g) =>
+        (g.id === source || g.id === target) &&
+        !g.members.includes(g.id === source ? target : source) &&
+        network.nodes.some((n) => n.id === (g.id === source ? target : source) && !n.wireguard),
+    ) ||
+      !!createEdge({ ...network, group_links: [] }, source, target))
 
   const path = useMemo(
     () =>
@@ -191,31 +282,33 @@ export default function Topology({
   const status = useMemo(() => new Map(statuses.map((s) => [s.agent_id, s])), [statuses])
   const desiredNodes = useMemo<GraphNode[]>(
     () =>
-      network.nodes.map((n) => ({
-        id: n.id,
-        type: 'agent',
-        position: n.position,
-        selected:
-          selection?.type === 'path'
-            ? selection.id === n.id || selection.target === n.id
-            : selection?.type === 'node' && selection.id === n.id,
-        data: {
-          connecting,
-          path: path?.nodes.includes(n.id) ?? false,
-          wireguard: !!n.wireguard,
-          name: n.name,
-          address: n.address,
-          state: n.wireguard
-            ? wireGuardNodeState(network, n, state, statuses, live)
-            : nodeState(
-                state.agents.find((a) => a.id === n.agent_id),
-                status.get(n.agent_id),
-                live,
-              ),
-        },
-        ariaLabel: `${n.name}, ${n.address}`,
-      })),
-    [network, selection, state, statuses, status, live, connecting, path],
+      network.nodes
+        .filter((n) => scopeMembers.has(n.id))
+        .map((n) => ({
+          id: n.id,
+          type: 'agent',
+          position: n.position,
+          selected:
+            selection?.type === 'path'
+              ? selection.id === n.id || selection.target === n.id
+              : selection?.type === 'node' && selection.id === n.id,
+          data: {
+            connecting,
+            path: path?.nodes.includes(n.id) ?? false,
+            wireguard: !!n.wireguard,
+            name: n.name,
+            address: n.address,
+            state: n.wireguard
+              ? wireGuardNodeState(network, n, state, statuses, live)
+              : nodeState(
+                  state.agents.find((a) => a.id === n.agent_id),
+                  status.get(n.agent_id),
+                  live,
+                ),
+          },
+          ariaLabel: `${n.name}, ${n.address}`,
+        })),
+    [network, selection, state, statuses, status, live, connecting, path, scope],
   )
   const [nodes, setNodes, applyNodeChanges] = useNodesState<GraphNode>([])
   useEffect(() => {
@@ -226,31 +319,88 @@ export default function Topology({
       return desiredNodes.map((node) => ({ ...byID.get(node.id), ...node }))
     })
   }, [desiredNodes, setNodes])
+  const groupNodes: GraphNode[] = scope
+    ? []
+    : (network.groups ?? []).flatMap((g) => {
+        const members = nodes.filter((n) => g.members.includes(n.id))
+        if (!members.length) return []
+        const x = Math.min(...members.map((n) => n.position.x)) - 30,
+          y = Math.min(...members.map((n) => n.position.y)) - 70
+        const width =
+          Math.max(...members.map((n) => n.position.x + (n.measured?.width ?? 198))) - x + 30
+        const height =
+          Math.max(...members.map((n) => n.position.y + (n.measured?.height ?? 64))) - y + 30
+        return [
+          {
+            id: g.id,
+            type: 'meshGroup' as const,
+            position: { x, y },
+            width,
+            height,
+            style: { width, height },
+            zIndex: -10,
+            draggable: false,
+            selectable: false,
+            data: {
+              name: g.name,
+              summary: aggregate(network, internalEdges(g), statuses, rates, live).label,
+              address: '',
+              state: '',
+              connecting,
+              wireguard: false,
+              path: internalEdges(g).some((e) => path?.edges.includes(e.id)),
+            },
+          },
+        ]
+      })
+  const flowNodes = [...groupNodes, ...nodes]
   const geometryKey = JSON.stringify(
-    nodes.map((n) => [n.id, n.position.x, n.position.y, n.measured?.width, n.measured?.height]),
+    flowNodes.map((n) => [
+      n.id,
+      n.position.x,
+      n.position.y,
+      n.width ?? n.measured?.width,
+      n.height ?? n.measured?.height,
+    ]),
   )
-  const edgeKey = JSON.stringify(network.edges.map((e) => [e.id, e.a, e.b]))
+  const edgeKey = JSON.stringify(displayEdges.map((e) => [e.id, e.a, e.b]))
   const geometry = useMemo(() => {
     const rectangles = new Map(
-      nodes.map((n) => [
+      flowNodes.map((n) => [
         n.id,
-        { ...n.position, width: n.measured?.width ?? 198, height: n.measured?.height ?? 64 },
+        {
+          ...n.position,
+          width: n.width ?? n.measured?.width ?? 198,
+          height: n.height ?? n.measured?.height ?? 64,
+        },
       ]),
     )
-    const anchors = planAnchors(rectangles, network.edges)
+    const anchors = planAnchors(rectangles, displayEdges)
     return {
       rectangles,
       anchors,
-      routes: planRoutes(rectangles, network.edges, anchors, dragging, lineStyle),
+      routes: planRoutes(
+        new Map([...rectangles].filter(([id]) => !network.groups?.some((g) => g.id === id))),
+        displayEdges,
+        anchors,
+        dragging,
+        lineStyle,
+      ),
     }
   }, [geometryKey, edgeKey, dragging, lineStyle])
   const focus = new Set(
-    network.edges
+    displayEdges
       .filter((e) =>
         selection?.type === 'node'
           ? e.a === selection.id || e.b === selection.id
           : selection?.type === 'path'
-            ? path?.edges.includes(e.id)
+            ? path?.edges.includes(e.id) ||
+              (!scope &&
+                network.group_links?.some(
+                  (l) =>
+                    l.id === e.id &&
+                    childEdges(network, l).some((child) => path?.edges.includes(child.id)),
+                ))
             : selection?.type === 'edge' && e.id === selection.id,
       )
       .map((e) => e.id),
@@ -262,11 +412,22 @@ export default function Topology({
         ? new Map(
             [...geometry.routes].map(([id, route]) => [id, { x: route.labelX, y: route.labelY }]),
           )
-        : planLabels(geometry.routes, geometry.rectangles, focus),
+        : planLabels(
+            geometry.routes,
+            new Map(
+              [...geometry.rectangles].filter(([id]) => !network.groups?.some((g) => g.id === id)),
+            ),
+            focus,
+          ),
     [geometry, focusKey, dragging],
   )
-  const edges = network.edges.map((e) => {
+  const edges = displayEdges.map((e) => {
+    const link = !scope ? network.group_links?.find((l) => l.id === e.id) : undefined
+    const summary = link
+      ? aggregate(network, childEdges(network, link), statuses, rates, live)
+      : undefined
     const view = edgeView(network, e, statuses, rates, live)
+    if (summary) view.state = summary.state
     const focused = focus.has(e.id)
     const dimmed = selection !== null && !focused
     return {
@@ -278,6 +439,7 @@ export default function Topology({
       sourceHandle: 'surface',
       targetHandle: 'target',
       data: {
+        open: () => (link ? enter('link', link.id) : select({ type: 'edge', id: e.id })),
         anchors: geometry.anchors.get(e.id)!,
         route: geometry.routes.get(e.id)!,
         labelPoint: labels.get(e.id)!,
@@ -285,11 +447,13 @@ export default function Topology({
         dimmed,
       },
       zIndex: focused ? 100 : dimmed ? -1 : 0,
-      label: editing
-        ? `Weight ${e.weight}`
-        : view.state === 'Connected'
-          ? `${view.active!.transport.toUpperCase()} · ${latencyLabel(view.active)}${(view.tx ?? 0) > 0 ? ` · ${rate(view.tx)}` : ''}`
-          : view.state,
+      label: summary
+        ? summary.label
+        : editing
+          ? `Weight ${e.weight}`
+          : view.state === 'Connected'
+            ? `${view.active!.transport.toUpperCase()} · ${latencyLabel(view.active)} · ↑ ${rate(view.tx)} ↓ ${rate(view.rx)}`
+            : view.state,
       style: {
         stroke: focused ? '#087b66' : view.state === 'Connected' ? '#278f79' : '#91a3a0',
         strokeWidth: focused ? 3.5 : 1.8,
@@ -305,8 +469,14 @@ export default function Topology({
   })
   const node =
     selection?.type === 'node' ? network.nodes.find((n) => n.id === selection.id) : undefined
-  const edge =
-    selection?.type === 'edge' ? network.edges.find((e) => e.id === selection.id) : undefined
+  const edge = selection?.type === 'edge' ? allEdges.find((e) => e.id === selection.id) : undefined
+  const derivedOwner = edge
+    ? (network.groups?.find((g) => internalEdges(g).some((e) => e.id === edge.id)) ??
+      network.group_links?.find((l) => childEdges(network, l).some((e) => e.id === edge.id)))
+    : undefined
+  const scopeSummary = scopedEdges
+    ? aggregate(network, scopedEdges, statuses, rates, live)
+    : undefined
   const agent = node ? state.agents.find((a) => a.id === node.agent_id) : undefined
   const agentStatus = node ? status.get(node.agent_id) : undefined
   const connections = edge
@@ -329,8 +499,27 @@ export default function Topology({
     })
   return (
     <div className="workspace">
+      {groupEditor && (
+        <GroupEditor
+          key={JSON.stringify(groupEditor)}
+          network={network}
+          target={groupEditor}
+          save={change}
+          close={() => setGroupEditor(null)}
+        />
+      )}
       <section className="canvas-card" aria-label="Network topology">
         <div className="canvas-toolbar">
+          {scope && (
+            <button
+              onClick={() => {
+                setScope(null)
+                select(null)
+              }}
+            >
+              ← Network
+            </button>
+          )}
           {editing && (
             <div className="actions" role="group" aria-label="Editing tools">
               <button
@@ -348,6 +537,13 @@ export default function Topology({
               >
                 <Cable size={14} />
                 Connect
+              </button>
+              <button onClick={() => setGroupEditor({ kind: 'group' })}>Add group</button>
+              <button
+                disabled={!network.groups?.length}
+                onClick={() => setGroupEditor({ kind: 'link' })}
+              >
+                Node → group
               </button>
               <button onClick={addNode}>
                 <Plus size={14} />
@@ -399,7 +595,32 @@ export default function Topology({
             <Suspense fallback={<div className="canvas-empty">Loading 3D view…</div>}>
               <NetworkGlobe
                 key={network.id}
-                network={network}
+                network={displayNetwork}
+                rates={rates}
+                showMetrics={!!scope}
+                groups={
+                  scope
+                    ? []
+                    : (network.groups ?? []).map((g) => ({
+                        ...g,
+                        summary: aggregate(network, internalEdges(g), statuses, rates, live).label,
+                      }))
+                }
+                groupLinks={
+                  scope
+                    ? []
+                    : (network.group_links ?? []).map((l) => {
+                        const summary = aggregate(
+                          network,
+                          childEdges(network, l),
+                          statuses,
+                          rates,
+                          live,
+                        )
+                        return { ...l, summary: summary.label, state: summary.state }
+                      })
+                }
+                enterGroup={enter}
                 state={state}
                 statuses={statuses}
                 live={live}
@@ -417,7 +638,7 @@ export default function Topology({
             </Suspense>
           ) : (
             <ReactFlow
-              nodes={nodes}
+              nodes={flowNodes}
               edges={edges}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
@@ -431,17 +652,29 @@ export default function Topology({
               deleteKeyCode={null}
               onNodeDragStart={() => setDragging(true)}
               onNodeDragStop={() => setDragging(false)}
-              onNodeClick={(event, n) => selectNode(n.id, event.ctrlKey || event.metaKey)}
+              onNodeClick={(event, n) =>
+                n.type === 'meshGroup'
+                  ? enter('group', n.id)
+                  : selectNode(n.id, event.ctrlKey || event.metaKey)
+              }
               onNodeContextMenu={(event, n) => {
-                if (event.ctrlKey) {
+                if (event.ctrlKey && n.type !== 'meshGroup') {
                   event.preventDefault()
                   selectNode(n.id, true)
                 }
               }}
-              onEdgeClick={(_, e) => select({ type: 'edge', id: e.id })}
+              onEdgeClick={(_, e) =>
+                !scope && network.group_links?.some((l) => l.id === e.id)
+                  ? enter('link', e.id)
+                  : select({ type: 'edge', id: e.id })
+              }
               onPaneClick={() => select(null)}
               onNodesChange={(changes) => {
-                applyNodeChanges(changes)
+                applyNodeChanges(
+                  changes.filter(
+                    (c) => !('id' in c) || !network.groups?.some((g) => g.id === c.id),
+                  ),
+                )
                 if (!editing) return
                 const positions = new Map(
                   changes.flatMap((c) =>
@@ -479,7 +712,7 @@ export default function Topology({
               maxZoom={2}
               connectionRadius={48}
             >
-              <FitLayout count={nodes.length} />
+              <FitLayout key={scope?.id ?? 'network'} count={flowNodes.length} />
               <Background color="#c9d9d4" gap={22} size={1} />
               <Controls showInteractive={false} />
               <MiniMap style={{ width: 115, height: 75 }} pannable zoomable />
@@ -535,10 +768,74 @@ export default function Topology({
                 ? 'Node details'
                 : edge
                   ? 'Edge details'
-                  : 'Network details'}
+                  : scope
+                    ? scope.kind === 'group'
+                      ? 'Full mesh group'
+                      : 'Aggregate link'
+                    : 'Network details'}
           </h2>
         </div>
-        {path ? (
+        {!selection && scope && scopeSummary ? (
+          <>
+            <h3>
+              {scopeGroup?.name ??
+                `${network.nodes.find((n) => n.id === scopeLink?.node)?.name} → ${network.groups?.find((g) => g.id === scopeLink?.group)?.name}`}
+            </h3>
+            <Badge>{scopeSummary.state}</Badge>
+            <p>{scopeSummary.label}</p>
+            {editing && (
+              <div className="actions">
+                <button onClick={() => setGroupEditor(scope)}>
+                  Edit {scope.kind === 'group' ? 'group' : 'link'}
+                </button>
+                <button
+                  className="danger"
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        scope.kind === 'group'
+                          ? 'Dissolve this group and remove its internal edges and aggregate links?'
+                          : 'Remove this aggregate link and all its child edges?',
+                      )
+                    )
+                      return
+                    change(
+                      scope.kind === 'group'
+                        ? {
+                            ...network,
+                            groups: network.groups?.filter((g) => g.id !== scope.id),
+                            group_links: network.group_links?.filter((l) => l.group !== scope.id),
+                          }
+                        : {
+                            ...network,
+                            group_links: network.group_links?.filter((l) => l.id !== scope.id),
+                          },
+                    )
+                    setScope(null)
+                    select(null)
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+            <div className="object-list">
+              {scopedEdges?.map((e) => (
+                <button key={e.id} onClick={() => select({ type: 'edge', id: e.id })}>
+                  <Cable size={15} />
+                  <span>
+                    {network.nodes.find((n) => n.id === e.a)?.name} ↔{' '}
+                    {network.nodes.find((n) => n.id === e.b)?.name}
+                    <small>
+                      {edgeView(network, e, statuses, rates, live).state} ·{' '}
+                      {aggregate(network, [e], statuses, rates, live).label}
+                    </small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : path ? (
           <>
             <div className="inspector-intro">
               <h3>
@@ -565,7 +862,7 @@ export default function Topology({
             </p>
             <ol className="active-path-hops">
               {path.nodes.map((id, index) => {
-                const hop = network.edges.find((e) => e.id === path.edges[index])
+                const hop = allEdges.find((e) => e.id === path.edges[index])
                 const view = hop ? edgeView(network, hop, statuses, rates, live) : undefined
                 return (
                   <li key={id}>
@@ -874,7 +1171,18 @@ export default function Topology({
               </h3>
               <Badge>{edgeView(network, edge, statuses, rates, live).state}</Badge>
             </div>
-            <fieldset disabled={!editing}>
+            {derivedOwner && (
+              <button
+                onClick={() => {
+                  const kind = 'members' in derivedOwner ? 'group' : 'link'
+                  enter(kind, derivedOwner.id)
+                  if (editing) setGroupEditor({ kind, id: derivedOwner.id })
+                }}
+              >
+                Shared {'members' in derivedOwner ? 'group' : 'link'} settings
+              </button>
+            )}
+            <fieldset disabled={!editing || !!derivedOwner}>
               <label className="check">
                 <input
                   type="checkbox"
@@ -1009,7 +1317,7 @@ export default function Topology({
               </div>
             ))}
             {!connections.length && <p className="muted">No links reported.</p>}
-            {editing && (
+            {editing && !derivedOwner && (
               <button
                 className="danger wide"
                 onClick={() => {
@@ -1069,6 +1377,41 @@ export default function Topology({
                 </select>
               </Field>
             </fieldset>
+            {!!network.groups?.length && (
+              <>
+                <h4>Full mesh groups</h4>
+                <div className="object-list">
+                  {network.groups.map((g) => (
+                    <button key={g.id} onClick={() => enter('group', g.id)}>
+                      <span>
+                        {g.name}
+                        <small>
+                          {aggregate(network, internalEdges(g), statuses, rates, live).label}
+                        </small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            {!!network.group_links?.length && (
+              <>
+                <h4>Node-to-group links</h4>
+                <div className="object-list">
+                  {network.group_links.map((l) => (
+                    <button key={l.id} onClick={() => enter('link', l.id)}>
+                      <span>
+                        {network.nodes.find((n) => n.id === l.node)?.name} →{' '}
+                        {network.groups?.find((g) => g.id === l.group)?.name}
+                        <small>
+                          {aggregate(network, childEdges(network, l), statuses, rates, live).label}
+                        </small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
             <h4>
               Nodes <span className="count">{network.nodes.length}</span>
             </h4>
@@ -1112,7 +1455,7 @@ export default function Topology({
         )}
         {selection && (
           <button className="wide subtle" onClick={() => select(null)}>
-            Back to network details
+            {scope ? 'Back to overview' : 'Back to network details'}
           </button>
         )}
       </aside>

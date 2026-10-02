@@ -389,7 +389,7 @@ func (s *Server) telemetry(state model.State) []model.AgentStatus {
 		for _, node := range n.Nodes {
 			agents[node.ID] = node.AgentID
 		}
-		for _, edge := range n.Edges {
+		for _, edge := range n.EffectiveEdges() {
 			if !edge.Enabled {
 				continue
 			}

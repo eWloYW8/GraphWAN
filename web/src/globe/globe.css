@@ -215,3 +215,38 @@
   outline: 2px solid #8ce6bf;
   outline-offset: 2px;
 }
+.network-globe .globe-group-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.globe-mesh-boundary {
+  fill: #69e8c015;
+  stroke: #69e8c0;
+  stroke-width: 1.5;
+  stroke-dasharray: 7 5;
+  pointer-events: all;
+  cursor: pointer;
+}
+.globe-mesh-caption {
+  fill: #c2f3e4;
+  font-size: 11px;
+  stroke: #102632;
+  stroke-width: 3px;
+  paint-order: stroke;
+  pointer-events: all;
+  cursor: pointer;
+}
+.globe-mesh-link {
+  fill: none;
+  stroke: #69e8c0;
+  stroke-width: 4px;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.globe-mesh-link:not([data-state='Connected']) {
+  stroke: #bba889;
+  stroke-dasharray: 6 4;
+}

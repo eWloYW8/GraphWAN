@@ -137,13 +137,15 @@ func (c CipherSuite) Valid() bool {
 }
 
 type Network struct {
-	ID     ID           `json:"id"`
-	Name   string       `json:"name"`
-	CIDR   netip.Prefix `json:"cidr"`
-	MTU    int          `json:"mtu"`
-	Cipher CipherSuite  `json:"cipher"`
-	Nodes  []Node       `json:"nodes"`
-	Edges  []Edge       `json:"edges"`
+	GroupLinks []GroupLink     `json:"group_links,omitempty"`
+	Groups     []FullMeshGroup `json:"groups,omitempty"`
+	ID         ID              `json:"id"`
+	Name       string          `json:"name"`
+	CIDR       netip.Prefix    `json:"cidr"`
+	MTU        int             `json:"mtu"`
+	Cipher     CipherSuite     `json:"cipher"`
+	Nodes      []Node          `json:"nodes"`
+	Edges      []Edge          `json:"edges"`
 }
 
 type State struct {
@@ -178,6 +180,15 @@ func (s State) Clone() State {
 	out.Networks = append([]Network{}, s.Networks...)
 	for i := range out.Networks {
 		n := &out.Networks[i]
+		n.GroupLinks = append([]GroupLink(nil), n.GroupLinks...)
+		for j := range n.GroupLinks {
+			n.GroupLinks[j].Transports = append([]Transport(nil), n.GroupLinks[j].Transports...)
+		}
+		n.Groups = append([]FullMeshGroup(nil), n.Groups...)
+		for j := range n.Groups {
+			n.Groups[j].Members = append([]ID(nil), n.Groups[j].Members...)
+			n.Groups[j].Transports = append([]Transport(nil), n.Groups[j].Transports...)
+		}
 		n.Nodes = append([]Node{}, n.Nodes...)
 		for j := range n.Nodes {
 			n.Nodes[j] = n.Nodes[j].Clone()

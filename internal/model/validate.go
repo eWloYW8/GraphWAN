@@ -293,8 +293,11 @@ func (s State) Validate() error {
 		for _, node := range n.Nodes {
 			wgNodes[node.ID] = node.WireGuard != nil
 		}
+		if err := n.validateGroups(addID); err != nil {
+			return err
+		}
 		pairs := map[[2]ID]bool{}
-		for _, e := range n.Edges {
+		for _, e := range n.EffectiveEdges() {
 			if err := addID(e.ID); err != nil {
 				return err
 			}

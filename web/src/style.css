@@ -1795,3 +1795,54 @@ td small,
 .advertised-subnet .field {
   margin-bottom: 0;
 }
+
+.mesh-group-boundary {
+  width: 100%;
+  height: 100%;
+  border: 2px dashed #579c91;
+  border-radius: 24px;
+  background: #3b9e8614;
+  box-shadow: inset 0 0 28px #308c7714;
+  cursor: pointer;
+}
+.mesh-group-caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 14px 20px;
+  color: #28695c;
+  pointer-events: none;
+}
+.mesh-group-caption span {
+  font-size: 12px;
+}
+.mesh-members {
+  max-height: 260px;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+}
+.mesh-note {
+  margin: 12px 0;
+  font-size: 13px;
+}
+.canvas-toolbar {
+  flex-wrap: wrap;
+}
+@media (prefers-color-scheme: dark) {
+  .mesh-group-boundary {
+    border-color: #60bda5;
+    background: #3b9e861c;
+  }
+  .mesh-group-caption {
+    color: #91dcc6;
+  }
+}
+.mesh-group-boundary.focused {
+  border-color: #087b66;
+  box-shadow: inset 0 0 0 2px #278f7955;
+}
+.badge.partial {
+  color: #a16d24;
+  background: #c89c3020;
+}

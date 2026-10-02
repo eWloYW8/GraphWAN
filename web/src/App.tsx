@@ -1,3 +1,4 @@
+import { individualConnection } from './groups'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Network as NetworkIcon,
@@ -894,12 +895,17 @@ function AddEdge({
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          const edge = createEdge(network, a, b)
+          const updated = individualConnection(network, a, b)
+          if (!updated) {
+            setError('This pair is managed by a full mesh group, or replacement was cancelled.')
+            return
+          }
+          const edge = createEdge(updated, a, b)
           if (!edge) {
             setError('Choose two different nodes that do not already share an edge.')
             return
           }
-          save({ ...network, edges: [...network.edges, edge] })
+          save({ ...updated, edges: [...updated.edges, edge] })
         }}
       >
         {error && <ErrorBox>{error}</ErrorBox>}

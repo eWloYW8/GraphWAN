@@ -16,6 +16,7 @@ export type FloatingFlowEdge = Edge<
     anchors: Anchors
     route: Route
     labelPoint: { x: number; y: number }
+    open?: () => void
     focused: boolean
     dimmed: boolean
   },
@@ -35,6 +36,21 @@ export function FloatingEdge(props: EdgeProps<FloatingFlowEdge>) {
             style={{
               transform: `translate(-50%, -50%) translate(${labelPoint.x}px, ${labelPoint.y}px)`,
               zIndex: focused ? 1000 : 10,
+              pointerEvents: props.data.open ? 'all' : 'none',
+              cursor: props.data.open ? 'pointer' : undefined,
+            }}
+            role={props.data.open ? 'button' : undefined}
+            tabIndex={props.data.open ? 0 : undefined}
+            onClick={(event) => {
+              event.stopPropagation()
+              props.data?.open?.()
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                event.stopPropagation()
+                props.data?.open?.()
+              }
             }}
             title={typeof props.label === 'string' ? props.label : undefined}
           >

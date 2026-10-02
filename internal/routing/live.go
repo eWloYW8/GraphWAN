@@ -41,7 +41,7 @@ func Availability(state model.State, reports []model.AgentStatus, now time.Time)
 		for _, node := range n.Nodes {
 			agents[node.ID] = node.AgentID
 		}
-		for _, edge := range n.Edges {
+		for _, edge := range n.EffectiveEdges() {
 			a, b := agents[edge.A], agents[edge.B]
 			if !edge.Enabled || revoked[a] || revoked[b] {
 				continue
@@ -83,7 +83,9 @@ func LiveRoutes(state model.State, snapshot model.Snapshot, up map[EdgeKey]bool)
 			}
 			n := original
 			n.Edges = nil
-			for _, edge := range original.Edges {
+			n.Groups = nil
+			n.GroupLinks = nil
+			for _, edge := range original.EffectiveEdges() {
 				if up[EdgeKey{n.ID, edge.ID}] {
 					n.Edges = append(n.Edges, edge)
 				}

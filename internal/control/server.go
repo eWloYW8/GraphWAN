@@ -228,6 +228,16 @@ func newIDs(n *model.Network) {
 			n.Nodes[i].ID = model.NewID()
 		}
 	}
+	for i := range n.GroupLinks {
+		if n.GroupLinks[i].ID == "" {
+			n.GroupLinks[i].ID = model.NewID()
+		}
+	}
+	for i := range n.Groups {
+		if n.Groups[i].ID == "" {
+			n.Groups[i].ID = model.NewID()
+		}
+	}
 	for i := range n.Edges {
 		if n.Edges[i].ID == "" {
 			n.Edges[i].ID = model.NewID()
@@ -387,6 +397,7 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			n.Edges = edges
+			n.PruneGroups()
 		}
 		return nil
 	})

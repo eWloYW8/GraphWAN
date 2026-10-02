@@ -39,7 +39,7 @@ func (q *queue) Pop() any     { a := *q; v := a[len(a)-1]; *q = a[:len(a)-1]; re
 // tie breaking deterministic and keep independently compiled routes loop free.
 func shortest(n model.Network, source model.ID, excluded map[model.ID]bool) []model.Route {
 	adjacency := map[model.ID][]arc{}
-	for _, e := range n.Edges {
+	for _, e := range n.EffectiveEdges() {
 		if !e.Enabled || excluded[e.A] || excluded[e.B] {
 			continue
 		}
@@ -118,7 +118,7 @@ func Compile(state model.State, agentID model.ID) (model.Snapshot, error) {
 				config.Directory = append(config.Directory, model.Destination{NodeID: node.ID, Address: node.Address, AdvertisedSubnets: append([]model.AdvertisedSubnet(nil), node.AdvertisedSubnets...)})
 			}
 		}
-		for _, edge := range network.Edges {
+		for _, edge := range network.EffectiveEdges() {
 			if !edge.Enabled || excluded[edge.A] || excluded[edge.B] {
 				continue
 			}

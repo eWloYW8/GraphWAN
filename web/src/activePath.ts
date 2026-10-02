@@ -1,3 +1,4 @@
+import { effectiveEdges } from './groups'
 import { linkRTT, edgeView, type AgentStatus, type Network, type State } from './model'
 
 export type PathView = {
@@ -28,7 +29,9 @@ export function activePath(
   const routingKey = (n: Network) =>
     JSON.stringify([
       n.nodes.map((node) => [node.id, node.agent_id, node.address]).sort(),
-      n.edges.map((e) => [e.id, e.a, e.b, e.enabled, e.weight, e.transports]).sort(),
+      effectiveEdges(n)
+        .map((e) => [e.id, e.a, e.b, e.enabled, e.weight, e.transports])
+        .sort(),
     ])
   const useLive = live && !!saved && routingKey(saved) === routingKey(network)
   const available = (a: string, b: string, edgeID: string) => {
@@ -76,7 +79,7 @@ export function activePath(
       )
     )
   }
-  const edges = network.edges.filter(
+  const edges = effectiveEdges(network).filter(
     (e) =>
       e.enabled &&
       !excluded.has(e.a) &&
@@ -156,7 +159,7 @@ export function activePath(
   let rtt = 0
   let measured = true
   for (const id of result.edges) {
-    const edge = network.edges.find((e) => e.id === id)!
+    const edge = effectiveEdges(network).find((e) => e.id === id)!
     const view = edgeView(network, edge, statuses, {}, live)
     if (view.state !== 'Connected')
       return {

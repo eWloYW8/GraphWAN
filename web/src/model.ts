@@ -1,3 +1,4 @@
+import { effectiveEdges, pruneGroups, type FullMeshGroup, type GroupLink } from './groups'
 export type Transport = 'udp' | 'tcp' | 'quic' | 'ws' | 'wss' | 'grpc' | 'wireguard'
 export const transports: Transport[] = ['udp', 'tcp', 'quic', 'ws', 'wss', 'grpc']
 export type Endpoint = {
@@ -44,6 +45,8 @@ export type Edge = {
   preferred_candidate?: string
 }
 export type Network = {
+  groups?: FullMeshGroup[]
+  group_links?: GroupLink[]
   id: string
   name: string
   cidr: string
@@ -253,18 +256,18 @@ export function removeNode(network: Network, id: string): Network {
     const other = edge.a === id ? edge.b : edge.b === id ? edge.a : ''
     if (network.nodes.find((n) => n.id === other)?.wireguard) removed.add(other)
   }
-  return {
+  return pruneGroups({
     ...network,
     nodes: network.nodes.filter((n) => !removed.has(n.id)),
     edges: network.edges.filter((e) => !removed.has(e.a) && !removed.has(e.b)),
-  }
+  })
 }
 export function createEdge(network: Network, a: string, b: string): Edge | undefined {
   if (
     a === b ||
     !network.nodes.some((n) => n.id === a) ||
     !network.nodes.some((n) => n.id === b) ||
-    network.edges.some((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a))
+    effectiveEdges(network).some((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a))
   )
     return
   const left = network.nodes.find((n) => n.id === a)!,

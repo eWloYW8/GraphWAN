@@ -388,3 +388,37 @@ release. It returns 202 and the updated State. The request is replicated as
 `Server.update`, uses the `github` source, and is consumed only by its target.
 An offline/unmanaged target, downgrade, or concurrent Server update is rejected.
 This endpoint schedules no recurring updates.
+
+## Full mesh topology groups
+
+Network writes optionally include `groups` and `group_links`. They are replicated
+with ordinary configuration and obey the same revision checks. A group has:
+
+```json
+{
+  "id": "00000000000000000000000000000100",
+  "name": "Core",
+  "members": ["00000000000000000000000000000020", "00000000000000000000000000000021"],
+  "transports": ["udp", "tcp"],
+  "methods": {"ipv4_direct": true, "ipv6_direct": true, "hole_punch": false}
+}
+```
+
+A `group_links` entry has `id`, `node` (an external regular node ID), `group`
+(group ID), `weight`, `enabled`, `transports` and `methods`. The methods also
+accept `hole_punch_extension`, which requires `hole_punch`. Both group types
+inherit Network encryption. Internal mesh edges are always enabled with weight 1.
+
+Groups require at least two regular nodes; membership cannot overlap. Group links
+cannot point back into their own group. Validation rejects all duplicate expanded
+node pairs, including explicit edges that overlap a group or aggregate, even when
+disabled. API clients must remove conflicting edges in the same Network write;
+the server does not silently discard them. A dissolved group's aggregate links
+must also be removed. Agent deletion prunes memberships and orphaned group links.
+
+`edges` contains only explicit edges. Derived edge IDs in snapshots and telemetry
+are the first 16 bytes of SHA-256, lowercase hex, of the UTF-8 string
+`graphwan/full-mesh/<owner-id>/<smaller-node-id>/<larger-node-id>`. Owner is the
+group ID for internal edges and the group-link ID for aggregate children. Member
+ordering does not change IDs. Snapshots still contain normal edges and per-child
+live routes; down children are not reintroduced by expansion.
