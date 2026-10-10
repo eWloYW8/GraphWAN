@@ -4,6 +4,7 @@ package peer
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -280,12 +281,19 @@ func (c *Channel) SendBatch(ctx context.Context, payloads [][]byte) error {
 	}
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
+	framed, canFrame := c.conn.(interface {
+		SendFramedBatch(context.Context, []byte) error
+	})
+	headroom := 0
+	if canFrame {
+		headroom = 4 // Existing stream transport length prefix.
+	}
 	needed := 0
 	for _, payload := range payloads {
 		if len(payload) == 0 || len(payload) > secure.MaxPlaintext {
 			return errors.New("invalid peer message size")
 		}
-		needed += 1 + secure.Overhead + len(payload)
+		needed += headroom + 1 + secure.Overhead + len(payload)
 	}
 	if cap(c.sendBuffer) < needed {
 		c.sendBuffer = make([]byte, needed)
@@ -294,13 +302,23 @@ func (c *Channel) SendBatch(ctx context.Context, payloads [][]byte) error {
 	var messages [128][]byte
 	offset := 0
 	for i, payload := range payloads {
-		end := offset + 1 + secure.Overhead + len(payload)
+		end := offset + headroom + 1 + secure.Overhead + len(payload)
+		if headroom != 0 {
+			binary.BigEndian.PutUint32(c.sendBuffer[offset:], uint32(end-offset-headroom))
+			offset += headroom
+		}
 		c.sendBuffer[offset] = dataKind
 		messages[i] = c.sendBuffer[offset : offset+1 : end]
 		offset = end
 	}
 	if err := c.session.SealBatchAppend(messages[:len(payloads)], payloads); err != nil {
 		return err
+	}
+	if headroom != 0 {
+		// Prefixes and independently authenticated records already occupy one
+		// contiguous allocation. Packet channels retain the same independent
+		// records while avoiding tiny gather vectors or a framing copy.
+		return framed.SendFramedBatch(ctx, c.sendBuffer)
 	}
 	if batch, ok := c.conn.(interface {
 		SendBatch(context.Context, [][]byte) error
@@ -337,8 +355,12 @@ func (c *Channel) ReceiveBatch(ctx context.Context) ([][]byte, error) {
 		}
 		return [][]byte{raw}, nil
 	}
+	return c.decodeBatches(ctx, batch.ReceiveBatch)
+}
+
+func (c *Channel) decodeBatches(ctx context.Context, receive func(context.Context) ([][]byte, error)) ([][]byte, error) {
 	for {
-		messages, err := batch.ReceiveBatch(ctx)
+		messages, err := receive(ctx)
 		if err != nil {
 			return nil, err
 		}
