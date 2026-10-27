@@ -71,7 +71,8 @@ used. Agents keep forwarding and can restart from cached configuration while the
 controller is unavailable.
 
 Nodes can advertise external subnets within a Network, with optional automatic
-gateway forwarding and Linux SNAT. External OS routes remain administrator-managed;
+gateway forwarding and Linux SNAT. Each Agent can opt into automatic OS routes for
+selected advertised subnets within each Network;
 see [advertised subnets](docs/advertised-subnets.md).
 
 iOS, Android and other standard WireGuard clients can join as leaf nodes through

@@ -90,6 +90,7 @@ type WireGuardNode struct {
 }
 
 type Node struct {
+	AutoRoutes        []netip.Prefix     `json:"auto_routes,omitempty"`
 	WireGuard         *WireGuardNode     `json:"wireguard,omitempty"`
 	AdvertisedSubnets []AdvertisedSubnet `json:"advertised_subnets,omitempty"`
 	ID                ID                 `json:"id"`
@@ -211,5 +212,6 @@ func (n Node) Clone() Node {
 		n.WireGuard = &copy
 	}
 	n.AdvertisedSubnets = append([]AdvertisedSubnet(nil), n.AdvertisedSubnets...)
+	n.AutoRoutes = append([]netip.Prefix(nil), n.AutoRoutes...)
 	return n
 }

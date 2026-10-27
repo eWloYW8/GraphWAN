@@ -35,6 +35,7 @@ type runtimeState struct {
 }
 
 type DataPlane struct {
+	autoRoutes    tunnel.AutoRouteManager
 	gateway       gateway.Manager
 	identity      ed25519.PrivateKey
 	options       DataPlaneOptions
@@ -101,8 +102,14 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 	committed := false
 	newMesh := false
 	gatewayChanged := false
+	autoRoutesChanged := false
 	defer func() {
 		if !committed {
+			if autoRoutesChanged {
+				if err := r.autoRoutes.Apply(autoRouteEntries(previous)); err != nil {
+					r.options.Logger.Error("automatic subnet route rollback failed", "error", err)
+				}
+			}
 			if gatewayChanged {
 				if err := r.gateway.Apply(context.Background(), snapshot.AgentID, gatewayEntries(previous)); err != nil {
 					r.options.Logger.Error("gateway rollback failed", "error", err)
@@ -185,6 +192,10 @@ func (r *DataPlane) Apply(ctx context.Context, snapshot model.Snapshot) error {
 		return fmt.Errorf("configure gateway: %w", err)
 	}
 	gatewayChanged = true
+	if err := r.autoRoutes.Apply(autoRouteEntries(next)); err != nil {
+		return fmt.Errorf("configure automatic subnet routes: %w", err)
+	}
+	autoRoutesChanged = true
 	if err := next.mesh.Apply(snapshot); err != nil {
 		return err
 	}
@@ -229,6 +240,9 @@ func (r *DataPlane) Close() error {
 	r.closed = true
 	r.cancel()
 	state := r.state.Swap(nil)
+	if err := r.autoRoutes.Apply(nil); err != nil {
+		r.options.Logger.Error("automatic subnet route cleanup failed", "error", err)
+	}
 	gatewayErr := r.gateway.Close()
 	if gatewayErr != nil {
 		r.options.Logger.Error("gateway cleanup failed", "error", gatewayErr)

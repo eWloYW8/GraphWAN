@@ -8,6 +8,29 @@ import (
 const MaxAdvertisedSubnets = 64
 const MaxNetworkSubnets = 1024
 
+// AutoRoutes is an explicit per-membership allowlist, not an accept-all policy.
+// Selections may outlive an advertisement; Agents install only current exports.
+func validateAutoRoutes(overlay netip.Prefix, node Node) error {
+	if len(node.AutoRoutes) > MaxAdvertisedSubnets || node.WireGuard != nil && len(node.AutoRoutes) != 0 {
+		return fmt.Errorf("automatic subnet routes require an Agent and at most %d prefixes", MaxAdvertisedSubnets)
+	}
+	seen := map[netip.Prefix]bool{}
+	for _, p := range node.AutoRoutes {
+		if !p.IsValid() || p != p.Masked() || p.Bits() == 0 || p.Addr().Is4In6() || p.Addr().Zone() != "" ||
+			p.Addr().BitLen() != overlay.Addr().BitLen() || p.Overlaps(overlay) ||
+			p.Addr().IsMulticast() || p.Addr().IsLoopback() || p.Addr().IsLinkLocalUnicast() || seen[p] {
+			return fmt.Errorf("invalid or duplicate automatic subnet route %s", p)
+		}
+		for _, own := range node.AdvertisedSubnets {
+			if p.Overlaps(own.Prefix) {
+				return fmt.Errorf("automatic route %s overlaps this node's own advertised subnet", p)
+			}
+		}
+		seen[p] = true
+	}
+	return nil
+}
+
 func validateAdvertised(overlay netip.Prefix, entries []AdvertisedSubnet, seen map[netip.Prefix]bool) error {
 	if len(entries) > MaxAdvertisedSubnets {
 		return fmt.Errorf("at most %d advertised subnets per node", MaxAdvertisedSubnets)

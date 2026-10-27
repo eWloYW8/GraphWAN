@@ -243,6 +243,9 @@ func (s State) Validate() error {
 			if err := validateAdvertised(n.CIDR, node.AdvertisedSubnets, advertised); err != nil {
 				return fmt.Errorf("node %s: %w", node.ID, err)
 			}
+			if err := validateAutoRoutes(n.CIDR, node); err != nil {
+				return fmt.Errorf("node %s: %w", node.ID, err)
+			}
 			if err := addID(node.ID); err != nil {
 				return err
 			}
@@ -355,6 +358,25 @@ func (s State) Validate() error {
 		for id, wg := range wgNodes {
 			if wg && degrees[id] != 1 {
 				return fmt.Errorf("WireGuard node must have exactly one Agent connection")
+			}
+		}
+	}
+	autoRoutes := map[ID]map[netip.Prefix]bool{}
+	for _, n := range s.Networks {
+		for _, node := range n.Nodes {
+			if autoRoutes[node.AgentID] == nil {
+				autoRoutes[node.AgentID] = map[netip.Prefix]bool{}
+			}
+			for _, p := range node.AutoRoutes {
+				if autoRoutes[node.AgentID][p] {
+					return fmt.Errorf("automatic subnet route %s is selected in multiple networks for Agent %s", p, node.AgentID)
+				}
+				for _, overlay := range memberships[node.AgentID] {
+					if p.Overlaps(overlay) {
+						return fmt.Errorf("automatic subnet route %s overlaps an Agent's overlay", p)
+					}
+				}
+				autoRoutes[node.AgentID][p] = true
 			}
 		}
 	}

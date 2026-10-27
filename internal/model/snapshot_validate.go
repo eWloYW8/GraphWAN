@@ -50,6 +50,7 @@ func (s Snapshot) Validate(agentID ID) error {
 		return nil
 	}
 	prefixes := []netip.Prefix{}
+	autoRoutes := map[netip.Prefix]bool{}
 	identities := map[ID][]byte{}
 	for _, n := range s.Networks {
 		if err := addID(n.ID); err != nil {
@@ -105,6 +106,20 @@ func (s Snapshot) Validate(agentID ID) error {
 		}
 		if !slices.Equal(n.Self.AdvertisedSubnets, subnetDirectory[n.Self.ID]) {
 			return fmt.Errorf("self advertised subnets disagree with directory")
+		}
+		if err := validateAutoRoutes(n.CIDR, n.Self); err != nil {
+			return err
+		}
+		for _, p := range n.Self.AutoRoutes {
+			if autoRoutes[p] {
+				return fmt.Errorf("automatic subnet route %s is selected in multiple networks", p)
+			}
+			autoRoutes[p] = true
+			for _, other := range s.Networks {
+				if p.Overlaps(other.CIDR) {
+					return fmt.Errorf("automatic subnet route %s overlaps a local overlay", p)
+				}
+			}
 		}
 		peers := map[ID]Peer{}
 		members := map[ID]bool{agentID: true}

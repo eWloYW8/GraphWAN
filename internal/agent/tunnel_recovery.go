@@ -132,6 +132,13 @@ func (r *DataPlane) repairTunnels(now time.Time) {
 			old.failure.Store(&tunnelFailure{err: fmt.Errorf("restore gateway: %w", err)})
 			continue
 		}
+		if err := r.autoRoutes.Apply(autoRouteEntries(&next)); err != nil {
+			rollback := r.gateway.Apply(r.ctx, state.snapshot.AgentID, gatewayEntries(state))
+			device.Close()
+			old.retryAt = time.Now().Add(old.backoff)
+			old.failure.Store(&tunnelFailure{err: fmt.Errorf("restore automatic subnet routes: %w", errors.Join(err, rollback))})
+			continue
+		}
 		r.state.Store(&next)
 		state = &next
 		r.wg.Add(1)

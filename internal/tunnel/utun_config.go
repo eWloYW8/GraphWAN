@@ -42,6 +42,11 @@ func (r subnetRoutes) ensure(prefix netip.Prefix) error {
 	if prefix.Bits() == prefix.Addr().BitLen() {
 		return nil
 	}
+	return r.ensureRoute(prefix)
+}
+
+// External host routes (/32 and /128) need an explicit route too.
+func (r subnetRoutes) ensureRoute(prefix netip.Prefix) error {
 	present, err := r.owned(prefix, true)
 	if err != nil || present {
 		return err
@@ -62,6 +67,10 @@ func (r subnetRoutes) discard(prefix netip.Prefix) error {
 	if prefix.Bits() == prefix.Addr().BitLen() {
 		return nil
 	}
+	return r.discardRoute(prefix)
+}
+
+func (r subnetRoutes) discardRoute(prefix netip.Prefix) error {
 	present, err := r.owned(prefix, false)
 	if err != nil || !present {
 		return err

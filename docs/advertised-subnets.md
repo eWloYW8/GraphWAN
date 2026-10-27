@@ -17,16 +17,40 @@ are cross-compiled but have not been verified on native hosts.
 
 ## Routes and return traffic
 
-Advertising a prefix does **not** install operating-system routes to it on other
-Nodes. Administrators must direct the desired traffic into the appropriate
-GraphWAN TUN interface. The gateway's existing host routes determine how it reaches
-the external subnet. GraphWAN continues to manage its own TUN address and connected
-overlay subnet route.
+Advertising a prefix alone does **not** install operating-system routes on other
+Nodes. In edit mode, select each receiving Node and choose its **Automatic subnet
+routes**. This per-Network, per-Agent allowlist defaults to empty. The Agent installs
+the selected, currently advertised prefixes through that Network's TUN. Other
+Nodes' selections are independent. The gateway's existing host routes determine
+how it reaches the external subnet.
+
+The same setting is available as `auto_routes` on a Node in the network API:
+
+```json
+"auto_routes": ["192.168.10.0/24", "172.16.200.0/24"]
+```
+
+Automatic routes support Linux, macOS, Windows, OpenBSD, NetBSD and DragonFly.
+Unsupported TUN adapters report a configuration error when routes are selected.
+Selections are persisted in controller configuration and the Agent cache, and
+reapplied after restart or TUN recovery. Unselecting a prefix, withdrawing its
+advertisement, removing membership, or stopping the Agent removes routes created
+by this feature. A withdrawn prefix remains selected but inactive until advertised
+again. Pre-existing routes are not adopted or removed; conflicting routes can
+cause a configuration error. Partial updates attempt to restore the previous
+owned routes. Out-of-band route deletion requires reapplying configuration.
+
+At most 64 prefixes can be selected per Node. Default routes, routes overlapping
+any of the Agent's overlays or the Node's own advertised subnets, and the same
+prefix selected in multiple Networks on one Agent are rejected. Upgrade both the
+controller and receiving Agents before enabling this setting; older Agents ignore
+`auto_routes`. Administrator-managed routes remain available as an alternative.
 
 For example, Network `10.42.0.0/24` contains A (`10.42.0.1`) and B (`10.42.0.2`).
 B advertises `192.168.10.0/24` and has a LAN address of `192.168.10.1`.
 
-On a Linux A, after identifying its GraphWAN interface:
+Select `192.168.10.0/24` under A's **Automatic subnet routes**, or on a Linux A,
+install it manually after identifying its GraphWAN interface:
 
 ```sh
 sudo ip route add 192.168.10.0/24 dev <A-GraphWAN-interface>
