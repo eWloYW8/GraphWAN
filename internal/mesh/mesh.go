@@ -38,6 +38,8 @@ type policy struct {
 	endpoints []model.Endpoint
 }
 type Mesh struct {
+	overlayAddresses atomic.Value // immutable []netip.Addr for all local TUNs
+
 	extensionMu    sync.Mutex
 	extensionNext  time.Time
 	extensionSlots chan struct{}
@@ -173,6 +175,11 @@ func (m *Mesh) Apply(snapshot model.Snapshot) error {
 		m.mu.Unlock()
 		return net.ErrClosed
 	}
+	addresses := make([]netip.Addr, 0, len(snapshot.Networks))
+	for _, network := range snapshot.Networks {
+		addresses = append(addresses, network.Self.Address.Unmap())
+	}
+	m.overlayAddresses.Store(addresses)
 	hosts := map[string]bool{}
 	for _, endpoint := range snapshot.Endpoints {
 		if endpoint.Transport == model.TCP {
@@ -492,6 +499,11 @@ func (g *group) close() {
 	g.wg.Wait()
 }
 func (g *group) register(channel *peer.Channel, candidate link.Candidate, pathExchange bool) {
+	// Check both directions, including a route change during the handshake.
+	if g.mesh.overlaySource(channel.LocalAddr()) || g.mesh.checkUnderlayRoute(channel.RemoteAddr().String()) != nil {
+		channel.Close()
+		return
+	}
 	g.mu.Lock()
 	if g.ctx.Err() != nil {
 		g.mu.Unlock()

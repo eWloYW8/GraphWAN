@@ -190,6 +190,9 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 	if err != nil {
 		return err
 	}
+	if err := g.mesh.checkUnderlayRoute(address); err != nil {
+		return err
+	}
 	var raw transport.Conn
 	if candidate.Endpoint.Transport == model.TCP && candidate.Method == link.Punch {
 		conn, err := g.mesh.dialTCPPunch(ctx, candidate, g.policy.Load().peer.PublicKey)
@@ -241,6 +244,11 @@ func (g *group) dial(ctx context.Context, candidate link.Candidate) error {
 			return err
 		}
 		raw = conn
+	}
+	// The actual socket can have a different source from the route lookup.
+	if g.mesh.overlaySource(raw.LocalAddr()) {
+		raw.Close()
+		return errors.New("underlay socket uses a GraphWAN address")
 	}
 	channel, err := peer.Dial(ctx, raw, g.mesh.secure(g.policy.Load(), candidate.Endpoint.Transport))
 	if err != nil {
