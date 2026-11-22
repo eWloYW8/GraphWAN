@@ -37,10 +37,24 @@ func observedMethodAllowed(cfg *policy, candidate link.Candidate) bool {
 	}
 }
 
+// A check reuses the candidate lists for one policy update at a fixed time.
+type candidateCheck struct {
+	cfg    *policy
+	now    time.Time
+	bases  [2][]link.Candidate
+	loaded [2]bool
+}
+
+func candidateConfigured(cfg *policy, candidate link.Candidate, healthy bool) bool {
+	check := candidateCheck{cfg: cfg, now: time.Now()}
+	return check.configured(candidate, healthy)
+}
+
 // A configured endpoint authorizes its own live paths, including DNS answers
 // retained across refresh. A vanished STUN lease may renew only an already
 // healthy session; disabling its method/transport still revokes it.
-func candidateConfigured(cfg *policy, candidate link.Candidate, healthy bool) bool {
+func (check *candidateCheck) configured(candidate link.Candidate, healthy bool) bool {
+	cfg := check.cfg
 	if !cfg.peer.Edge.Enabled || !slices.Contains(cfg.peer.Edge.Transports, candidate.Endpoint.Transport) {
 		return false
 	}
@@ -51,23 +65,32 @@ func candidateConfigured(cfg *policy, candidate link.Candidate, healthy bool) bo
 			}
 		}
 	}
-	for _, outgoing := range []bool{true, false} {
+	hasTarget := candidate.Target.IsValid()
+	scope := link.ScopeIdentity(candidate.Scope)
+	for i, outgoing := range []bool{true, false} {
 		initiator, peer, scopes := cfg.self, cfg.peer, cfg.endpoints
 		if !outgoing {
 			initiator, peer, scopes = cfg.peer.Node.ID, model.Peer{Edge: cfg.peer.Edge, Endpoints: cfg.endpoints}, cfg.peer.Endpoints
 		}
-		for _, base := range link.Candidates(initiator, peer, time.Now()) {
+		if !check.loaded[i] {
+			check.bases[i] = link.Candidates(initiator, peer, check.now)
+			check.loaded[i] = true
+		}
+		for _, base := range check.bases[i] {
+			if !hasTarget && scope == "" && base.ID != candidate.ID {
+				continue
+			}
 			if base.Endpoint.URL != candidate.Endpoint.URL || base.Endpoint.Source != candidate.Endpoint.Source {
 				continue
 			}
-			if candidate.Target.IsValid() {
+			if hasTarget {
 				var err error
 				base, err = link.ResolveCandidate(base, candidate.Target)
 				if err != nil {
 					continue
 				}
 			}
-			base, ok := introducedScope(base, link.ScopeIdentity(candidate.Scope), scopes)
+			base, ok := introducedScope(base, scope, scopes)
 			if ok && base.ID == candidate.ID {
 				return true
 			}
@@ -79,14 +102,16 @@ func candidateConfigured(cfg *policy, candidate link.Candidate, healthy bool) bo
 // Called with g.mu held, including at handshake completion, to prevent a dial
 // started under old policy from reinstalling a revoked endpoint.
 func (g *group) allowsCandidateLocked(cfg *policy, candidate link.Candidate) bool {
-	healthy := false
+	return candidateConfigured(cfg, candidate, g.candidateHealthyLocked(candidate.ID))
+}
+
+func (g *group) candidateHealthyLocked(id string) bool {
 	for _, l := range g.links {
-		if l.Info().CandidateID == candidate.ID && l.Stats().Healthy {
-			healthy = true
-			break
+		if l.Info().CandidateID == id && l.Stats().Healthy {
+			return true
 		}
 	}
-	return candidateConfigured(cfg, candidate, healthy)
+	return false
 }
 
 func (g *group) updatePolicy(cfg *policy) []*link.Link {
@@ -94,9 +119,10 @@ func (g *group) updatePolicy(cfg *policy) []*link.Link {
 	defer g.mu.Unlock()
 	g.policy.Store(cfg)
 	g.edge.SetPreferred(cfg.peer.Edge.PreferredCandidate)
+	check := candidateCheck{cfg: cfg, now: time.Now()}
 	var retired []*link.Link
 	for id, l := range g.links {
-		if candidateConfigured(cfg, g.linkCandidates[id], l.Stats().Healthy) {
+		if check.configured(g.linkCandidates[id], l.Stats().Healthy) {
 			continue
 		}
 		retired = append(retired, l)
@@ -105,7 +131,7 @@ func (g *group) updatePolicy(cfg *policy) []*link.Link {
 		g.edge.Remove(id)
 	}
 	for id, state := range g.attempts {
-		if g.allowsCandidateLocked(cfg, state.candidate) {
+		if check.configured(state.candidate, g.candidateHealthyLocked(state.candidate.ID)) {
 			continue
 		}
 		if state.cancel != nil {
