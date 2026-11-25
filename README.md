@@ -1,106 +1,35 @@
 # GraphWAN
 
-A centrally managed overlay network with administrator-defined graph topology,
-weighted multi-hop routing and peer-to-peer data transport.
+GraphWAN is a centrally managed overlay network. Draw connections between machines in the web panel and assign weights to choose which paths traffic takes. Agents forward encrypted packets directly or through other agents in the graph.
 
-## Run the controller
+[Download a release](https://github.com/eWloYW8/GraphWAN/releases/latest) · [Quick start](#quick-start)
 
-```sh
-go build -o bin/graphwan ./cmd/graphwan
-# Required only for the first initialization. Choose your own strong password.
-export GRAPHWAN_ADMIN_PASSWORD='replace-with-your-own-password'
-./bin/graphwan server --data-dir ./graphwan-data
-```
+![Example topology](.github/screenshots/topology.png)
 
-The default listener is `https://127.0.0.1:8443`. The controller creates a private
-CA and exports its public certificate to `graphwan-data/ca.pem`; trust this file
-on administrative clients. Supply `--tls-hosts` with your deployment's DNS names
-and IPs, and `--listen` to expose it on the intended interface. Keep the data
-directory private and back it up: it contains the CA key and configuration.
-`--http --listen 127.0.0.1:8080` enables a loopback-only development server.
+## Features
 
-Open the controller URL in a browser and sign in to the management UI. See the
-[UI guide](docs/management-ui.md) and [management API](docs/control-api.md). Setting
-a different password environment variable on restart does not replace the stored password.
+- Inspect a route hop by hop, see link latency and bandwidth, and switch between the topology diagram and a 3D globe.
+- Connect peers across NAT using STUN and hole punching. Each edge can use UDP, TCP, QUIC, WebSocket or gRPC.
+- Advertise a subnet through an agent, or connect a phone using a standard WireGuard client.
 
-The [administrative CLI](docs/admin-cli.md) supports `graphwan network create`,
-`graphwan network list`, `graphwan node list` and `graphwan edge add`, with JSON
-output, verified HTTPS and revision-checked updates.
+## Quick start
 
-## Run a Linux agent
+~~Give the agent the GitHub repository link and let it handle everything for you.~~
 
-Create an enrollment invitation from **Agents → Enroll agent**, save it as
-`agent-invitation.txt`, then register and run:
+### Server
 
 ```sh
-sudo ./bin/graphwan agent enroll --invitation-file ./agent-invitation.txt \
-  --name laptop --data-dir /var/lib/graphwan-agent
-sudo ./bin/graphwan agent run --data-dir /var/lib/graphwan-agent
+export GRAPHWAN_ADMIN_PASSWORD=xxxxxx
+./graphwan server --listen 0.0.0.0:8443 --tls-hosts controller.example.net --data-dir ./graphwan-data
 ```
 
-The invitation includes Server addresses, transport types, the cluster CA public
-certificate and a one-use token. No separate `--server`, `--server-transport` or
-`--ca` is required. Treat the invitation as a credential; Base64 is not encryption.
-Use `--invitation-file -` for stdin or `GRAPHWAN_AGENT_INVITATION` for automation.
-Enrollment saves identity and exits without starting a service. Repeating it for
-the same cluster preserves the existing identity; another cluster is rejected.
-The legacy `graphwan agent --server ...` enrollment remains supported.
+### Agent
 
-Agent control connections accept `--server-transport tcp|websocket|grpc|wss`
-(default `tcp`, also configurable with `GRAPHWAN_SERVER_TRANSPORT`). All four
-carriers share the controller's existing listen port and preserve the inner
-TLS 1.3 authentication and WebSocket control protocol. `--server` and
-`--server-transport` apply only to first enrollment. After registration, the Agent
-uses its persistent Server directory and cached CA, updates that directory from
-controller snapshots, and automatically switches entrances or Servers on failure.
-Restarting with different bootstrap flags does not override the cached directory.
-See [control transport configuration](docs/control-api.md#control-transport-carriers).
-
-TUN setup requires root or `CAP_NET_ADMIN`. Add the enrolled Agent to a Network
-with a fixed virtual address, then create the desired Edges. Linux automatically
-advertises TCP/UDP endpoints from underlay interfaces; manual endpoints are also
-supported. QUIC, WS/WSS and gRPC use explicit manual URLs; see
-[QUIC setup](docs/quic-operation.md), [WebSocket setup](docs/websocket-operation.md)
-and [gRPC setup](docs/grpc-operation.md).
-New Agents automatically discover public mappings using configurable STUN services.
-For STUN discovery and TCP/UDP hole punching, see [NAT setup](docs/nat-operation.md).
-Manual hostname behavior, multiple DNS addresses and TLS identity are documented
-in [endpoint resolution](docs/endpoint-resolution.md).
-The default peer listen port is 24752. No controller packet relay is
-used. Agents keep forwarding and can restart from cached configuration while the
-controller is unavailable.
-
-Nodes can advertise external subnets within a Network, with optional automatic
-gateway forwarding and Linux SNAT. Each Agent can opt into automatic OS routes for
-selected advertised subnets within each Network;
-see [advertised subnets](docs/advertised-subnets.md).
-
-iOS, Android and other standard WireGuard clients can join as leaf nodes through
-an Agent, with configuration downloads and QR codes. See [WireGuard access](docs/wireguard.md).
-
-For built-in Linux, Windows and macOS service management, see
-[service management](docs/service-management.md).
-
-For release binaries, Linux services (systemd, OpenRC and OpenWrt procd), upgrades and backups, see
-[deployment](docs/deployment.md).
-
-Platform setup and limitations: [Linux](docs/linux-operation.md),
-[FreeBSD](docs/freebsd-operation.md), [macOS](docs/macos-operation.md),
-[Windows](docs/windows-operation.md), [OpenBSD](docs/openbsd-operation.md),
-[NetBSD](docs/netbsd-operation.md) and [DragonFly](docs/dragonfly-operation.md).
-
-## Development
-
-Requires Go 1.26 or newer. CI pins Go 1.26.8 and Node.js 24.21.0 in
-`.go-version` and `.node-version`; use those versions to reproduce its builds.
-Frontend development uses pnpm 10.33.3. Production assets are checked in so a Go-only checkout
-builds a complete binary. Rebuild assets whenever frontend sources change.
+Trust `graphwan-data/ca.pem` on your admin machine and open `https://controller.example.net:8443`. Under **Agents → Enroll agent**, create an invitation and save it on the machine you want to connect.
 
 ```sh
-go test ./...
-pnpm --dir web install --frozen-lockfile
-pnpm --dir web build
+sudo ./graphwan agent enroll --invitation-file invitation.txt --data-dir /var/lib/graphwan-agent
+sudo ./graphwan agent run --data-dir /var/lib/graphwan-agent
 ```
 
-Version tags such as `v1.2.3` trigger cross-platform builds and a GitHub Release
-with one standalone binary per target. See [release CI and local checks](docs/continuous-integration.md).
+Under **Networks**, create a network, add two agents as nodes and draw an edge between them.
