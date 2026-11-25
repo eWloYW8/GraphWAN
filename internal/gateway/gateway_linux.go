@@ -38,8 +38,13 @@ func applyPlatform(ctx context.Context, id model.ID, entries []Entry) error {
 		if ipv4 {
 			path = "/proc/sys/net/ipv4/ip_forward"
 		}
+		// A container may share a host network namespace with read-only
+		// sysctls. Respect forwarding already enabled by the host.
+		if value, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(value)) == "1" {
+			continue
+		}
 		if err := os.WriteFile(path, []byte("1\n"), 0644); err != nil {
-			return fmt.Errorf("enable forwarding: %w", err)
+			return fmt.Errorf("enable forwarding (or set it on the host): %w", err)
 		}
 	}
 	if _, err := command(ctx, "nft", script, "-f", "-"); err != nil {

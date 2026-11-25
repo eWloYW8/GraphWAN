@@ -1,0 +1,35 @@
+services:
+  server:
+    image: ${GRAPHWAN_IMAGE:-ghcr.io/ewloyw8/graphwan:latest}
+    network_mode: host
+    hostname: ${GRAPHWAN_SERVER_NAME:-graphwan-server}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command:
+      - server
+      - --data-dir=/data/server
+      - --listen=${GRAPHWAN_LISTEN:-:8443}
+      - --tls-hosts=${GRAPHWAN_TLS_HOSTS:-localhost,127.0.0.1,::1}
+    environment:
+      - GRAPHWAN_ADMIN_PASSWORD
+    volumes:
+      - server-data:/data/server
+    restart: unless-stopped
+
+  agent:
+    profiles: [agent]
+    user: "0:0"
+    image: ${GRAPHWAN_IMAGE:-ghcr.io/ewloyw8/graphwan:latest}
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    devices: [/dev/net/tun:/dev/net/tun]
+    security_opt: [no-new-privileges:true]
+    command: [agent, run, --data-dir=/data/agent]
+    volumes:
+      - agent-data:/data/agent
+    restart: unless-stopped
+
+volumes:
+  server-data:
+  agent-data:

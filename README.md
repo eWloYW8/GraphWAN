@@ -2,7 +2,7 @@
 
 GraphWAN is a centrally managed overlay network. Draw connections between machines in the web panel and assign weights to choose which paths traffic takes. Agents forward encrypted packets directly or through other agents in the graph.
 
-[Download a release](https://github.com/eWloYW8/GraphWAN/releases/latest) · [Quick start](#quick-start)
+[Download a release](https://github.com/eWloYW8/GraphWAN/releases/latest) · [Quick start](#quick-start) · [Docker Compose](#docker-compose)
 
 ![Example topology](.github/screenshots/topology.png)
 
@@ -19,7 +19,7 @@ GraphWAN is a centrally managed overlay network. Draw connections between machin
 ### Server
 
 ```sh
-export GRAPHWAN_ADMIN_PASSWORD=xxxxxx
+export GRAPHWAN_ADMIN_PASSWORD='replace-with-a-unique-password'
 ./graphwan server --listen 0.0.0.0:8443 --tls-hosts controller.example.net --data-dir ./graphwan-data
 ```
 
@@ -33,3 +33,21 @@ sudo ./graphwan agent run --data-dir /var/lib/graphwan-agent
 ```
 
 Under **Networks**, create a network, add two agents as nodes and draw an edge between them.
+
+## Docker Compose
+
+Copy [compose.yaml](compose.yaml) to each Linux host. On the server, set `GRAPHWAN_TLS_HOSTS` in `.env` to your controller's hostname.
+
+```sh
+export GRAPHWAN_ADMIN_PASSWORD='replace-with-a-unique-password'
+docker compose up -d server
+docker compose cp server:/data/server/ca.pem ./ca.pem
+```
+
+Trust `ca.pem` and create an invitation as in the [Agent](#agent) step. On each agent host:
+
+```sh
+docker compose run --rm -T agent agent enroll --data-dir /data/agent \
+  --name "$(hostname)" --invitation-file - < invitation.txt
+docker compose up -d agent
+```
